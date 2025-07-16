@@ -3,10 +3,10 @@ import pandas as pd
 import math
 from math import sin, cos, atan2, radians, sqrt
 import streamlit as st
-import pydeck as pdk
 import numpy as np
-import folium
-from streamlit_folium import st_folium
+import plotly.express as px
+import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 def haversine_distance(clat, clon, blat, blon):
 	if math.isnan(clat) or math.isnan(clon) or math.isnan(blat) or math.isnan(blon):
@@ -26,160 +26,257 @@ def merge_dfs(customer_data, banker_data, branch_data):
 	final_table.fillna(0, inplace = True)
 	return final_table
 
-def create_interactive_map(filtered_data, au_data, max_distance=60, form_id=None):
-	"""
-	Create an interactive map showing AU locations and customers
-	"""
-	# Create base map centered on AU location
-	if not au_data.empty:
-		center_lat = au_data['BRANCH_LAT_NUM'].iloc[0]
-		center_lon = au_data['BRANCH_LON_NUM'].iloc[0]
-	else:
-		center_lat = 39.8283  # Center of US
-		center_lon = -98.5795
+def create_distance_circle(center_lat, center_lon, radius_km, num_points=100):
+	"""Create points for a circle around a center point"""
+	angles = np.linspace(0, 2*np.pi, num_points)
+	circle_lats = []
+	circle_lons = []
 	
-	m = folium.Map(
-		location=[center_lat, center_lon], 
-		zoom_start=8,
-		tiles='OpenStreetMap'
-	)
+	for angle in angles:
+		# Convert km to degrees (rough approximation)
+		lat_offset = radius_km / 111.0  # 1 degree lat ≈ 111 km
+		lon_offset = radius_km / (111.0 * math.cos(math.radians(center_lat)))
+		
+		lat = center_lat + lat_offset * math.cos(angle)
+		lon = center_lon + lon_offset * math.sin(angle)
+		
+		circle_lats.append(lat)
+		circle_lons.append(lon)
+	
+	# Close the circle
+	circle_lats.append(circle_lats[0])
+	circle_lons.append(circle_lons[0])
+	
+	return circle_lats, circle_lons
+
+def create_interactive_map(filtered_data, au_data, max_distance=60, form_id=None):
+	"""Create an interactive map using Plotly"""
+	
+	fig = go.Figure()
 	
 	# Add AU markers
-	for _, au in au_data.iterrows():
-		folium.Marker(
-			[au['BRANCH_LAT_NUM'], au['BRANCH_LON_NUM']],
-			popup=folium.Popup(f"""
-				<div style="font-size: 12px;">
-					<strong>AU: {au['AU']}</strong><br>
-					City: {au.get('CITY', 'N/A')}<br>
-					State: {au.get('STATECODE', 'N/A')}<br>
-					Coordinates: {au['BRANCH_LAT_NUM']:.4f}, {au['BRANCH_LON_NUM']:.4f}
-				</div>
-			""", max_width=250),
-			icon=folium.Icon(color='red', icon='building', prefix='fa'),
-			tooltip=f"AU {au['AU']}"
-		).add_to(m)
-		
-		# Add distance circle around AU
-		folium.Circle(
-			location=[au['BRANCH_LAT_NUM'], au['BRANCH_LON_NUM']],
-			radius=max_distance * 1000,  # Convert km to meters
-			color='red',
-			fill=False,
-			weight=2,
-			opacity=0.7,
-			dashArray='5, 5'
-		).add_to(m)
+	if not au_data.empty:
+		for _, au in au_data.iterrows():
+			# Add AU marker
+			fig.add_trace(go.Scattermapbox(
+				lat=[au['BRANCH_LAT_NUM']],
+				lon=[au['BRANCH_LON_NUM']],
+				mode='markers',
+				marker=dict(
+					size=15,
+					color='red',
+					symbol='building'
+				),
+				text=f"AU {au['AU']}",
+				hovertemplate=f"""
+				<b>AU {au['AU']}</b><br>
+				City: {au.get('CITY', 'N/A')}<br>
+				State: {au.get('STATECODE', 'N/A')}<br>
+				Coordinates: {au['BRANCH_LAT_NUM']:.4f}, {au['BRANCH_LON_NUM']:.4f}
+				<extra></extra>
+				""",
+				name=f"AU {au['AU']}",
+				showlegend=True
+			))
+			
+			# Add distance circle
+			circle_lats, circle_lons = create_distance_circle(
+				au['BRANCH_LAT_NUM'], au['BRANCH_LON_NUM'], max_distance
+			)
+			
+			fig.add_trace(go.Scattermapbox(
+				lat=circle_lats,
+				lon=circle_lons,
+				mode='lines',
+				line=dict(width=2, color='red'),
+				opacity=0.5,
+				name=f"Distance Circle ({max_distance}km)",
+				showlegend=True,
+				hoverinfo='skip'
+			))
 	
 	# Add customer markers
 	if not filtered_data.empty:
+		# Determine colors and labels
+		if form_id:
+			color = 'green'
+			name = f"Form {form_id} Customers"
+		else:
+			color = 'blue'
+			name = "Selected Customers"
+		
+		# Create hover text
+		hover_text = []
 		for _, customer in filtered_data.iterrows():
-			# Determine marker color based on form assignment
-			if form_id:
-				color = 'green'
-				status = f"Form {form_id}"
-			else:
-				color = 'blue'
-				status = "Selected"
-			
-			# Create popup content
-			popup_content = f"""
-				<div style="font-size: 11px;">
-					<strong>{customer.get('CG_ECN', 'N/A')}</strong><br>
-					Status: {status}<br>
-					Portfolio: {customer.get('PORT_CODE', 'N/A')}<br>
-					Distance: {customer.get('Distance', 0):.1f} km<br>
-					Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
-					Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
-					State: {customer.get('BILLINGSTATE', 'N/A')}<br>
-					Type: {customer.get('TYPE', 'N/A')}<br>
-					Coordinates: {customer.get('LAT_NUM', 0):.4f}, {customer.get('LON_NUM', 0):.4f}
-				</div>
-			"""
-			
-			folium.Marker(
-				[customer['LAT_NUM'], customer['LON_NUM']],
-				popup=folium.Popup(popup_content, max_width=300),
-				icon=folium.Icon(color=color, icon='user', prefix='fa'),
-				tooltip=f"Customer {customer.get('CG_ECN', 'N/A')}"
-			).add_to(m)
+			hover_text.append(f"""
+			<b>{customer.get('CG_ECN', 'N/A')}</b><br>
+			Portfolio: {customer.get('PORT_CODE', 'N/A')}<br>
+			Distance: {customer.get('Distance', 0):.1f} km<br>
+			Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
+			Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
+			State: {customer.get('BILLINGSTATE', 'N/A')}<br>
+			Type: {customer.get('TYPE', 'N/A')}
+			""")
+		
+		fig.add_trace(go.Scattermapbox(
+			lat=filtered_data['LAT_NUM'],
+			lon=filtered_data['LON_NUM'],
+			mode='markers',
+			marker=dict(
+				size=8,
+				color=color,
+				symbol='circle'
+			),
+			hovertemplate='%{text}<extra></extra>',
+			text=hover_text,
+			name=name,
+			showlegend=True
+		))
 	
-	return m
+	# Update layout
+	if not au_data.empty:
+		center_lat = au_data['BRANCH_LAT_NUM'].iloc[0]
+		center_lon = au_data['BRANCH_LON_NUM'].iloc[0]
+		zoom = 8
+	else:
+		center_lat = 39.8283
+		center_lon = -98.5795
+		zoom = 4
+	
+	fig.update_layout(
+		mapbox=dict(
+			style="open-street-map",
+			center=dict(lat=center_lat, lon=center_lon),
+			zoom=zoom
+		),
+		height=500,
+		margin=dict(l=0, r=0, t=0, b=0),
+		showlegend=True,
+		legend=dict(
+			yanchor="top",
+			y=0.99,
+			xanchor="left",
+			x=0.01,
+			bgcolor="rgba(255,255,255,0.8)"
+		)
+	)
+	
+	return fig
 
 def create_combined_map(form_results, branch_data):
-	"""
-	Create a combined map showing all forms and their customers
-	"""
-	# Get all unique AU locations from form results
+	"""Create a combined map showing all forms and their customers"""
+	
+	if not form_results:
+		return None
+	
+	fig = go.Figure()
+	
+	# Color scheme for different forms
+	form_colors = ['green', 'blue', 'purple', 'orange', 'darkred', 'lightblue', 'pink', 'darkgreen', 'brown', 'gray']
+	
+	# Get all unique AU locations
 	au_locations = set()
 	for form_id, df in form_results.items():
 		if not df.empty:
 			au_locations.add((df['AU'].iloc[0], df['BRANCH_LAT_NUM'].iloc[0], df['BRANCH_LON_NUM'].iloc[0]))
 	
-	if not au_locations:
-		return None
-	
-	# Center map on first AU or calculate center
-	center_lat = sum(loc[1] for loc in au_locations) / len(au_locations)
-	center_lon = sum(loc[2] for loc in au_locations) / len(au_locations)
-	
-	m = folium.Map(
-		location=[center_lat, center_lon], 
-		zoom_start=6,
-		tiles='OpenStreetMap'
-	)
-	
-	# Color scheme for different forms
-	form_colors = ['green', 'blue', 'purple', 'orange', 'darkred', 'lightred', 'beige', 'darkblue', 'darkgreen', 'cadetblue']
-	
 	# Add AU markers
 	for au_id, au_lat, au_lon in au_locations:
-		# Get AU details from branch data
 		au_details = branch_data[branch_data['AU'] == au_id]
 		au_name = au_details['CITY'].iloc[0] if not au_details.empty else f"AU {au_id}"
 		
-		folium.Marker(
-			[au_lat, au_lon],
-			popup=folium.Popup(f"""
-				<div style="font-size: 12px;">
-					<strong>AU: {au_id}</strong><br>
-					Location: {au_name}<br>
-					Coordinates: {au_lat:.4f}, {au_lon:.4f}
-				</div>
-			""", max_width=250),
-			icon=folium.Icon(color='red', icon='building', prefix='fa'),
-			tooltip=f"AU {au_id}"
-		).add_to(m)
+		fig.add_trace(go.Scattermapbox(
+			lat=[au_lat],
+			lon=[au_lon],
+			mode='markers',
+			marker=dict(
+				size=15,
+				color='red',
+				symbol='building'
+			),
+			text=f"AU {au_id}",
+			hovertemplate=f"""
+			<b>AU {au_id}</b><br>
+			Location: {au_name}<br>
+			Coordinates: {au_lat:.4f}, {au_lon:.4f}
+			<extra></extra>
+			""",
+			name=f"AU {au_id}",
+			showlegend=True
+		))
 	
 	# Add customers from each form
 	for form_id, df in form_results.items():
 		if df.empty:
 			continue
-			
+		
 		color = form_colors[(form_id - 1) % len(form_colors)]
 		
+		# Create hover text for this form
+		hover_text = []
 		for _, customer in df.iterrows():
-			popup_content = f"""
-				<div style="font-size: 11px;">
-					<strong>{customer.get('CG_ECN', 'N/A')}</strong><br>
-					Form: {form_id}<br>
-					Portfolio: {customer.get('PORT_CODE', 'N/A')}<br>
-					Distance: {customer.get('Distance', 0):.1f} km<br>
-					Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
-					Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
-					State: {customer.get('BILLINGSTATE', 'N/A')}<br>
-					Type: {customer.get('TYPE', 'N/A')}
-				</div>
-			"""
-			
-			folium.Marker(
-				[customer['LAT_NUM'], customer['LON_NUM']],
-				popup=folium.Popup(popup_content, max_width=300),
-				icon=folium.Icon(color=color, icon='user', prefix='fa'),
-				tooltip=f"Form {form_id} - {customer.get('CG_ECN', 'N/A')}"
-			).add_to(m)
+			hover_text.append(f"""
+			<b>{customer.get('CG_ECN', 'N/A')}</b><br>
+			Form: {form_id}<br>
+			Portfolio: {customer.get('PORT_CODE', 'N/A')}<br>
+			Distance: {customer.get('Distance', 0):.1f} km<br>
+			Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
+			Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
+			State: {customer.get('BILLINGSTATE', 'N/A')}<br>
+			Type: {customer.get('TYPE', 'N/A')}
+			""")
+		
+		fig.add_trace(go.Scattermapbox(
+			lat=df['LAT_NUM'],
+			lon=df['LON_NUM'],
+			mode='markers',
+			marker=dict(
+				size=8,
+				color=color,
+				symbol='circle'
+			),
+			hovertemplate='%{text}<extra></extra>',
+			text=hover_text,
+			name=f"Form {form_id} ({len(df)} customers)",
+			showlegend=True
+		))
 	
-	return m
+	# Calculate center point
+	all_lats = []
+	all_lons = []
+	for form_id, df in form_results.items():
+		if not df.empty:
+			all_lats.extend(df['LAT_NUM'].tolist())
+			all_lons.extend(df['LON_NUM'].tolist())
+	
+	if all_lats:
+		center_lat = sum(all_lats) / len(all_lats)
+		center_lon = sum(all_lons) / len(all_lons)
+		zoom = 6
+	else:
+		center_lat = 39.8283
+		center_lon = -98.5795
+		zoom = 4
+	
+	fig.update_layout(
+		mapbox=dict(
+			style="open-street-map",
+			center=dict(lat=center_lat, lon=center_lon),
+			zoom=zoom
+		),
+		height=500,
+		margin=dict(l=0, r=0, t=0, b=0),
+		showlegend=True,
+		legend=dict(
+			yanchor="top",
+			y=0.99,
+			xanchor="left",
+			x=0.01,
+			bgcolor="rgba(255,255,255,0.8)"
+		)
+	)
+	
+	return fig
 
 def to_excel(form_results):
 	output = BytesIO()
@@ -289,10 +386,10 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 		au_df = pd.DataFrame([AU_row])
 		
 		# Create map
-		map_obj = create_interactive_map(filtered_data, au_df, max_dist, form_id)
+		map_fig = create_interactive_map(filtered_data, au_df, max_dist, form_id)
 		
 		# Display map
-		st_folium(map_obj, width=700, height=500, key=f"map_{form_id}")
+		st.plotly_chart(map_fig, use_container_width=True)
 		
 		# Display statistics
 		col1, col2, col3, col4 = st.columns(4)
@@ -477,7 +574,8 @@ if page == "Portfolio Assignment":
 				pid_track[fid] += sel_count
 		
 		tracker_df = pd.DataFrame(data_for_pivot, columns=["PortfolioID", "FormID", "Customers"])
-		tracker_df = pd.pivot_table(tracker_df, values="Customers", index="PortfolioID", columns="FormID", aggfunc='sum')
+		if not tracker_df.empty:
+			tracker_df = pd.pivot_table(tracker_df, values="Customers", index="PortfolioID", columns="FormID", aggfunc='sum')
 		
 		st.markdown("-----")
 		st.sidebar.subheader("Live Portfolio Tracker")
@@ -486,7 +584,8 @@ if page == "Portfolio Assignment":
 			st.sidebar.dataframe(tdf)
 		
 		st.sidebar.markdown("**Customer count per Form**")
-		st.sidebar.dataframe(tracker_df)
+		if not tracker_df.empty:
+			st.sidebar.dataframe(tracker_df)
 		for fid, counts in pid_track.items():
 			st.sidebar.write(f"Form {fid} → {counts} Customer(s)")
 		
@@ -498,7 +597,7 @@ if page == "Portfolio Assignment":
 			st.subheader("Combined Geographic View")
 			combined_map = create_combined_map(st.session_state.form_results, branch_data)
 			if combined_map:
-				st_folium(combined_map, width=700, height=500, key="combined_map")
+				st.plotly_chart(combined_map, use_container_width=True)
 		
 		if st.button("Recommended form"):
 			rec_df = recommend_reassignment(st.session_state.form_results)
