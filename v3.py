@@ -322,6 +322,7 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
                 cust_state = None
         
         with col3:
+            customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
             cust_portcd = st.multiselect(f"Portfolio Code (Form {form_id})", customer_data['PORT_CODE'].dropna().unique(), key=f"port_cd_{form_id}")
             if not cust_portcd:
                 cust_portcd = None
@@ -626,14 +627,27 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Add logo to header using SVG from URL
-# Replace the URL below with your actual SVG logo URL
-logo_url = "https://your-domain.com/path/to/your/logo.svg"
-
-# Inject logo into header
-st.markdown(f"""
-<img src="{logo_url}" class="header-logo" alt="Logo">
-""", unsafe_allow_html=True)
+# Add logo to header using local SVG file
+try:
+    import base64
+    
+    # Function to convert SVG to base64
+    def get_base64_image(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    
+    # Replace 'logo.svg' with your actual logo file path
+    logo_base64 = get_base64_image("logo.svg")
+    
+    # Inject logo into header
+    st.markdown(f"""
+    <img src="data:image/svg+xml;base64,{logo_base64}" class="header-logo" alt="Logo">
+    """, unsafe_allow_html=True)
+    
+except FileNotFoundError:
+    st.warning("Logo file 'logo.svg' not found. Please place your SVG logo in the same directory as this script.")
+except Exception as e:
+    st.warning(f"Error loading logo: {e}")
 
 # Header with title and number of portfolios
 col1, col2 = st.columns([3, 1])
