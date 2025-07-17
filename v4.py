@@ -635,37 +635,32 @@ if page == "Portfolio Assignment":
                             st.subheader("Summary Statistics")
                             total_customers = sum(len(df) for df in final_portfolios.values())
                             
-                            col1, col2 = st.columns(2)
-                            with col1:
-                                st.metric("Total Portfolios", len(final_portfolios))
-                                st.metric("Total Customers", total_customers)
-                            with col2:
-                                if total_customers > 0:
-                                    all_data = pd.concat(final_portfolios.values())
-                                    st.metric("Average Revenue", f"${all_data['BANK_REVENUE'].mean():,.0f}")
-                                    st.metric("Average Deposits", f"${all_data['DEPOSIT_BAL'].mean():,.0f}")
+                            # Display metrics in simple rows instead of columns
+                            st.metric("Total Portfolios", len(final_portfolios))
+                            st.metric("Total Customers", total_customers)
+                            if total_customers > 0:
+                                all_data = pd.concat(final_portfolios.values())
+                                st.metric("Average Revenue", f"${all_data['BANK_REVENUE'].mean():,.0f}")
+                                st.metric("Average Deposits", f"${all_data['DEPOSIT_BAL'].mean():,.0f}")
                             
                             # Recommendation and export buttons in the map column
                             st.markdown("---")
                             
-                            col1, col2 = st.columns(2)
+                            # Display buttons in simple rows instead of columns
+                            if st.button("Recommended Reassignment"):
+                                rec_df = recommend_reassignment(final_portfolios)
+                                st.session_state.recommend_reassignment = rec_df
+                                st.subheader("Recommended Reassignments")
+                                st.dataframe(st.session_state.recommend_reassignment, use_container_width=True)
                             
-                            with col1:
-                                if st.button("Recommended Reassignment"):
-                                    rec_df = recommend_reassignment(final_portfolios)
-                                    st.session_state.recommend_reassignment = rec_df
-                                    st.subheader("Recommended Reassignments")
-                                    st.dataframe(st.session_state.recommend_reassignment, use_container_width=True)
-                            
-                            with col2:
-                                if st.button("Export to Excel"):
-                                    excel_buffer = to_excel(final_portfolios)
-                                    st.download_button(
-                                        label="Download Excel Report",
-                                        data=excel_buffer,
-                                        file_name="portfolio_assignments.xlsx",
-                                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                    )
+                            if st.button("Export to Excel"):
+                                excel_buffer = to_excel(final_portfolios)
+                                st.download_button(
+                                    label="Download Excel Report",
+                                    data=excel_buffer,
+                                    file_name="portfolio_assignments.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
                 
             else:
                 st.warning("No customers found for the selected AUs with current filters.")
