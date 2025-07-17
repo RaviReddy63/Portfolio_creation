@@ -310,15 +310,15 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 		col1, col2, col3 = st.columns(3)
 		
 		with col1:
-			role_options = ['All Roles'] + list(customer_data['TYPE'].dropna().unique())
-			role = st.selectbox(f"Role (Form {form_id})", role_options, key=f"Role_{form_id}")
-			if role == 'All Roles':
+			role_options = list(customer_data['TYPE'].dropna().unique())
+			role = st.multiselect(f"Role (Form {form_id})", role_options, key=f"Role_{form_id}")
+			if not role:
 				role = None
 		
 		with col2:
-			cust_state_options = ['All States'] + list(customer_data['BILLINGSTATE'].dropna().unique())
-			cust_state = st.selectbox(f"Customer State (Form {form_id})", cust_state_options, key=f"state_{form_id}")
-			if cust_state == 'All States':
+			cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+			cust_state = st.multiselect(f"Customer State (Form {form_id})", cust_state_options, key=f"state_{form_id}")
+			if not cust_state:
 				cust_state = None
 		
 		with col3:
@@ -326,13 +326,13 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 			if not cust_portcd:
 				cust_portcd = None
 		
-		col4, col5 = st.columns(2)
+		col4, col5, col6 = st.columns(3)
 		with col4:
 			max_dist = st.slider(f"Max Distance (Form {form_id})", 1, 100, 20, key=f"Distance_{form_id}")
 		with col5:
 			min_rev = st.slider(f"Minimum Revenue (Form {form_id})", 0, 20000, 5000, step=1000, key=f"revenue_{form_id}")
-		
-		min_deposit = st.slider(f"Minimum Deposit (Form {form_id})", 0, 200000, 100000, step=5000, key=f"deposit_{form_id}")
+		with col6:
+			min_deposit = st.slider(f"Minimum Deposit (Form {form_id})", 0, 200000, 100000, step=5000, key=f"deposit_{form_id}")
 	
 	# Get AU data
 	AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
@@ -357,14 +357,14 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 	filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
 	
 	# Apply distance filter for all roles except CENTRALIZED
-	if role is None or (role is not None and role.lower().strip() != 'centralized'):
+	if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
 		filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
 	
 	# Apply role-specific filters
 	if role is not None:
 		filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
-		role_clean = role.strip().lower()
-		filtered_data = filtered_data[filtered_data['TYPE_CLEAN'] == role_clean]
+		role_clean = [r.strip().lower() for r in role]
+		filtered_data = filtered_data[filtered_data['TYPE_CLEAN'].isin(role_clean)]
 		filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
 	
 	# Apply other filters
@@ -372,7 +372,7 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 	filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
 	
 	if cust_state is not None:
-		filtered_data = filtered_data[filtered_data['BILLINGSTATE'] == cust_state]
+		filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
 	
 	if cust_portcd is not None:
 		filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
