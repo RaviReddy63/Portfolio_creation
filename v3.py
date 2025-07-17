@@ -388,6 +388,10 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 			# Create portfolio summary table with selection
 			portfolio_summary = []
 			
+			# Initialize form controls for this form if not exists
+			if form_id not in st.session_state.form_controls:
+				st.session_state.form_controls[form_id] = {}
+			
 			# Group by portfolio for assigned customers
 			grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
 			
@@ -557,13 +561,18 @@ if page == "Portfolio Assignment":
 				)
 				
 				filtered_data['FormID'] = form_id
-				st.session_state.form_controls.setdefault(form_id, {})
 				
-				valid_pids = set(filtered_data['PORT_CODE'].unique())
-				st.session_state.form_controls[form_id] = {
-					pid: val for pid, val in st.session_state.form_controls[form_id].items()
-					if pid in valid_pids
-				}
+				# Initialize form controls for this form if not exists
+				if form_id not in st.session_state.form_controls:
+					st.session_state.form_controls[form_id] = {}
+				
+				# Clean up form controls to only include valid portfolio IDs
+				if not filtered_data.empty:
+					valid_pids = set(filtered_data['PORT_CODE'].unique())
+					st.session_state.form_controls[form_id] = {
+						pid: val for pid, val in st.session_state.form_controls[form_id].items()
+						if pid in valid_pids
+					}
 				
 				# Conflict detection
 				assigned = {cid for fid, df in st.session_state.form_results.items() 
