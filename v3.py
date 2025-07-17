@@ -525,99 +525,36 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
 
-# Custom CSS for red hamburger menu, yellow line, and logo
+# Custom CSS for header styling
 st.markdown("""
 <style>
-    /* Target the hamburger menu button */
-    .st-emotion-cache-1jicfl2 {
-        background-color: rgb(215, 30, 40) !important;
+    /* Hide default Streamlit header */
+    header[data-testid="stHeader"] {
+        display: none;
     }
     
-    /* Alternative selector for hamburger menu */
-    button[kind="header"] {
-        background-color: rgb(215, 30, 40) !important;
+    /* Remove default padding */
+    .main .block-container {
+        padding-top: 0rem;
     }
     
-    /* Target the header toolbar area */
-    .st-emotion-cache-12fmjuu {
-        background-color: rgb(215, 30, 40) !important;
-    }
-    
-    /* Main header background */
-    .st-emotion-cache-1avcm0n {
-        background-color: rgb(215, 30, 40) !important;
-        height: 70px !important;
-    }
-    
-    /* Header container */
-    .st-emotion-cache-18ni7ap {
-        background-color: rgb(215, 30, 40) !important;
-        height: 70px !important;
-    }
-    
-    /* Alternative header selectors */
-    [data-testid="stHeader"] {
-        background-color: rgb(215, 30, 40) !important;
-        height: 70px !important;
-    }
-    
-    /* Ensure the hamburger icon is visible on red background */
-    .st-emotion-cache-1jicfl2 svg {
-        fill: white !important;
-    }
-    
-    /* Alternative hamburger icon styling */
-    button[kind="header"] svg {
-        fill: white !important;
-    }
-    
-    /* Header button text color */
-    button[kind="header"] {
-        color: white !important;
-    }
-    
-    /* More specific header targeting */
-    .main-header, .stApp > header {
-        background-color: rgb(215, 30, 40) !important;
-    }
-    
-    /* Fallback for different Streamlit versions */
-    .css-1d391kg, .css-18ni7ap, .css-1avcm0n {
-        background-color: rgb(215, 30, 40) !important;
-    }
-    
-    /* Yellow line under header */
-    .st-emotion-cache-1avcm0n::after,
-    [data-testid="stHeader"]::after {
-        content: "";
-        position: absolute;
-        bottom: 0;
-        left: 0;
+    /* Custom header */
+    .custom-header {
+        background-color: rgb(215, 30, 40);
+        height: 70px;
         width: 100%;
-        height: 4px;
-        background-color: rgb(255, 205, 65);
-        z-index: 999;
-    }
-    
-    /* Alternative yellow line selectors */
-    .main-header::after,
-    .stApp > header::after {
-        content: "";
-        position: absolute;
-        bottom: 0;
+        position: fixed;
+        top: 0;
         left: 0;
-        width: 100%;
-        height: 4px;
-        background-color: rgb(255, 205, 65);
         z-index: 999;
+        display: flex;
+        align-items: center;
+        padding: 0 20px;
+        box-sizing: border-box;
     }
     
     /* Logo styling */
     .header-logo {
-        position: fixed;
-        top: 15px;
-        left: 20px;
-        z-index: 99999;
         height: 50px;
         width: auto;
         background: rgba(0,0,0,0.3);
@@ -625,15 +562,36 @@ st.markdown("""
         border-radius: 5px;
     }
     
-    /* Adjust main content to account for larger header */
-    .main .block-container {
-        padding-left: 80px;
-        padding-top: 20px;
+    /* Hamburger menu */
+    .hamburger-menu {
+        margin-left: auto;
+        background: none;
+        border: none;
+        color: white;
+        font-size: 24px;
+        cursor: pointer;
+    }
+    
+    /* Yellow line under header */
+    .yellow-line {
+        height: 4px;
+        width: 100%;
+        background-color: rgb(255, 205, 65);
+        position: fixed;
+        top: 70px;
+        left: 0;
+        z-index: 998;
+    }
+    
+    /* Adjust main content for fixed header */
+    .main-content {
+        margin-top: 80px;
+        padding: 0 20px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Add logo to header using local PNG file
+# Create custom header
 try:
     import base64
     
@@ -641,29 +599,28 @@ try:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     
-    logo_base64 = get_base64_image("logo.png")
+    logo_base64 = get_base64_image("logo.svg")
     
     st.markdown(f"""
-    <script>
-    document.addEventListener('DOMContentLoaded', function() {{
-        setTimeout(function() {{
-            var header = document.querySelector('[data-testid="stHeader"]') || document.querySelector('.st-emotion-cache-1avcm0n');
-            if (header && !document.querySelector('.header-logo')) {{
-                var logo = document.createElement('img');
-                logo.src = 'data:image/png;base64,{logo_base64}';
-                logo.className = 'header-logo';
-                logo.alt = 'Logo';
-                header.appendChild(logo);
-            }}
-        }}, 100);
-    }});
-    </script>
+    <div class="custom-header">
+        <img src="data:image/svg+xml;base64,{logo_base64}" class="header-logo" alt="Logo">
+        <button class="hamburger-menu">☰</button>
+    </div>
+    <div class="yellow-line"></div>
     """, unsafe_allow_html=True)
     
 except FileNotFoundError:
-    st.warning("Logo file 'logo.png' not found. Please place your PNG logo in the same directory as this script.")
-except Exception as e:
-    st.warning(f"Error loading logo: {e}")
+    st.markdown("""
+    <div class="custom-header">
+        <div style="color: white; font-weight: bold;">LOGO</div>
+        <button class="hamburger-menu">☰</button>
+    </div>
+    <div class="yellow-line"></div>
+    """, unsafe_allow_html=True)
+    st.warning("Logo file 'logo.svg' not found.")
+
+# Wrapper for main content
+st.markdown('<div class="main-content">', unsafe_allow_html=True)
 
 # Header with title and number of portfolios
 col1, col2 = st.columns([3, 1])
@@ -869,3 +826,6 @@ elif page == "Portfolio Mapping":
         with col4:
             if 'PORT_CODE' in data.columns:
                 st.metric("Unique Portfolios", data['PORT_CODE'].nunique())
+
+# Close main content wrapper
+st.markdown('</div>', unsafe_allow_html=True)
