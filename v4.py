@@ -50,14 +50,14 @@ def create_distance_circle(center_lat, center_lon, radius_km, num_points=100):
     return circle_lats, circle_lons
 
 def create_combined_map(all_portfolios, branch_data):
-    """Create a combined map showing all portfolios with different colors"""
+    """Create a combined map showing all portfolios with different colors - one color per AU"""
     
     if not all_portfolios:
         return None
     
     fig = go.Figure()
     
-    # Color scheme for different portfolios
+    # Color scheme for different AU portfolios
     portfolio_colors = ['green', 'blue', 'purple', 'orange', 'darkred', 'lightblue', 'pink', 'darkgreen', 'brown', 'gray', 'cyan', 'magenta', 'yellow', 'red', 'lime']
     
     # Get all unique AU locations
@@ -91,20 +91,23 @@ def create_combined_map(all_portfolios, branch_data):
             showlegend=True
         ))
     
-    # Add customers from each portfolio
+    # Add customers from each AU portfolio with unique colors
     for portfolio_idx, (portfolio_id, df) in enumerate(all_portfolios.items()):
         if df.empty:
             continue
         
+        # Extract AU ID from portfolio name (e.g., "AU_101_Portfolio" -> "101")
+        au_id = portfolio_id.split('_')[1] if '_' in portfolio_id else portfolio_id
+        
         color = portfolio_colors[portfolio_idx % len(portfolio_colors)]
         
-        # Create hover text for this portfolio
+        # Create hover text for this AU portfolio
         hover_text = []
         for _, customer in df.iterrows():
             hover_text.append(f"""
             <b>{customer.get('CG_ECN', 'N/A')}</b><br>
-            Portfolio: {portfolio_id}<br>
-            AU: {customer.get('AU', 'N/A')}<br>
+            AU Portfolio: {au_id}<br>
+            Portfolio ID: {customer.get('PORT_CODE', 'N/A')}<br>
             Distance: {customer.get('Distance', 0):.1f} km<br>
             Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
             Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
@@ -123,7 +126,7 @@ def create_combined_map(all_portfolios, branch_data):
             ),
             hovertemplate='%{text}<extra></extra>',
             text=hover_text,
-            name=f"Portfolio {portfolio_id} ({len(df)} customers)",
+            name=f"AU {au_id} Portfolio ({len(df)} customers)",
             showlegend=True
         ))
     
@@ -499,6 +502,127 @@ if page == "Portfolio Assignment":
                 # Store the created portfolios data
                 st.session_state.portfolios_created = portfolios_created
                 
+                # Show map immediately after creating portfolios
+                st.markdown("----")
+                
+                # Create layout with table and map side by side
+                col1, col2 = st.columns([1, 1])
+                
+                with col1:
+                    st.subheader("Portfolio Summary Tables")
+                    
+                    # Create tabs for each AU
+                    if len(portfolios_created) > 1:
+                        au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_created.keys()])
+                        
+                        for tab_idx, (au_id, tab) in enumerate(zip(portfolios_created.keys(), au_tabs)):
+                            with tab:
+                                if au_id in portfolio_summaries:
+                                    portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
+                                    portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
+                                    
+                                    # Create editable dataframe
+                                    edited_df = st.data_editor(
+                                        portfolio_df,
+                                        column_config={
+                                            "AU": st.column_config.NumberColumn("AU", disabled=True),
+                                            "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
+                                            "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
+                                            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
+                                            "Available": st.column_config.NumberColumn("Available", disabled=True),
+                                            "Select": st.column_config.NumberColumn(
+                                                "Select",
+                                                help="Number of customers to select from this portfolio",
+                                                min_value=0,
+                                                step=1
+                                            )
+                                        },
+                                        hide_index=True,
+                                        use_container_width=True,
+                                        key=f"portfolio_editor_{au_id}_main"
+                                    )
+                                    
+                                    # Store the edited data
+                                    st.session_state.portfolio_controls[au_id] = edited_df
+                    else:
+                        # Single AU case
+                        au_id = list(portfolios_created.keys())[0]
+                        
+                        if au_id in portfolio_summaries:
+                            portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
+                            portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
+                            
+                            # Create editable dataframe
+                            edited_df = st.data_editor(
+                                portfolio_df,
+                                column_config={
+                                    "AU": st.column_config.NumberColumn("AU", disabled=True),
+                                    "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
+                                    "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
+                                    "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
+                                    "Available": st.column_config.NumberColumn("Available", disabled=True),
+                                    "Select": st.column_config.NumberColumn(
+                                        "Select",
+                                        help="Number of customers to select from this portfolio",
+                                        min_value=0,
+                                        step=1
+                                    )
+                                },
+                                hide_index=True,
+                                use_container_width=True,
+                                key=f"portfolio_editor_{au_id}_main"
+                            )
+                            
+                            # Store the edited data
+                            st.session_state.portfolio_controls[au_id] = edited_df
+                
+                with col2:
+                    st.subheader("Geographic Distribution")
+                    
+                    # Create preview portfolios for map display - one portfolio per AU
+                    preview_portfolios = {}
+                    
+                    for au_id, filtered_data in portfolios_created.items():
+                        if au_id in portfolio_summaries:
+                            portfolio_summary = portfolio_summaries[au_id]
+                            
+                            # Collect all selected customers for this AU (this becomes one portfolio)
+                            au_customers = []
+                            
+                            for portfolio_info in portfolio_summary:
+                                pid = portfolio_info['Portfolio ID']
+                                select_count = portfolio_info['Select']
+                                
+                                if select_count > 0:
+                                    if pid == 'UNMANAGED':
+                                        # Handle unmanaged customers
+                                        unmanaged_customers = filtered_data[
+                                            (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                                            (filtered_data['PORT_CODE'].isna())
+                                        ]
+                                        if not unmanaged_customers.empty:
+                                            selected_customers = unmanaged_customers.sort_values(by='Distance').head(select_count)
+                                            au_customers.append(selected_customers)
+                                    else:
+                                        # Handle regular portfolios
+                                        portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == pid]
+                                        if not portfolio_customers.empty:
+                                            selected_customers = portfolio_customers.sort_values(by='Distance').head(select_count)
+                                            au_customers.append(selected_customers)
+                            
+                            # Combine all customers for this AU into one portfolio
+                            if au_customers:
+                                au_portfolio = pd.concat(au_customers, ignore_index=True)
+                                preview_portfolios[f"AU_{au_id}_Portfolio"] = au_portfolio
+                    
+                    # Display the map with preview portfolios
+                    if preview_portfolios:
+                        combined_map = create_combined_map(preview_portfolios, branch_data)
+                        if combined_map:
+                            st.plotly_chart(combined_map, use_container_width=True)
+                    else:
+                        st.info("No customers selected for map display")
+                
             else:
                 st.warning("No customers found for the selected AUs with current filters.")
     
@@ -506,13 +630,15 @@ if page == "Portfolio Assignment":
     if st.button("Save Portfolios", key="save_portfolios"):
         if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
             final_portfolios = {}
-            portfolio_counter = 1
             
+            # Create one portfolio per AU
             for au_id, filtered_data in st.session_state.portfolios_created.items():
                 if au_id in st.session_state.portfolio_controls:
                     edited_df = st.session_state.portfolio_controls[au_id]
                     
-                    # Process each portfolio for this AU
+                    # Collect all selected customers for this AU (this becomes one portfolio)
+                    au_customers = []
+                    
                     for _, row in edited_df.iterrows():
                         if row['Select'] > 0:
                             pid = row['Portfolio ID']
@@ -526,15 +652,18 @@ if page == "Portfolio Assignment":
                                 ]
                                 if not unmanaged_customers.empty:
                                     selected_customers = unmanaged_customers.sort_values(by='Distance').head(select_count)
-                                    final_portfolios[f"Portfolio_{portfolio_counter}"] = selected_customers
-                                    portfolio_counter += 1
+                                    au_customers.append(selected_customers)
                             else:
                                 # Handle regular portfolios
                                 portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == pid]
                                 if not portfolio_customers.empty:
                                     selected_customers = portfolio_customers.sort_values(by='Distance').head(select_count)
-                                    final_portfolios[f"Portfolio_{portfolio_counter}"] = selected_customers
-                                    portfolio_counter += 1
+                                    au_customers.append(selected_customers)
+                    
+                    # Combine all customers for this AU into one portfolio
+                    if au_customers:
+                        au_portfolio = pd.concat(au_customers, ignore_index=True)
+                        final_portfolios[f"AU_{au_id}_Portfolio"] = au_portfolio
             
             # Handle conflicts (customers assigned to multiple portfolios)
             all_assigned_customers = set()
@@ -552,10 +681,10 @@ if page == "Portfolio Assignment":
         else:
             st.error("No portfolios to save. Please create portfolios first.")
     
-    # Geographic Distribution
+    # Final Geographic Distribution (after saving)
     if st.session_state.all_portfolios:
         st.markdown("----")
-        st.subheader("Geographic Distribution")
+        st.subheader("Final Portfolio Distribution")
         
         combined_map = create_combined_map(st.session_state.all_portfolios, branch_data)
         if combined_map:
