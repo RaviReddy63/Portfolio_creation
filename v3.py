@@ -633,7 +633,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Add logo to header using local SVG file
+# Add logo to header using local PNG file
 try:
     import base64
     
@@ -641,7 +641,7 @@ try:
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     
-    logo_base64 = get_base64_image("logo.svg")
+    logo_base64 = get_base64_image("logo.png")
     
     st.markdown(f"""
     <script>
@@ -650,7 +650,7 @@ try:
             var header = document.querySelector('[data-testid="stHeader"]') || document.querySelector('.st-emotion-cache-1avcm0n');
             if (header && !document.querySelector('.header-logo')) {{
                 var logo = document.createElement('img');
-                logo.src = 'data:image/svg+xml;base64,{logo_base64}';
+                logo.src = 'data:image/png;base64,{logo_base64}';
                 logo.className = 'header-logo';
                 logo.alt = 'Logo';
                 header.appendChild(logo);
@@ -661,7 +661,7 @@ try:
     """, unsafe_allow_html=True)
     
 except FileNotFoundError:
-    st.warning("Logo file 'logo.svg' not found. Please place your SVG logo in the same directory as this script.")
+    st.warning("Logo file 'logo.png' not found. Please place your PNG logo in the same directory as this script.")
 except Exception as e:
     st.warning(f"Error loading logo: {e}")
 
