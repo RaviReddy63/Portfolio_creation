@@ -506,12 +506,14 @@ if page == "Portfolio Assignment":
 					filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(assigned)]
 				
 				if not filtered_data.empty:
-					# Create portfolio summary table with selection
-					portfolio_summary = []
+					# Create portfolio summary table with +/- selection
+					st.subheader("Portfolio Summary & Customer Selection")
 					
 					# Group by portfolio for assigned customers
 					grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
 					
+					# Initialize portfolio data
+					portfolio_data = []
 					for pid, group in grouped:
 						total_customer = len(data[data["PORT_CODE"] == pid])
 						
@@ -526,17 +528,16 @@ if page == "Portfolio Assignment":
 						# Initialize form controls
 						st.session_state.form_controls[form_id][pid] = {"n": len(group), "exclude": []}
 						
-						portfolio_summary.append({
-							'Portfolio ID': pid,
-							'Portfolio Type': portfolio_type,
-							'Total Customers': total_customer,
-							'Available': len(group),
-							'Total Revenue': f"${group['BANK_REVENUE'].sum():,.0f}",
-							'Total Deposits': f"${group['DEPOSIT_BAL'].sum():,.0f}",
-							'Select': len(group)  # Default to all available
+						portfolio_data.append({
+							'id': pid,
+							'type': portfolio_type,
+							'total': total_customer,
+							'available': len(group),
+							'revenue': group['BANK_REVENUE'].sum(),
+							'deposits': group['DEPOSIT_BAL'].sum()
 						})
 					
-					# Add row for Unmanaged customers (not part of any portfolio)
+					# Add unmanaged customers
 					unmanaged_customers = filtered_data[
 						(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
 						(filtered_data['PORT_CODE'].isna())
@@ -546,53 +547,112 @@ if page == "Portfolio Assignment":
 						# Initialize form controls for unmanaged
 						st.session_state.form_controls[form_id]['UNMANAGED'] = {"n": len(unmanaged_customers), "exclude": []}
 						
-						portfolio_summary.append({
-							'Portfolio ID': 'UNMANAGED',
-							'Portfolio Type': 'Unmanaged',
-							'Total Customers': len(data[
+						portfolio_data.append({
+							'id': 'UNMANAGED',
+							'type': 'Unmanaged',
+							'total': len(data[
 								(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
 								(data['PORT_CODE'].isna())
 							]),
-							'Available': len(unmanaged_customers),
-							'Total Revenue': f"${unmanaged_customers['BANK_REVENUE'].sum():,.0f}",
-							'Total Deposits': f"${unmanaged_customers['DEPOSIT_BAL'].sum():,.0f}",
-							'Select': len(unmanaged_customers)  # Default to all available
+							'available': len(unmanaged_customers),
+							'revenue': unmanaged_customers['BANK_REVENUE'].sum(),
+							'deposits': unmanaged_customers['DEPOSIT_BAL'].sum()
 						})
 					
-					# Display portfolio summary table with selection
-					st.subheader("Portfolio Summary & Customer Selection")
-					portfolio_df = pd.DataFrame(portfolio_summary)
-					
-					# Create editable dataframe using st.data_editor
-					edited_df = st.data_editor(
-						portfolio_df,
-						column_config={
-							"Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
-							"Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-							"Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-							"Available": st.column_config.NumberColumn("Available", disabled=True),
-							"Total Revenue": st.column_config.TextColumn("Total Revenue", disabled=True),
-							"Total Deposits": st.column_config.TextColumn("Total Deposits", disabled=True),
-							"Select": st.column_config.NumberColumn(
+					# Display table with integrated +/- controls
+					for i, portfolio in enumerate(portfolio_data):
+						pid = portfolio['id']
+						ctrl = st.session_state.form_controls[form_id][pid]
+						
+						# Create columns for the table row
+						col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1.2, 1, 0.8, 0.8, 1.2, 1.2, 0.3, 0.6, 0.3, 0.5])
+						
+						# Add header row only once
+						if i == 0:
+							with col1:
+								st.write("**Portfolio ID**")
+							with col2:
+								st.write("**Type**")
+							with col3:
+								st.write("**Total**")
+							with col4:
+								st.write("**Available**")
+							with col5:
+								st.write("**Revenue**")
+							with col6:
+								st.write("**Deposits**")
+							with col7:
+								st.write("")
+							with col8:
+								st.write("**Select**")
+							with col9:
+								st.write("")
+							with col10:
+								st.write("")
+							
+							# Add separator
+							st.divider()
+						
+						# Portfolio row data
+						with col1:
+							if pid == 'UNMANAGED':
+								st.write("*UNMANAGED*")
+							else:
+								st.write(pid)
+						
+						with col2:
+							type_colors = {
+								'Unassigned': '🔴',
+								'In-market': '🔵', 
+								'Centralized': '🟣',
+								'Unmanaged': '🟡'
+							}
+							emoji = type_colors.get(portfolio['type'], '⚪')
+							st.write(f"{emoji} {portfolio['type']}")
+						
+						with col3:
+							st.write(portfolio['total'])
+						
+						with col4:
+							st.write(portfolio['available'])
+						
+						with col5:
+							st.write(f"${portfolio['revenue']:,.0f}")
+						
+						with col6:
+							st.write(f"${portfolio['deposits']:,.0f}")
+						
+						with col7:
+							if st.button("➖", key=f"minus_{form_id}_{pid}", help="Decrease selection"):
+								if ctrl["n"] > 0:
+									ctrl["n"] -= 1
+									st.rerun()
+						
+						with col8:
+							current_value = ctrl["n"]
+							ctrl["n"] = st.number_input(
 								"Select",
-								help="Number of customers to select from this portfolio",
 								min_value=0,
-								step=1
+								max_value=portfolio['available'],
+								value=min(current_value, portfolio['available']),
+								key=f"input_{form_id}_{pid}",
+								label_visibility="collapsed"
 							)
-						},
-						hide_index=True,
-						use_container_width=True,
-						key=f"portfolio_editor_{form_id}"
-					)
-					
-					# Update form controls based on edited values
-					for idx, row in edited_df.iterrows():
-						pid = row['Portfolio ID']
-						if pid in st.session_state.form_controls[form_id]:
-							max_available = row['Available']
-							selected = min(int(row['Select']), max_available)  # Ensure not exceeding available
-							st.session_state.form_controls[form_id][pid]["n"] = selected
-							st.session_state.form_controls[form_id][pid]["exclude"] = []
+						
+						with col9:
+							if st.button("➕", key=f"plus_{form_id}_{pid}", help="Increase selection"):
+								if ctrl["n"] < portfolio['available']:
+									ctrl["n"] += 1
+									st.rerun()
+						
+						with col10:
+							st.write(f"/{portfolio['available']}")
+						
+						ctrl["exclude"] = []
+						
+						# Add separator between rows except for last row
+						if i < len(portfolio_data) - 1:
+							st.write("")
 				else:
 					st.info("No customers available for selection with current filters.")
 				
