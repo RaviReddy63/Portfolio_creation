@@ -546,16 +546,19 @@ st.markdown("""
     /* Main header background */
     .st-emotion-cache-1avcm0n {
         background-color: rgb(215, 30, 40) !important;
+        height: 70px !important;
     }
     
     /* Header container */
     .st-emotion-cache-18ni7ap {
         background-color: rgb(215, 30, 40) !important;
+        height: 70px !important;
     }
     
     /* Alternative header selectors */
     [data-testid="stHeader"] {
         background-color: rgb(215, 30, 40) !important;
+        height: 70px !important;
     }
     
     /* Ensure the hamburger icon is visible on red background */
@@ -612,16 +615,20 @@ st.markdown("""
     /* Logo styling */
     .header-logo {
         position: fixed;
-        top: 10px;
+        top: 15px;
         left: 20px;
         z-index: 99999;
-        height: 40px;
+        height: 50px;
         width: auto;
+        background: rgba(255,255,255,0.1);
+        padding: 5px;
+        border-radius: 5px;
     }
     
-    /* Adjust main content to account for logo */
+    /* Adjust main content to account for larger header */
     .main .block-container {
         padding-left: 80px;
+        padding-top: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -638,9 +645,31 @@ try:
     # Replace 'logo.svg' with your actual logo file path
     logo_base64 = get_base64_image("logo.svg")
     
-    # Inject logo into header
+    # Inject logo into header using JavaScript to ensure it goes into the actual header
     st.markdown(f"""
-    <img src="data:image/svg+xml;base64,{logo_base64}" class="header-logo" alt="Logo">
+    <script>
+    document.addEventListener('DOMContentLoaded', function() {{
+        setTimeout(function() {{
+            var header = document.querySelector('[data-testid="stHeader"]') || document.querySelector('.st-emotion-cache-1avcm0n');
+            if (header && !document.querySelector('.header-logo')) {{
+                var logo = document.createElement('img');
+                logo.src = 'data:image/svg+xml;base64,{logo_base64}';
+                logo.className = 'header-logo';
+                logo.alt = 'Logo';
+                logo.style.position = 'absolute';
+                logo.style.top = '15px';
+                logo.style.left = '20px';
+                logo.style.height = '50px';
+                logo.style.width = 'auto';
+                logo.style.zIndex = '99999';
+                logo.style.background = 'rgba(255,255,255,0.1)';
+                logo.style.padding = '5px';
+                logo.style.borderRadius = '5px';
+                header.appendChild(logo);
+            }}
+        }}, 100);
+    }});
+    </script>
     """, unsafe_allow_html=True)
     
 except FileNotFoundError:
