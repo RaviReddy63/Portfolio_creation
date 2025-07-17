@@ -620,7 +620,7 @@ st.markdown("""
         z-index: 99999;
         height: 50px;
         width: auto;
-        background: rgba(255,255,255,0.1);
+        background: rgba(0,0,0,0.3);
         padding: 5px;
         border-radius: 5px;
     }
@@ -637,15 +637,12 @@ st.markdown("""
 try:
     import base64
     
-    # Function to convert SVG to base64
     def get_base64_image(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     
-    # Replace 'logo.svg' with your actual logo file path
     logo_base64 = get_base64_image("logo.svg")
     
-    # Inject logo into header using JavaScript to ensure it goes into the actual header
     st.markdown(f"""
     <script>
     document.addEventListener('DOMContentLoaded', function() {{
@@ -656,15 +653,6 @@ try:
                 logo.src = 'data:image/svg+xml;base64,{logo_base64}';
                 logo.className = 'header-logo';
                 logo.alt = 'Logo';
-                logo.style.position = 'absolute';
-                logo.style.top = '15px';
-                logo.style.left = '20px';
-                logo.style.height = '50px';
-                logo.style.width = 'auto';
-                logo.style.zIndex = '99999';
-                logo.style.background = 'rgba(255,255,255,0.1)';
-                logo.style.padding = '5px';
-                logo.style.borderRadius = '5px';
                 header.appendChild(logo);
             }}
         }}, 100);
