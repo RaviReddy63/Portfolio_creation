@@ -525,7 +525,7 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
 
-# Custom CSS for red hamburger menu
+# Custom CSS for red hamburger menu, yellow line, and logo
 st.markdown("""
 <style>
     /* Target the hamburger menu button */
@@ -582,7 +582,83 @@ st.markdown("""
     .css-1d391kg, .css-18ni7ap, .css-1avcm0n {
         background-color: rgb(215, 30, 40) !important;
     }
+    
+    /* Yellow line under header */
+    .st-emotion-cache-1avcm0n::after,
+    [data-testid="stHeader"]::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background-color: rgb(255, 205, 65);
+        z-index: 999;
+    }
+    
+    /* Alternative yellow line selectors */
+    .main-header::after,
+    .stApp > header::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background-color: rgb(255, 205, 65);
+        z-index: 999;
+    }
+    
+    /* Logo styling */
+    .header-logo {
+        position: fixed;
+        top: 10px;
+        left: 20px;
+        z-index: 1000;
+        height: 40px;
+        width: auto;
+    }
+    
+    /* Adjust main content to account for logo */
+    .main .block-container {
+        padding-left: 80px;
+    }
 </style>
+""", unsafe_allow_html=True)
+
+# Add logo to header
+try:
+    import base64
+    
+    # Function to convert image to base64
+    def get_base64_image(image_path):
+        with open(image_path, "rb") as img_file:
+            return base64.b64encode(img_file.read()).decode()
+    
+    # Replace 'logo.png' with your actual logo file path
+    logo_base64 = get_base64_image("logo.png")
+    
+    # Inject logo into header
+    st.markdown(f"""
+    <img src="data:image/png;base64,{logo_base64}" class="header-logo" alt="Logo">
+    """, unsafe_allow_html=True)
+    
+except FileNotFoundError:
+    st.warning("Logo file 'logo.png' not found. Please place your logo image in the same directory as this script.")
+except Exception as e:
+    st.warning(f"Error loading logo: {e}")
+
+# Alternative yellow line using a div (fallback)
+st.markdown("""
+<div style="
+    position: fixed;
+    top: 60px;
+    left: 0;
+    width: 100%;
+    height: 4px;
+    background-color: rgb(255, 205, 65);
+    z-index: 999;
+"></div>
 """, unsafe_allow_html=True)
 
 # Header with title and number of portfolios
