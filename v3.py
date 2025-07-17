@@ -525,73 +525,54 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
 
-# Custom CSS for header styling
+# Custom CSS for Streamlit header styling
 st.markdown("""
 <style>
-    /* Hide default Streamlit header */
-    header[data-testid="stHeader"] {
-        display: none;
+    /* Style the default Streamlit header */
+    [data-testid="stHeader"] {
+        background-color: rgb(215, 30, 40) !important;
+        height: 70px !important;
     }
     
-    /* Remove default padding */
-    .main .block-container {
-        padding-top: 0rem;
+    /* Style hamburger menu */
+    [data-testid="stHeader"] button {
+        background-color: rgb(215, 30, 40) !important;
+        color: white !important;
     }
     
-    /* Custom header */
-    .custom-header {
-        background-color: rgb(215, 30, 40);
-        height: 70px;
-        width: 100%;
-        position: fixed;
-        top: 0;
+    /* Style hamburger menu icon */
+    [data-testid="stHeader"] button svg {
+        fill: white !important;
+    }
+    
+    /* Add yellow line under header */
+    [data-testid="stHeader"]::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
         left: 0;
+        width: 100%;
+        height: 4px;
+        background-color: rgb(255, 205, 65);
         z-index: 999;
-        display: flex;
-        align-items: center;
-        padding: 0 20px;
-        box-sizing: border-box;
     }
     
     /* Logo styling */
     .header-logo {
+        position: absolute;
+        top: 10px;
+        left: 20px;
         height: 50px;
         width: auto;
         background: rgba(0,0,0,0.3);
         padding: 5px;
         border-radius: 5px;
-    }
-    
-    /* Hamburger menu */
-    .hamburger-menu {
-        margin-left: auto;
-        background: none;
-        border: none;
-        color: white;
-        font-size: 24px;
-        cursor: pointer;
-    }
-    
-    /* Yellow line under header */
-    .yellow-line {
-        height: 4px;
-        width: 100%;
-        background-color: rgb(255, 205, 65);
-        position: fixed;
-        top: 70px;
-        left: 0;
-        z-index: 998;
-    }
-    
-    /* Adjust main content for fixed header */
-    .main-content {
-        margin-top: 80px;
-        padding: 0 20px;
+        z-index: 1000;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Create custom header
+# Add logo to Streamlit header
 try:
     import base64
     
@@ -601,26 +582,36 @@ try:
     
     logo_base64 = get_base64_image("logo.svg")
     
+    # Add logo using components
     st.markdown(f"""
-    <div class="custom-header">
-        <img src="data:image/svg+xml;base64,{logo_base64}" class="header-logo" alt="Logo">
-        <button class="hamburger-menu">☰</button>
-    </div>
-    <div class="yellow-line"></div>
+    <script>
+    const addLogo = () => {{
+        const header = document.querySelector('[data-testid="stHeader"]');
+        if (header && !header.querySelector('.header-logo')) {{
+            const logo = document.createElement('img');
+            logo.src = 'data:image/svg+xml;base64,{logo_base64}';
+            logo.className = 'header-logo';
+            logo.alt = 'Logo';
+            header.appendChild(logo);
+        }}
+    }};
+    
+    // Add logo when page loads
+    document.addEventListener('DOMContentLoaded', addLogo);
+    
+    // Add logo after Streamlit updates (for dynamic content)
+    const observer = new MutationObserver(addLogo);
+    observer.observe(document.body, {{ childList: true, subtree: true }});
+    
+    // Immediate execution
+    addLogo();
+    </script>
     """, unsafe_allow_html=True)
     
 except FileNotFoundError:
-    st.markdown("""
-    <div class="custom-header">
-        <div style="color: white; font-weight: bold;">LOGO</div>
-        <button class="hamburger-menu">☰</button>
-    </div>
-    <div class="yellow-line"></div>
-    """, unsafe_allow_html=True)
-    st.warning("Logo file 'logo.svg' not found.")
-
-# Wrapper for main content
-st.markdown('<div class="main-content">', unsafe_allow_html=True)
+    st.warning("Logo file 'logo.svg' not found. Please place your SVG logo in the same directory as this script.")
+except Exception as e:
+    st.warning(f"Error loading logo: {e}")
 
 # Header with title and number of portfolios
 col1, col2 = st.columns([3, 1])
@@ -826,6 +817,3 @@ elif page == "Portfolio Mapping":
         with col4:
             if 'PORT_CODE' in data.columns:
                 st.metric("Unique Portfolios", data['PORT_CODE'].nunique())
-
-# Close main content wrapper
-st.markdown('</div>', unsafe_allow_html=True)
