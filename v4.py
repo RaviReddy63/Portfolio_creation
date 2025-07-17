@@ -588,109 +588,90 @@ if page == "Portfolio Assignment":
             else:
                 st.warning("No customers found for the selected AUs with current filters.")
     
-    # Save portfolios button
-    if st.button("Save Portfolios", key="save_portfolios"):
-        if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
-            final_portfolios = {}
-            
-            # Create one portfolio per AU
-            for au_id, filtered_data in st.session_state.portfolios_created.items():
-                if au_id in st.session_state.portfolio_controls:
-                    edited_df = st.session_state.portfolio_controls[au_id]
-                    
-                    # Collect all selected customers for this AU (this becomes one portfolio)
-                    au_customers = []
-                    
-                    for _, row in edited_df.iterrows():
-                        if row['Select'] > 0:
-                            pid = row['Portfolio ID']
-                            select_count = int(row['Select'])
-                            
-                            if pid == 'UNMANAGED':
-                                # Handle unmanaged customers
-                                unmanaged_customers = filtered_data[
-                                    (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                                    (filtered_data['PORT_CODE'].isna())
-                                ]
-                                if not unmanaged_customers.empty:
-                                    selected_customers = unmanaged_customers.sort_values(by='Distance').head(select_count)
-                                    au_customers.append(selected_customers)
-                            else:
-                                # Handle regular portfolios
-                                portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == pid]
-                                if not portfolio_customers.empty:
-                                    selected_customers = portfolio_customers.sort_values(by='Distance').head(select_count)
-                                    au_customers.append(selected_customers)
-                    
-                    # Combine all customers for this AU into one portfolio
-                    if au_customers:
-                        au_portfolio = pd.concat(au_customers, ignore_index=True)
-                        final_portfolios[f"AU_{au_id}_Portfolio"] = au_portfolio
-            
-            # Handle conflicts (customers assigned to multiple portfolios)
-            all_assigned_customers = set()
-            cleaned_portfolios = {}
-            
-            for portfolio_id, df in final_portfolios.items():
-                # Remove customers already assigned to other portfolios
-                unique_customers = df[~df['CG_ECN'].isin(all_assigned_customers)]
-                if not unique_customers.empty:
-                    cleaned_portfolios[portfolio_id] = unique_customers
-                    all_assigned_customers.update(unique_customers['CG_ECN'].tolist())
-            
-            st.session_state.all_portfolios = cleaned_portfolios
-            st.success(f"Saved {len(cleaned_portfolios)} portfolios with {len(all_assigned_customers)} total customers")
-        else:
-            st.error("No portfolios to save. Please create portfolios first.")
-    
-    # Final Geographic Distribution (after saving)
-    if st.session_state.all_portfolios:
+    # Final Geographic Distribution (after creating portfolios)
+    if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
         st.markdown("----")
         st.subheader("Final Portfolio Distribution")
         
-        combined_map = create_combined_map(st.session_state.all_portfolios, branch_data)
-        if combined_map:
-            st.plotly_chart(combined_map, use_container_width=True)
+        # Create final portfolios for display
+        final_portfolios = {}
         
-        # Summary statistics
-        st.subheader("Summary Statistics")
-        total_customers = sum(len(df) for df in st.session_state.all_portfolios.values())
+        for au_id, filtered_data in st.session_state.portfolios_created.items():
+            if au_id in st.session_state.portfolio_controls:
+                edited_df = st.session_state.portfolio_controls[au_id]
+                
+                # Collect all selected customers for this AU (this becomes one portfolio)
+                au_customers = []
+                
+                for _, row in edited_df.iterrows():
+                    if row['Select'] > 0:
+                        pid = row['Portfolio ID']
+                        select_count = int(row['Select'])
+                        
+                        if pid == 'UNMANAGED':
+                            # Handle unmanaged customers
+                            unmanaged_customers = filtered_data[
+                                (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                                (filtered_data['PORT_CODE'].isna())
+                            ]
+                            if not unmanaged_customers.empty:
+                                selected_customers = unmanaged_customers.sort_values(by='Distance').head(select_count)
+                                au_customers.append(selected_customers)
+                        else:
+                            # Handle regular portfolios
+                            portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == pid]
+                            if not portfolio_customers.empty:
+                                selected_customers = portfolio_customers.sort_values(by='Distance').head(select_count)
+                                au_customers.append(selected_customers)
+                
+                # Combine all customers for this AU into one portfolio
+                if au_customers:
+                    au_portfolio = pd.concat(au_customers, ignore_index=True)
+                    final_portfolios[f"AU_{au_id}_Portfolio"] = au_portfolio
         
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Portfolios", len(st.session_state.all_portfolios))
-        with col2:
-            st.metric("Total Customers", total_customers)
-        with col3:
-            if total_customers > 0:
-                all_data = pd.concat(st.session_state.all_portfolios.values())
-                st.metric("Average Revenue", f"${all_data['BANK_REVENUE'].mean():,.0f}")
-        with col4:
-            if total_customers > 0:
-                st.metric("Average Deposits", f"${all_data['DEPOSIT_BAL'].mean():,.0f}")
-    
-    # Recommendation and export buttons
-    if st.session_state.all_portfolios:
-        st.markdown("----")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            if st.button("Recommended Reassignment"):
-                rec_df = recommend_reassignment(st.session_state.all_portfolios)
-                st.session_state.recommend_reassignment = rec_df
-                st.subheader("Recommended Reassignments")
-                st.dataframe(st.session_state.recommend_reassignment)
-        
-        with col2:
-            if st.button("Export to Excel"):
-                excel_buffer = to_excel(st.session_state.all_portfolios)
-                st.download_button(
-                    label="Download Excel Report",
-                    data=excel_buffer,
-                    file_name="portfolio_assignments.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+        if final_portfolios:
+            combined_map = create_combined_map(final_portfolios, branch_data)
+            if combined_map:
+                st.plotly_chart(combined_map, use_container_width=True)
+            
+            # Summary statistics
+            st.subheader("Summary Statistics")
+            total_customers = sum(len(df) for df in final_portfolios.values())
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Portfolios", len(final_portfolios))
+            with col2:
+                st.metric("Total Customers", total_customers)
+            with col3:
+                if total_customers > 0:
+                    all_data = pd.concat(final_portfolios.values())
+                    st.metric("Average Revenue", f"${all_data['BANK_REVENUE'].mean():,.0f}")
+            with col4:
+                if total_customers > 0:
+                    st.metric("Average Deposits", f"${all_data['DEPOSIT_BAL'].mean():,.0f}")
+            
+            # Recommendation and export buttons
+            st.markdown("----")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Recommended Reassignment"):
+                    rec_df = recommend_reassignment(final_portfolios)
+                    st.session_state.recommend_reassignment = rec_df
+                    st.subheader("Recommended Reassignments")
+                    st.dataframe(st.session_state.recommend_reassignment)
+            
+            with col2:
+                if st.button("Export to Excel"):
+                    excel_buffer = to_excel(final_portfolios)
+                    st.download_button(
+                        label="Download Excel Report",
+                        data=excel_buffer,
+                        file_name="portfolio_assignments.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
 
 elif page == "Portfolio Mapping":
     st.subheader("Portfolio Mapping")
