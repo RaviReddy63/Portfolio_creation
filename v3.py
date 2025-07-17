@@ -525,6 +525,66 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
 
+# Custom CSS for red hamburger menu
+st.markdown("""
+<style>
+    /* Target the hamburger menu button */
+    .st-emotion-cache-1jicfl2 {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Alternative selector for hamburger menu */
+    button[kind="header"] {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Target the header toolbar area */
+    .st-emotion-cache-12fmjuu {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Main header background */
+    .st-emotion-cache-1avcm0n {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Header container */
+    .st-emotion-cache-18ni7ap {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Alternative header selectors */
+    [data-testid="stHeader"] {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Ensure the hamburger icon is visible on red background */
+    .st-emotion-cache-1jicfl2 svg {
+        fill: white !important;
+    }
+    
+    /* Alternative hamburger icon styling */
+    button[kind="header"] svg {
+        fill: white !important;
+    }
+    
+    /* Header button text color */
+    button[kind="header"] {
+        color: white !important;
+    }
+    
+    /* More specific header targeting */
+    .main-header, .stApp > header {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Fallback for different Streamlit versions */
+    .css-1d391kg, .css-18ni7ap, .css-1avcm0n {
+        background-color: rgb(215, 30, 40) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Header with title and number of portfolios
 col1, col2 = st.columns([3, 1])
 with col1:
