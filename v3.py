@@ -8,6 +8,9 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
+# Configure page settings first
+st.set_page_config("Portfolio Creation tool", layout="wide")
+
 # Custom CSS for the +/- buttons
 st.markdown("""
 <style>
@@ -703,7 +706,6 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 	return pd.DataFrame(records)
 
 #------------------------Streamlit App---------------------------------------------------------------
-st.set_page_config("Portfolio Creation tool", layout="wide")
 st.title("Portfolio creation tool")
 page = st.selectbox("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
 
