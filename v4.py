@@ -412,6 +412,8 @@ if page == "Portfolio Assignment":
                         (filtered_data['PORT_CODE'].isna())
                     ]
                     
+                    customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+                    
                     if not unmanaged_customers.empty:
                         portfolio_summary.append({
                             'AU': au_id,
