@@ -322,7 +322,6 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
                 cust_state = None
         
         with col3:
-            customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
             cust_portcd = st.multiselect(f"Portfolio Code (Form {form_id})", customer_data['PORT_CODE'].dropna().unique(), key=f"port_cd_{form_id}")
             if not cust_portcd:
                 cust_portcd = None
@@ -615,7 +614,7 @@ st.markdown("""
         position: fixed;
         top: 10px;
         left: 20px;
-        z-index: 1000;
+        z-index: 99999;
         height: 40px;
         width: auto;
     }
