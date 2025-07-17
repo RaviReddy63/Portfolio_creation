@@ -356,27 +356,60 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 	customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
 	filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
 	
-	# Apply filters
-	if (role is not None) and (role.lower() == 'IN-MARKET'.lower()):
-		filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
-		filtered_data = filtered_data[filtered_data['TYPE'].str.lower() == role.lower()]
-	elif (role is not None) and (role.lower() == 'CENTRALIZED'.lower()):
-		filtered_data = filtered_data[filtered_data['TYPE'].str.lower() == role.lower()]
-	elif (role is not None) and (role.lower() == 'Unassigned'.lower()):
-		filtered_data = filtered_data[filtered_data['TYPE'].str.lower() == role.lower()]
-	elif (role is not None) and (role.lower() == 'Unmanaged'.lower()):
-		filtered_data = filtered_data[filtered_data['TYPE'].str.lower() == role.lower()]
-	else:
+	# Debug information
+	st.write(f"Debug - Total customers after merge: {len(filtered_data)}")
+	if not filtered_data.empty:
+		st.write(f"Debug - Unique TYPE values: {filtered_data['TYPE'].value_counts()}")
+		st.write(f"Debug - Customers within {max_dist}km: {len(filtered_data[filtered_data['Distance'] <= max_dist])}")
+	
+	# FIXED FILTERING LOGIC
+	# First, always apply distance filter for all roles except CENTRALIZED
+	if role is None or (role is not None and role.lower().strip() != 'centralized'):
 		filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
 	
+	# Then apply role-specific filters
+	if role is not None:
+		# Clean up the TYPE column to handle NaN and whitespace
+		filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
+		role_clean = role.strip().lower()
+		
+		# Debug information for role filtering
+		st.write(f"Debug - Looking for role: '{role_clean}'")
+		st.write(f"Debug - Available roles after cleaning: {filtered_data['TYPE_CLEAN'].value_counts()}")
+		
+		# Filter by role
+		before_role_filter = len(filtered_data)
+		filtered_data = filtered_data[filtered_data['TYPE_CLEAN'] == role_clean]
+		after_role_filter = len(filtered_data)
+		
+		st.write(f"Debug - Customers before role filter: {before_role_filter}")
+		st.write(f"Debug - Customers after role filter: {after_role_filter}")
+		
+		# Drop the temporary column
+		filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
+	
+	# Apply other filters
+	before_revenue_filter = len(filtered_data)
 	filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
+	after_revenue_filter = len(filtered_data)
+	st.write(f"Debug - Customers after revenue filter (>= ${min_rev}): {after_revenue_filter} (removed {before_revenue_filter - after_revenue_filter})")
+	
+	before_deposit_filter = len(filtered_data)
 	filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
+	after_deposit_filter = len(filtered_data)
+	st.write(f"Debug - Customers after deposit filter (>= ${min_deposit}): {after_deposit_filter} (removed {before_deposit_filter - after_deposit_filter})")
 	
 	if cust_state is not None:
+		before_state_filter = len(filtered_data)
 		filtered_data = filtered_data[filtered_data['BILLINGSTATE'] == cust_state]
+		after_state_filter = len(filtered_data)
+		st.write(f"Debug - Customers after state filter ({cust_state}): {after_state_filter} (removed {before_state_filter - after_state_filter})")
 	
 	if cust_portcd is not None:
+		before_port_filter = len(filtered_data)
 		filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
+		after_port_filter = len(filtered_data)
+		st.write(f"Debug - Customers after portfolio filter: {after_port_filter} (removed {before_port_filter - after_port_filter})")
 	
 	# Create and display map
 	if not filtered_data.empty:
@@ -401,6 +434,12 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 			st.metric("Total Revenue", f"${filtered_data['BANK_REVENUE'].sum():,.0f}")
 		with col4:
 			st.metric("Total Deposits", f"${filtered_data['DEPOSIT_BAL'].sum():,.0f}")
+		
+		# Show sample of filtered data
+		with st.expander("Sample Filtered Data"):
+			st.dataframe(filtered_data[['CG_ECN', 'TYPE', 'Distance', 'BANK_REVENUE', 'DEPOSIT_BAL', 'BILLINGSTATE']].head(10))
+	else:
+		st.warning("No customers found matching the current filters. Try adjusting your criteria.")
 	
 	return [filtered_data, role, city, state, max_dist, selected_au]
 
@@ -487,70 +526,81 @@ if page == "Portfolio Assignment":
 					st.warning(f"{len(conflicts)} customers already assigned and removed")
 					filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(assigned)]
 				
-				grouped = filtered_data.groupby("PORT_CODE")
-				
-				for pid, group in grouped:
-					total_customer = len(data[data["PORT_CODE"] == pid])
-					
-					with st.expander(f"Portfolio {pid} - {total_customer} customers"):
-						st.session_state.form_controls[form_id][pid] = {"n": len(group), "exclude": []}
-						ctrl = st.session_state.form_controls[form_id][pid]
-						ctrl["n"] = st.number_input(
-							f"Top N customers to select from Portfolio {pid}",
-							min_value=0,
-							max_value=len(group),
-							value=min(ctrl["n"], len(group)),
-							key=f"slider_{form_id}_{pid}"
-						)
-						ctrl["exclude"] = []
-				
-				if st.button(f"Save Form {form_id}", key=f"save_{form_id}"):
-					result = []
-					au_row = branch_data[branch_data['AU'] == selected_au].iloc[0]
-					b_au, b_lat, b_lon = au_row['AU'], au_row['BRANCH_LAT_NUM'], au_row['BRANCH_LON_NUM']
+				if not filtered_data.empty:
+					grouped = filtered_data.groupby("PORT_CODE")
 					
 					for pid, group in grouped:
-						ctrl = st.session_state.form_controls[form_id][pid]
-						selected_customers = group[~group["CG_ECN"].isin(ctrl["exclude"])]
-						top_n = selected_customers.sort_values(by='Distance').head(ctrl["n"])
-						top_n['AU'] = b_au
-						top_n['BRANCH_LAT_NUM'] = b_lat
-						top_n['BRANCH_LON_NUM'] = b_lon
-						result.append(top_n)
-					
-					form_df = pd.concat(result) if result else pd.DataFrame()
-					
-					# Handle conflicts
-					conflicted_ids = []
-					reassigned_rows = []
-					for cid in form_df["CG_ECN"]:
-						for other_fid, other_df in st.session_state.form_results.items():
-							if other_fid == form_id:
-								continue
-							if cid in other_df["CG_ECN"].values:
-								old_row = other_df[other_df["CG_ECN"] == cid].iloc[0]
-								new_row = form_df[form_df["CG_ECN"] == cid].iloc[0]
-								
-								if new_row['Distance'] < old_row['Distance']:
-									st.session_state.form_results[other_fid] = other_df[other_df["CG_ECN"] != cid]
-									reassigned_rows.append(new_row)
-									conflicted_ids.append((cid, other_fid, old_row['Distance'], form_id, new_row['Distance']))
-								else:
-									form_df = form_df[form_df["CG_ECN"] != cid]
-					
-					if reassigned_rows:
-						form_df = pd.concat([form_df, pd.DataFrame(reassigned_rows)])
-					
-					st.session_state.form_results[form_id] = form_df
-					st.success(f"Form {form_id} saved with {len(form_df)} customers")
-					
-					if conflicted_ids:
-						with st.expander("Conflict resolutions (Auto Handled)"):
-							conflict_df = pd.DataFrame(conflicted_ids, columns=[
-								"CG_ECN", "Previous Form", "Previous Distance", "Assigned Form", "New Distance"
-							])
-							st.warning("Some customers were reassigned based on distance:")
-							st.dataframe(conflict_df, use_container_width=True)
+						total_customer = len(data[data["PORT_CODE"] == pid])
+						
+						with st.expander(f"Portfolio {pid} - {total_customer} total customers, {len(group)} available"):
+							st.session_state.form_controls[form_id][pid] = {"n": len(group), "exclude": []}
+							ctrl = st.session_state.form_controls[form_id][pid]
+							ctrl["n"] = st.number_input(
+								f"Top N customers to select from Portfolio {pid}",
+								min_value=0,
+								max_value=len(group),
+								value=min(ctrl["n"], len(group)),
+								key=f"slider_{form_id}_{pid}"
+							)
+							ctrl["exclude"] = []
+							
+							# Show sample customers from this portfolio
+							st.dataframe(group[['CG_ECN', 'TYPE', 'Distance', 'BANK_REVENUE', 'DEPOSIT_BAL']].head())
+				else:
+					st.info("No customers available for selection with current filters.")
+				
+				if st.button(f"Save Form {form_id}", key=f"save_{form_id}"):
+					if not filtered_data.empty:
+						result = []
+						au_row = branch_data[branch_data['AU'] == selected_au].iloc[0]
+						b_au, b_lat, b_lon = au_row['AU'], au_row['BRANCH_LAT_NUM'], au_row['BRANCH_LON_NUM']
+						
+						grouped = filtered_data.groupby("PORT_CODE")
+						for pid, group in grouped:
+							if pid in st.session_state.form_controls[form_id]:
+								ctrl = st.session_state.form_controls[form_id][pid]
+								selected_customers = group[~group["CG_ECN"].isin(ctrl["exclude"])]
+								top_n = selected_customers.sort_values(by='Distance').head(ctrl["n"])
+								top_n['AU'] = b_au
+								top_n['BRANCH_LAT_NUM'] = b_lat
+								top_n['BRANCH_LON_NUM'] = b_lon
+								result.append(top_n)
+						
+						form_df = pd.concat(result) if result else pd.DataFrame()
+						
+						# Handle conflicts
+						conflicted_ids = []
+						reassigned_rows = []
+						for cid in form_df["CG_ECN"]:
+							for other_fid, other_df in st.session_state.form_results.items():
+								if other_fid == form_id:
+									continue
+								if cid in other_df["CG_ECN"].values:
+									old_row = other_df[other_df["CG_ECN"] == cid].iloc[0]
+									new_row = form_df[form_df["CG_ECN"] == cid].iloc[0]
+									
+									if new_row['Distance'] < old_row['Distance']:
+										st.session_state.form_results[other_fid] = other_df[other_df["CG_ECN"] != cid]
+										reassigned_rows.append(new_row)
+										conflicted_ids.append((cid, other_fid, old_row['Distance'], form_id, new_row['Distance']))
+									else:
+										form_df = form_df[form_df["CG_ECN"] != cid]
+						
+						if reassigned_rows:
+							form_df = pd.concat([form_df, pd.DataFrame(reassigned_rows)])
+						
+						st.session_state.form_results[form_id] = form_df
+						st.success(f"Form {form_id} saved with {len(form_df)} customers")
+						
+						if conflicted_ids:
+							with st.expander("Conflict resolutions (Auto Handled)"):
+								conflict_df = pd.DataFrame(conflicted_ids, columns=[
+									"CG_ECN", "Previous Form", "Previous Distance", "Assigned Form", "New Distance"
+								])
+								st.warning("Some customers were reassigned based on distance:")
+								st.dataframe(conflict_df, use_container_width=True)
+					else:
+						st.error("No customers to save. Please adjust your filters.")
 		
 		# Live tracking
 		from collections import defaultdict
@@ -600,25 +650,77 @@ if page == "Portfolio Assignment":
 				st.plotly_chart(combined_map, use_container_width=True)
 		
 		if st.button("Recommended form"):
-			rec_df = recommend_reassignment(st.session_state.form_results)
-			st.session_state.recommend_reassignment = rec_df
-			st.subheader("Form reassignment")
-			st.dataframe(st.session_state.recommend_reassignment)
+			if st.session_state.form_results:
+				rec_df = recommend_reassignment(st.session_state.form_results)
+				st.session_state.recommend_reassignment = rec_df
+				st.subheader("Form reassignment")
+				st.dataframe(st.session_state.recommend_reassignment)
+			else:
+				st.warning("No forms saved yet. Please save at least one form first.")
 		
 		if st.button("Save all forms"):
-			combined_result = pd.concat(st.session_state.form_results.values())
-			st.session_state.final_result = combined_result
-			st.success("All Forms are saved successfully")
-			st.write(st.session_state.final_result)
-			
-			# Download button
-			excel_buffer = to_excel(st.session_state.form_results)
-			st.download_button(
-				label="Download Excel Report",
-				data=excel_buffer,
-				file_name="portfolio_assignments.xlsx",
-				mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-			)
+			if st.session_state.form_results:
+				combined_result = pd.concat(st.session_state.form_results.values())
+				st.session_state.final_result = combined_result
+				st.success("All Forms are saved successfully")
+				st.write(st.session_state.final_result)
+				
+				# Download button
+				excel_buffer = to_excel(st.session_state.form_results)
+				st.download_button(
+					label="Download Excel Report",
+					data=excel_buffer,
+					file_name="portfolio_assignments.xlsx",
+					mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+				)
+			else:
+				st.warning("No forms to save. Please create and save at least one form first.")
 	
 	else:
 		st.info("Please upload all 3 files to begin")
+
+elif page == "Portfolio Mapping":
+	st.subheader("Portfolio Mapping")
+	
+	if cust_file and banker_file and branch_file:
+		customer_data = pd.read_csv(cust_file)
+		banker_data = pd.read_csv(banker_file)
+		branch_data = pd.read_csv(branch_file)
+		data = merge_dfs(customer_data, banker_data, branch_data)
+		
+		# Portfolio mapping functionality can be added here
+		st.info("Portfolio Mapping functionality coming soon...")
+		
+		# You can add visualization and analysis features here
+		col1, col2 = st.columns(2)
+		
+		with col1:
+			st.subheader("Customer Distribution by Type")
+			if not data.empty and 'TYPE' in data.columns:
+				type_counts = data['TYPE'].value_counts()
+				st.bar_chart(type_counts)
+		
+		with col2:
+			st.subheader("Customer Distribution by State")
+			if not data.empty and 'BILLINGSTATE' in data.columns:
+				state_counts = data['BILLINGSTATE'].value_counts().head(10)
+				st.bar_chart(state_counts)
+		
+		# Summary statistics
+		if not data.empty:
+			st.subheader("Summary Statistics")
+			col1, col2, col3, col4 = st.columns(4)
+			
+			with col1:
+				st.metric("Total Customers", len(data))
+			with col2:
+				if 'BANK_REVENUE' in data.columns:
+					st.metric("Total Revenue", f"${data['BANK_REVENUE'].sum():,.0f}")
+			with col3:
+				if 'DEPOSIT_BAL' in data.columns:
+					st.metric("Total Deposits", f"${data['DEPOSIT_BAL'].sum():,.0f}")
+			with col4:
+				if 'PORT_CODE' in data.columns:
+					st.metric("Unique Portfolios", data['PORT_CODE'].nunique())
+	else:
+		st.info("Please upload all 3 files to begin portfolio mapping")
