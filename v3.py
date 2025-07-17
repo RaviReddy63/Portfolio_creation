@@ -525,28 +525,83 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
 
-# Custom CSS for Streamlit header styling
+# Custom CSS for red hamburger menu, yellow line, and logo
 st.markdown("""
 <style>
-    /* Style the default Streamlit header */
+    /* Target the hamburger menu button */
+    .st-emotion-cache-1jicfl2 {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Alternative selector for hamburger menu */
+    button[kind="header"] {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Target the header toolbar area */
+    .st-emotion-cache-12fmjuu {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Main header background */
+    .st-emotion-cache-1avcm0n {
+        background-color: rgb(215, 30, 40) !important;
+        height: 70px !important;
+    }
+    
+    /* Header container */
+    .st-emotion-cache-18ni7ap {
+        background-color: rgb(215, 30, 40) !important;
+        height: 70px !important;
+    }
+    
+    /* Alternative header selectors */
     [data-testid="stHeader"] {
         background-color: rgb(215, 30, 40) !important;
         height: 70px !important;
     }
     
-    /* Style hamburger menu */
-    [data-testid="stHeader"] button {
-        background-color: rgb(215, 30, 40) !important;
-        color: white !important;
-    }
-    
-    /* Style hamburger menu icon */
-    [data-testid="stHeader"] button svg {
+    /* Ensure the hamburger icon is visible on red background */
+    .st-emotion-cache-1jicfl2 svg {
         fill: white !important;
     }
     
-    /* Add yellow line under header */
+    /* Alternative hamburger icon styling */
+    button[kind="header"] svg {
+        fill: white !important;
+    }
+    
+    /* Header button text color */
+    button[kind="header"] {
+        color: white !important;
+    }
+    
+    /* More specific header targeting */
+    .main-header, .stApp > header {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Fallback for different Streamlit versions */
+    .css-1d391kg, .css-18ni7ap, .css-1avcm0n {
+        background-color: rgb(215, 30, 40) !important;
+    }
+    
+    /* Yellow line under header */
+    .st-emotion-cache-1avcm0n::after,
     [data-testid="stHeader"]::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 4px;
+        background-color: rgb(255, 205, 65);
+        z-index: 999;
+    }
+    
+    /* Alternative yellow line selectors */
+    .main-header::after,
+    .stApp > header::after {
         content: "";
         position: absolute;
         bottom: 0;
@@ -559,52 +614,61 @@ st.markdown("""
     
     /* Logo styling */
     .header-logo {
-        position: absolute;
-        top: 10px;
+        position: fixed;
+        top: 15px;
         left: 20px;
+        z-index: 99999;
         height: 50px;
         width: auto;
         background: rgba(0,0,0,0.3);
         padding: 5px;
         border-radius: 5px;
-        z-index: 1000;
+    }
+    
+    /* Adjust main content to account for larger header */
+    .main .block-container {
+        padding-left: 80px;
+        padding-top: 20px;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Add logo to Streamlit header
+# Add logo to header using local SVG file
 try:
     import base64
     
+    # Function to convert SVG to base64
     def get_base64_image(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     
+    # Replace 'logo.svg' with your actual logo file path
     logo_base64 = get_base64_image("logo.svg")
     
-    # Add logo using components
+    # Inject logo into header using JavaScript to ensure it goes into the actual header
     st.markdown(f"""
     <script>
-    const addLogo = () => {{
-        const header = document.querySelector('[data-testid="stHeader"]');
-        if (header && !header.querySelector('.header-logo')) {{
-            const logo = document.createElement('img');
-            logo.src = 'data:image/svg+xml;base64,{logo_base64}';
-            logo.className = 'header-logo';
-            logo.alt = 'Logo';
-            header.appendChild(logo);
-        }}
-    }};
-    
-    // Add logo when page loads
-    document.addEventListener('DOMContentLoaded', addLogo);
-    
-    // Add logo after Streamlit updates (for dynamic content)
-    const observer = new MutationObserver(addLogo);
-    observer.observe(document.body, {{ childList: true, subtree: true }});
-    
-    // Immediate execution
-    addLogo();
+    document.addEventListener('DOMContentLoaded', function() {{
+        setTimeout(function() {{
+            var header = document.querySelector('[data-testid="stHeader"]') || document.querySelector('.st-emotion-cache-1avcm0n');
+            if (header && !document.querySelector('.header-logo')) {{
+                var logo = document.createElement('img');
+                logo.src = 'data:image/svg+xml;base64,{logo_base64}';
+                logo.className = 'header-logo';
+                logo.alt = 'Logo';
+                logo.style.position = 'absolute';
+                logo.style.top = '15px';
+                logo.style.left = '20px';
+                logo.style.height = '50px';
+                logo.style.width = 'auto';
+                logo.style.zIndex = '99999';
+                logo.style.background = 'rgba(0,0,0,0.3)';
+                logo.style.padding = '5px';
+                logo.style.borderRadius = '5px';
+                header.appendChild(logo);
+            }}
+        }}, 100);
+    }});
     </script>
     """, unsafe_allow_html=True)
     
