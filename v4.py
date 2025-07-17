@@ -483,13 +483,15 @@ if page == "Portfolio Assignment":
                                     au_filtered_data = portfolios_created[au_id]
                                     if not au_filtered_data.empty:
                                         st.subheader("AU Summary Statistics")
-                                        # Use 2 columns for metrics to fit in half-width layout
-                                        col_a, col_b = st.columns(2)
+                                        # Use 4 columns for metrics in a single row
+                                        col_a, col_b, col_c, col_d = st.columns(4)
                                         with col_a:
                                             st.metric("Total Customers", len(au_filtered_data))
-                                            st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
                                         with col_b:
                                             st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
+                                        with col_c:
+                                            st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
+                                        with col_d:
                                             st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
                     else:
                         # Single AU case
@@ -527,13 +529,15 @@ if page == "Portfolio Assignment":
                             au_filtered_data = portfolios_created[au_id]
                             if not au_filtered_data.empty:
                                 st.subheader("AU Summary Statistics")
-                                # Use 2 columns for metrics to fit in half-width layout
-                                col_a, col_b = st.columns(2)
+                                # Use 4 columns for metrics in a single row
+                                col_a, col_b, col_c, col_d = st.columns(4)
                                 with col_a:
                                     st.metric("Total Customers", len(au_filtered_data))
-                                    st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
                                 with col_b:
                                     st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
+                                with col_c:
+                                    st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
+                                with col_d:
                                     st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
                 
                 with col2:
