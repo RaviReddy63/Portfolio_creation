@@ -458,6 +458,7 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 				},
 				hide_index=True,
 				use_container_width=True,
+				height=500,
 				key=f"portfolio_editor_{form_id}"
 			)
 			
@@ -485,9 +486,9 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 		with col2:
 			st.metric("Avg Distance", f"{filtered_data['Distance'].mean():.1f} km")
 		with col3:
-			st.metric("Total Revenue", f"${filtered_data['BANK_REVENUE'].sum():,.0f}")
+			st.metric("Average Revenue", f"${filtered_data['BANK_REVENUE'].mean():,.0f}")
 		with col4:
-			st.metric("Total Deposits", f"${filtered_data['DEPOSIT_BAL'].sum():,.0f}")
+			st.metric("Average Deposits", f"${filtered_data['DEPOSIT_BAL'].mean():,.0f}")
 			
 	else:
 		st.info("No customers available for selection with current filters.")
@@ -539,48 +540,42 @@ if 'recommend_reassignment' not in st.session_state:
 	st.session_state.recommend_reassignment = {}
 
 if page == "Portfolio Assignment":
-	if cust_file and banker_file and branch_file:
-		customer_data = pd.read_csv(cust_file)
-		banker_data = pd.read_csv(banker_file)
-		branch_data = pd.read_csv(branch_file)
-		data = merge_dfs(customer_data, banker_data, branch_data)
-		
-		st.sidebar.header("Form Configuration")
-		num_forms = st.sidebar.number_input("Number of Portfolios", min_value=1, max_value=10, value=1)
-		
-		tab_titles = [f"Form {i}" for i in range(1, num_forms+1)]
-		tabs = st.tabs(tab_titles)
-		
-		assigned_customers = set()
-		form_results = {}
-		
-		for form_id, tab in enumerate(tabs, start=1):
-			with tab:
-				filtered_data, role, city, state, max_dist, selected_au = data_filteration(
-					customer_data, branch_data, banker_data, form_id
-				)
-				
-				filtered_data['FormID'] = form_id
-				
-				# Initialize form controls for this form if not exists
-				if form_id not in st.session_state.form_controls:
-					st.session_state.form_controls[form_id] = {}
-				
-				# Clean up form controls to only include valid portfolio IDs
-				if not filtered_data.empty:
-					valid_pids = set(filtered_data['PORT_CODE'].unique())
-					st.session_state.form_controls[form_id] = {
-						pid: val for pid, val in st.session_state.form_controls[form_id].items()
-						if pid in valid_pids
-					}
-				
-				# Conflict detection
-				assigned = {cid for fid, df in st.session_state.form_results.items() 
-						   if fid != form_id for cid in df['CG_ECN']}
-				conflicts = filtered_data[filtered_data['CG_ECN'].isin(assigned)]
-				if not conflicts.empty:
-					st.warning(f"{len(conflicts)} customers already assigned and removed")
-					filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(assigned)]
+	st.sidebar.header("Form Configuration")
+	num_forms = st.sidebar.number_input("Number of Portfolios", min_value=1, max_value=10, value=1)
+	
+	tab_titles = [f"Form {i}" for i in range(1, num_forms+1)]
+	tabs = st.tabs(tab_titles)
+	
+	assigned_customers = set()
+	form_results = {}
+	
+	for form_id, tab in enumerate(tabs, start=1):
+		with tab:
+			filtered_data, role, city, state, max_dist, selected_au = data_filteration(
+				customer_data, branch_data, banker_data, form_id
+			)
+			
+			filtered_data['FormID'] = form_id
+			
+			# Initialize form controls for this form if not exists
+			if form_id not in st.session_state.form_controls:
+				st.session_state.form_controls[form_id] = {}
+			
+			# Clean up form controls to only include valid portfolio IDs
+			if not filtered_data.empty:
+				valid_pids = set(filtered_data['PORT_CODE'].unique())
+				st.session_state.form_controls[form_id] = {
+					pid: val for pid, val in st.session_state.form_controls[form_id].items()
+					if pid in valid_pids
+				}
+			
+			# Conflict detection
+			assigned = {cid for fid, df in st.session_state.form_results.items() 
+					   if fid != form_id for cid in df['CG_ECN']}
+			conflicts = filtered_data[filtered_data['CG_ECN'].isin(assigned)]
+			if not conflicts.empty:
+				st.warning(f"{len(conflicts)} customers already assigned and removed")
+				filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(assigned)]
 				
 				if st.button(f"Save Form {form_id}", key=f"save_{form_id}"):
 					if not filtered_data.empty:
