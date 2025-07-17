@@ -377,15 +377,104 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 	if cust_portcd is not None:
 		filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
 	
-	# Create and display map
+	# Create and display map side by side with table
 	if not filtered_data.empty:
-		st.subheader("Geographic Distribution")
+		# Create two columns for side-by-side layout
+		col1, col2 = st.columns([1, 1])
 		
-		au_df = pd.DataFrame([AU_row])
-		map_fig = create_interactive_map(filtered_data, au_df, max_dist, form_id)
-		st.plotly_chart(map_fig, use_container_width=True)
+		with col1:
+			st.subheader("Portfolio Summary & Customer Selection")
+			
+			# Create portfolio summary table with selection
+			portfolio_summary = []
+			
+			# Group by portfolio for assigned customers
+			grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+			
+			for pid, group in grouped:
+				total_customer = len(customer_data[customer_data["PORT_CODE"] == pid])
+				
+				# Determine portfolio type from the banker data or customer type
+				portfolio_type = "Unknown"
+				if not group.empty:
+					# Get the most common type for this portfolio (excluding Unmanaged)
+					types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+					if not types.empty:
+						portfolio_type = types.index[0]
+				
+				# Initialize form controls
+				st.session_state.form_controls[form_id][pid] = {"n": len(group), "exclude": []}
+				
+				portfolio_summary.append({
+					'Portfolio ID': pid,
+					'Portfolio Type': portfolio_type,
+					'Total Customers': total_customer,
+					'Available': len(group),
+					'Select': len(group)  # Default to all available
+				})
+			
+			# Add row for Unmanaged customers (not part of any portfolio)
+			unmanaged_customers = filtered_data[
+				(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+				(filtered_data['PORT_CODE'].isna())
+			]
+			
+			if not unmanaged_customers.empty:
+				# Initialize form controls for unmanaged
+				st.session_state.form_controls[form_id]['UNMANAGED'] = {"n": len(unmanaged_customers), "exclude": []}
+				
+				portfolio_summary.append({
+					'Portfolio ID': 'UNMANAGED',
+					'Portfolio Type': 'Unmanaged',
+					'Total Customers': len(customer_data[
+						(customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+						(customer_data['PORT_CODE'].isna())
+					]),
+					'Available': len(unmanaged_customers),
+					'Select': len(unmanaged_customers)  # Default to all available
+				})
+			
+			# Display portfolio summary table with selection
+			portfolio_df = pd.DataFrame(portfolio_summary)
+			
+			# Create editable dataframe using st.data_editor
+			edited_df = st.data_editor(
+				portfolio_df,
+				column_config={
+					"Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
+					"Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
+					"Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
+					"Available": st.column_config.NumberColumn("Available", disabled=True),
+					"Select": st.column_config.NumberColumn(
+						"Select",
+						help="Number of customers to select from this portfolio",
+						min_value=0,
+						step=1
+					)
+				},
+				hide_index=True,
+				use_container_width=True,
+				key=f"portfolio_editor_{form_id}"
+			)
+			
+			# Update form controls based on edited values
+			for idx, row in edited_df.iterrows():
+				pid = row['Portfolio ID']
+				if pid in st.session_state.form_controls[form_id]:
+					max_available = row['Available']
+					selected = min(int(row['Select']), max_available)  # Ensure not exceeding available
+					st.session_state.form_controls[form_id][pid]["n"] = selected
+					st.session_state.form_controls[form_id][pid]["exclude"] = []
 		
-		# Display statistics
+		with col2:
+			st.subheader("Geographic Distribution")
+			
+			au_df = pd.DataFrame([AU_row])
+			map_fig = create_interactive_map(filtered_data, au_df, max_dist, form_id)
+			st.plotly_chart(map_fig, use_container_width=True)
+		
+		# Display statistics below the two columns
+		st.subheader("Summary Statistics")
 		col1, col2, col3, col4 = st.columns(4)
 		with col1:
 			st.metric("Total Customers", len(filtered_data))
@@ -395,30 +484,9 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 			st.metric("Total Revenue", f"${filtered_data['BANK_REVENUE'].sum():,.0f}")
 		with col4:
 			st.metric("Total Deposits", f"${filtered_data['DEPOSIT_BAL'].sum():,.0f}")
-		
-		# Additional metrics for special categories
-		if len(filtered_data) > 0:
-			unmanaged_total = len(filtered_data[
-				(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-				(filtered_data['PORT_CODE'].isna())
-			])
 			
-			if unmanaged_total > 0:
-				st.markdown("#### Special Customer Categories")
-				col1, col2, col3, col4 = st.columns(4)
-				with col1:
-					st.metric("🟡 Unmanaged", unmanaged_total)
-				with col2:
-					unmanaged_revenue = filtered_data[
-						(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-						(filtered_data['PORT_CODE'].isna())
-					]['BANK_REVENUE'].sum()
-					st.metric("Unmanaged Revenue", f"${unmanaged_revenue:,.0f}")
-		
-		with st.expander("Filtered Data Summary"):
-			st.dataframe(filtered_data[['CG_ECN', 'TYPE', 'Distance', 'BANK_REVENUE', 'DEPOSIT_BAL', 'BILLINGSTATE']].head(10))
 	else:
-		st.warning("No customers found matching the current filters. Try adjusting your criteria.")
+		st.info("No customers available for selection with current filters.")
 	
 	return [filtered_data, role, city, state, max_dist, selected_au]
 
@@ -505,97 +573,6 @@ if page == "Portfolio Assignment":
 					st.warning(f"{len(conflicts)} customers already assigned and removed")
 					filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(assigned)]
 				
-				if not filtered_data.empty:
-					# Create portfolio summary table with selection
-					portfolio_summary = []
-					
-					# Group by portfolio for assigned customers
-					grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
-					
-					for pid, group in grouped:
-						total_customer = len(data[data["PORT_CODE"] == pid])
-						
-						# Determine portfolio type from the banker data or customer type
-						portfolio_type = "Unknown"
-						if not group.empty:
-							# Get the most common type for this portfolio (excluding Unmanaged)
-							types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
-							if not types.empty:
-								portfolio_type = types.index[0]
-						
-						# Initialize form controls
-						st.session_state.form_controls[form_id][pid] = {"n": len(group), "exclude": []}
-						
-						portfolio_summary.append({
-							'Portfolio ID': pid,
-							'Portfolio Type': portfolio_type,
-							'Total Customers': total_customer,
-							'Available': len(group),
-							'Total Revenue': f"${group['BANK_REVENUE'].sum():,.0f}",
-							'Total Deposits': f"${group['DEPOSIT_BAL'].sum():,.0f}",
-							'Select': len(group)  # Default to all available
-						})
-					
-					# Add row for Unmanaged customers (not part of any portfolio)
-					unmanaged_customers = filtered_data[
-						(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-						(filtered_data['PORT_CODE'].isna())
-					]
-					
-					if not unmanaged_customers.empty:
-						# Initialize form controls for unmanaged
-						st.session_state.form_controls[form_id]['UNMANAGED'] = {"n": len(unmanaged_customers), "exclude": []}
-						
-						portfolio_summary.append({
-							'Portfolio ID': 'UNMANAGED',
-							'Portfolio Type': 'Unmanaged',
-							'Total Customers': len(data[
-								(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-								(data['PORT_CODE'].isna())
-							]),
-							'Available': len(unmanaged_customers),
-							'Total Revenue': f"${unmanaged_customers['BANK_REVENUE'].sum():,.0f}",
-							'Total Deposits': f"${unmanaged_customers['DEPOSIT_BAL'].sum():,.0f}",
-							'Select': len(unmanaged_customers)  # Default to all available
-						})
-					
-					# Display portfolio summary table with selection
-					st.subheader("Portfolio Summary & Customer Selection")
-					portfolio_df = pd.DataFrame(portfolio_summary)
-					
-					# Create editable dataframe using st.data_editor
-					edited_df = st.data_editor(
-						portfolio_df,
-						column_config={
-							"Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
-							"Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-							"Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-							"Available": st.column_config.NumberColumn("Available", disabled=True),
-							"Total Revenue": st.column_config.TextColumn("Total Revenue", disabled=True),
-							"Total Deposits": st.column_config.TextColumn("Total Deposits", disabled=True),
-							"Select": st.column_config.NumberColumn(
-								"Select",
-								help="Number of customers to select from this portfolio",
-								min_value=0,
-								step=1
-							)
-						},
-						hide_index=True,
-						use_container_width=True,
-						key=f"portfolio_editor_{form_id}"
-					)
-					
-					# Update form controls based on edited values
-					for idx, row in edited_df.iterrows():
-						pid = row['Portfolio ID']
-						if pid in st.session_state.form_controls[form_id]:
-							max_available = row['Available']
-							selected = min(int(row['Select']), max_available)  # Ensure not exceeding available
-							st.session_state.form_controls[form_id][pid]["n"] = selected
-							st.session_state.form_controls[form_id][pid]["exclude"] = []
-				else:
-					st.info("No customers available for selection with current filters.")
-				
 				if st.button(f"Save Form {form_id}", key=f"save_{form_id}"):
 					if not filtered_data.empty:
 						result = []
@@ -627,14 +604,6 @@ if page == "Portfolio Assignment":
 							top_n_unmanaged['BRANCH_LAT_NUM'] = b_lat
 							top_n_unmanaged['BRANCH_LON_NUM'] = b_lon
 							result.append(top_n_unmanaged)
-							if pid in st.session_state.form_controls[form_id]:
-								ctrl = st.session_state.form_controls[form_id][pid]
-								selected_customers = group[~group["CG_ECN"].isin(ctrl["exclude"])]
-								top_n = selected_customers.sort_values(by='Distance').head(ctrl["n"])
-								top_n['AU'] = b_au
-								top_n['BRANCH_LAT_NUM'] = b_lat
-								top_n['BRANCH_LON_NUM'] = b_lon
-								result.append(top_n)
 						
 						form_df = pd.concat(result) if result else pd.DataFrame()
 						
@@ -682,14 +651,28 @@ if page == "Portfolio Assignment":
 		for fid, controls in st.session_state.form_controls.items():
 			pid_track[fid] = 0
 			for pid, ctrl in controls.items():
-				df_pid = data[data['PORT_CODE'] == pid]
-				valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
-							  ~df_pid['CG_ECN'].isin(already_assigned)]
-				
-				sel_count = min(len(valid), ctrl['n'])
-				if sel_count > 0:
-					tracker[pid] += sel_count
-					data_for_pivot.append([pid, "Form"+str(fid), sel_count])
+				if pid == 'UNMANAGED':
+					# Handle unmanaged customers
+					unmanaged_data = data[
+						(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+						(data['PORT_CODE'].isna())
+					]
+					valid_unmanaged = unmanaged_data[~unmanaged_data['CG_ECN'].isin(ctrl['exclude']) &
+													~unmanaged_data['CG_ECN'].isin(already_assigned)]
+					sel_count = min(len(valid_unmanaged), ctrl['n'])
+					if sel_count > 0:
+						tracker[pid] += sel_count
+						data_for_pivot.append([pid, "Form"+str(fid), sel_count])
+				else:
+					# Handle regular portfolios
+					df_pid = data[data['PORT_CODE'] == pid]
+					valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
+								  ~df_pid['CG_ECN'].isin(already_assigned)]
+					
+					sel_count = min(len(valid), ctrl['n'])
+					if sel_count > 0:
+						tracker[pid] += sel_count
+						data_for_pivot.append([pid, "Form"+str(fid), sel_count])
 				
 				pid_track[fid] += sel_count
 		
@@ -702,42 +685,6 @@ if page == "Portfolio Assignment":
 		if tracker:
 			tdf = pd.DataFrame([{"PortfolioID": pid, "Customers selected": n} for pid, n in tracker.items()])
 			st.sidebar.dataframe(tdf)
-		
-		# Show Unmanaged summary in sidebar
-		st.sidebar.markdown("**Special Customer Categories**")
-		total_unmanaged = 0
-		
-		for fid, controls in st.session_state.form_controls.items():
-			form_unmanaged = 0
-			
-			for pid, ctrl in controls.items():
-				if pid == 'UNMANAGED':
-					# Handle unmanaged customers
-					unmanaged_data = data[
-						(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-						(data['PORT_CODE'].isna())
-					]
-					valid_unmanaged = unmanaged_data[~unmanaged_data['CG_ECN'].isin(ctrl['exclude']) &
-													~unmanaged_data['CG_ECN'].isin(already_assigned)]
-					form_unmanaged += min(len(valid_unmanaged), ctrl['n'])
-				else:
-					# Handle regular portfolios
-					df_pid = data[data['PORT_CODE'] == pid]
-					valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
-								  ~df_pid['CG_ECN'].isin(already_assigned)]
-					
-					# Don't count unmanaged customers in regular portfolios
-					valid = valid[valid['TYPE'].str.lower().str.strip() != 'unmanaged']
-			
-			total_unmanaged += form_unmanaged
-			
-			if form_unmanaged > 0:
-				st.sidebar.write(f"Form {fid}:")
-				st.sidebar.write(f"  🟡 Unmanaged: {form_unmanaged}")
-		
-		if total_unmanaged > 0:
-			st.sidebar.markdown("**Total Special Categories:**")
-			st.sidebar.write(f"🟡 Total Unmanaged: {total_unmanaged}")
 		
 		st.sidebar.markdown("**Customer count per Form**")
 		if not tracker_df.empty:
