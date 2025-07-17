@@ -436,10 +436,10 @@ if page == "Portfolio Assignment":
                 # Store the created portfolios data
                 st.session_state.portfolios_created = portfolios_created
                 
-                # Show map immediately after creating portfolios
+                # Show Portfolio Summary Tables and Geographic Distribution in horizontal stack
                 st.markdown("----")
                 
-                # Create layout with table and map side by side
+                # Create horizontal layout with equal width columns
                 col1, col2 = st.columns([1, 1])
                 
                 with col1:
@@ -483,14 +483,13 @@ if page == "Portfolio Assignment":
                                     au_filtered_data = portfolios_created[au_id]
                                     if not au_filtered_data.empty:
                                         st.subheader("AU Summary Statistics")
-                                        col1, col2, col3, col4 = st.columns(4)
-                                        with col1:
+                                        # Use 2 columns for metrics to fit in half-width layout
+                                        col_a, col_b = st.columns(2)
+                                        with col_a:
                                             st.metric("Total Customers", len(au_filtered_data))
-                                        with col2:
-                                            st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
-                                        with col3:
                                             st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
-                                        with col4:
+                                        with col_b:
+                                            st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
                                             st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
                     else:
                         # Single AU case
@@ -528,14 +527,13 @@ if page == "Portfolio Assignment":
                             au_filtered_data = portfolios_created[au_id]
                             if not au_filtered_data.empty:
                                 st.subheader("AU Summary Statistics")
-                                col1, col2, col3, col4 = st.columns(4)
-                                with col1:
+                                # Use 2 columns for metrics to fit in half-width layout
+                                col_a, col_b = st.columns(2)
+                                with col_a:
                                     st.metric("Total Customers", len(au_filtered_data))
-                                with col2:
-                                    st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
-                                with col3:
                                     st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
-                                with col4:
+                                with col_b:
+                                    st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
                                     st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
                 
                 with col2:
