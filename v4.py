@@ -671,7 +671,7 @@ if page == "Portfolio Assignment":
                 st.warning("No customers found for the selected AUs with current filters.")
     
     # Show recommendation reassignment table if it exists
-    if 'recommend_reassignment' in st.session_state and not st.session_state.recommend_reassignment.empty:
+    if 'recommend_reassignment' in st.session_state and isinstance(st.session_state.recommend_reassignment, pd.DataFrame) and not st.session_state.recommend_reassignment.empty:
         st.markdown("----")
         st.subheader("Recommended Reassignments")
         st.dataframe(st.session_state.recommend_reassignment, use_container_width=True)
