@@ -328,11 +328,11 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 		
 		col4, col5 = st.columns(2)
 		with col4:
-			max_dist = st.slider(f"Max Distance (Form {form_id})", 20, 100, 60, key=f"Distance_{form_id}")
+			max_dist = st.slider(f"Max Distance (Form {form_id})", 1, 100, 20, key=f"Distance_{form_id}")
 		with col5:
-			min_rev = st.slider(f"Minimum Revenue (Form {form_id})", 0, 20000, 5000, key=f"revenue_{form_id}")
+			min_rev = st.slider(f"Minimum Revenue (Form {form_id})", 0, 20000, 5000, step=1000, key=f"revenue_{form_id}")
 		
-		min_deposit = st.slider(f"Minimum Deposit (Form {form_id})", 0, 200000, 100000, key=f"deposit_{form_id}")
+		min_deposit = st.slider(f"Minimum Deposit (Form {form_id})", 0, 200000, 100000, step=5000, key=f"deposit_{form_id}")
 	
 	# Get AU data
 	AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
@@ -440,6 +440,9 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 			
 			# Display portfolio summary table with selection
 			portfolio_df = pd.DataFrame(portfolio_summary)
+			
+			# Sort by Available column in descending order
+			portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
 			
 			# Create editable dataframe using st.data_editor
 			edited_df = st.data_editor(
