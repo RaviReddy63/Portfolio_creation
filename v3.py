@@ -526,6 +526,15 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
 
+# Custom CSS for red header
+st.markdown("""
+<style>
+    [data-testid="stHeader"] {
+        background-color: rgb(215, 30, 40) !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+
 # Add logo using Streamlit's logo function
 try:
     st.logo("logo.svg")
