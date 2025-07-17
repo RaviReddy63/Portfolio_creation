@@ -1,888 +1,400 @@
-from io import BytesIO
-import pandas as pd
-import math
-from math import sin, cos, atan2, radians, sqrt
 import streamlit as st
-import numpy as np
-import plotly.express as px
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
+import pandas as pd
 
-def haversine_distance(clat, clon, blat, blon):
-	if math.isnan(clat) or math.isnan(clon) or math.isnan(blat) or math.isnan(blon):
-		return 0
-		
-	delta_lat = radians(clat - blat)
-	delta_lon = radians(clon - blon)
-	
-	a = sin(delta_lat/2)**2 + cos(radians(clat))*cos(radians(blat))*sin(delta_lon/2)**2
-	c = 2*atan2(sqrt(a), sqrt(1-a))
-	distance = 6371*c
-	return distance
+# Custom CSS for the +/- buttons
+st.markdown("""
+<style>
+    .quantity-selector {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0px;
+        margin: 0;
+    }
 
-def merge_dfs(customer_data, banker_data, branch_data):
-	customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-	final_table = customer_data.merge(banker_data, on = "PORT_CODE", how = "left")
-	final_table.fillna(0, inplace = True)
-	return final_table
+    .qty-btn {
+        width: 28px;
+        height: 28px;
+        border: 1px solid #d1d5db;
+        background-color: #f9fafb;
+        color: #374151;
+        cursor: pointer;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 600;
+        transition: all 0.2s ease;
+        user-select: none;
+    }
 
-def create_distance_circle(center_lat, center_lon, radius_km, num_points=100):
-	"""Create points for a circle around a center point"""
-	angles = np.linspace(0, 2*np.pi, num_points)
-	circle_lats = []
-	circle_lons = []
-	
-	for angle in angles:
-		# Convert km to degrees (rough approximation)
-		lat_offset = radius_km / 111.0  # 1 degree lat ≈ 111 km
-		lon_offset = radius_km / (111.0 * math.cos(math.radians(center_lat)))
-		
-		lat = center_lat + lat_offset * math.cos(angle)
-		lon = center_lon + lon_offset * math.sin(angle)
-		
-		circle_lats.append(lat)
-		circle_lons.append(lon)
-	
-	# Close the circle
-	circle_lats.append(circle_lats[0])
-	circle_lons.append(circle_lons[0])
-	
-	return circle_lats, circle_lons
+    .qty-btn:hover {
+        background-color: #e5e7eb;
+        border-color: #9ca3af;
+    }
 
-def create_interactive_map(filtered_data, au_data, max_distance=60, form_id=None):
-	"""Create an interactive map using Plotly"""
-	
-	fig = go.Figure()
-	
-	# Add AU markers
-	if not au_data.empty:
-		for _, au in au_data.iterrows():
-			# Add AU marker
-			fig.add_trace(go.Scattermapbox(
-				lat=[au['BRANCH_LAT_NUM']],
-				lon=[au['BRANCH_LON_NUM']],
-				mode='markers',
-				marker=dict(
-					size=15,
-					color='red',
-					symbol='building'
-				),
-				text=f"AU {au['AU']}",
-				hovertemplate=f"""
-				<b>AU {au['AU']}</b><br>
-				City: {au.get('CITY', 'N/A')}<br>
-				State: {au.get('STATECODE', 'N/A')}<br>
-				Coordinates: {au['BRANCH_LAT_NUM']:.4f}, {au['BRANCH_LON_NUM']:.4f}
-				<extra></extra>
-				""",
-				name=f"AU {au['AU']}",
-				showlegend=True
-			))
-			
-			# Add distance circle
-			circle_lats, circle_lons = create_distance_circle(
-				au['BRANCH_LAT_NUM'], au['BRANCH_LON_NUM'], max_distance
-			)
-			
-			fig.add_trace(go.Scattermapbox(
-				lat=circle_lats,
-				lon=circle_lons,
-				mode='lines',
-				line=dict(width=2, color='red'),
-				opacity=0.5,
-				name=f"Distance Circle ({max_distance}km)",
-				showlegend=True,
-				hoverinfo='skip'
-			))
-	
-	# Add customer markers
-	if not filtered_data.empty:
-		# Determine colors and labels
-		if form_id:
-			color = 'green'
-			name = f"Form {form_id} Customers"
-		else:
-			color = 'blue'
-			name = "Selected Customers"
-		
-		# Create hover text
-		hover_text = []
-		for _, customer in filtered_data.iterrows():
-			hover_text.append(f"""
-			<b>{customer.get('CG_ECN', 'N/A')}</b><br>
-			Portfolio: {customer.get('PORT_CODE', 'N/A')}<br>
-			Distance: {customer.get('Distance', 0):.1f} km<br>
-			Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
-			Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
-			State: {customer.get('BILLINGSTATE', 'N/A')}<br>
-			Type: {customer.get('TYPE', 'N/A')}
-			""")
-		
-		fig.add_trace(go.Scattermapbox(
-			lat=filtered_data['LAT_NUM'],
-			lon=filtered_data['LON_NUM'],
-			mode='markers',
-			marker=dict(
-				size=8,
-				color=color,
-				symbol='circle'
-			),
-			hovertemplate='%{text}<extra></extra>',
-			text=hover_text,
-			name=name,
-			showlegend=True
-		))
-	
-	# Update layout
-	if not au_data.empty:
-		center_lat = au_data['BRANCH_LAT_NUM'].iloc[0]
-		center_lon = au_data['BRANCH_LON_NUM'].iloc[0]
-		zoom = 8
-	else:
-		center_lat = 39.8283
-		center_lon = -98.5795
-		zoom = 4
-	
-	fig.update_layout(
-		mapbox=dict(
-			style="open-street-map",
-			center=dict(lat=center_lat, lon=center_lon),
-			zoom=zoom
-		),
-		height=500,
-		margin=dict(l=0, r=0, t=0, b=0),
-		showlegend=True,
-		legend=dict(
-			yanchor="top",
-			y=0.99,
-			xanchor="left",
-			x=0.01,
-			bgcolor="rgba(255,255,255,0.8)"
-		)
-	)
-	
-	return fig
+    .qty-btn:active {
+        background-color: #d1d5db;
+        transform: scale(0.95);
+    }
 
-def create_combined_map(form_results, branch_data):
-	"""Create a combined map showing all forms and their customers"""
-	
-	if not form_results:
-		return None
-	
-	fig = go.Figure()
-	
-	# Color scheme for different forms
-	form_colors = ['green', 'blue', 'purple', 'orange', 'darkred', 'lightblue', 'pink', 'darkgreen', 'brown', 'gray']
-	
-	# Get all unique AU locations
-	au_locations = set()
-	for form_id, df in form_results.items():
-		if not df.empty:
-			au_locations.add((df['AU'].iloc[0], df['BRANCH_LAT_NUM'].iloc[0], df['BRANCH_LON_NUM'].iloc[0]))
-	
-	# Add AU markers
-	for au_id, au_lat, au_lon in au_locations:
-		au_details = branch_data[branch_data['AU'] == au_id]
-		au_name = au_details['CITY'].iloc[0] if not au_details.empty else f"AU {au_id}"
-		
-		fig.add_trace(go.Scattermapbox(
-			lat=[au_lat],
-			lon=[au_lon],
-			mode='markers',
-			marker=dict(
-				size=15,
-				color='red',
-				symbol='building'
-			),
-			text=f"AU {au_id}",
-			hovertemplate=f"""
-			<b>AU {au_id}</b><br>
-			Location: {au_name}<br>
-			Coordinates: {au_lat:.4f}, {au_lon:.4f}
-			<extra></extra>
-			""",
-			name=f"AU {au_id}",
-			showlegend=True
-		))
-	
-	# Add customers from each form
-	for form_id, df in form_results.items():
-		if df.empty:
-			continue
-		
-		color = form_colors[(form_id - 1) % len(form_colors)]
-		
-		# Create hover text for this form
-		hover_text = []
-		for _, customer in df.iterrows():
-			hover_text.append(f"""
-			<b>{customer.get('CG_ECN', 'N/A')}</b><br>
-			Form: {form_id}<br>
-			Portfolio: {customer.get('PORT_CODE', 'N/A')}<br>
-			Distance: {customer.get('Distance', 0):.1f} km<br>
-			Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
-			Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
-			State: {customer.get('BILLINGSTATE', 'N/A')}<br>
-			Type: {customer.get('TYPE', 'N/A')}
-			""")
-		
-		fig.add_trace(go.Scattermapbox(
-			lat=df['LAT_NUM'],
-			lon=df['LON_NUM'],
-			mode='markers',
-			marker=dict(
-				size=8,
-				color=color,
-				symbol='circle'
-			),
-			hovertemplate='%{text}<extra></extra>',
-			text=hover_text,
-			name=f"Form {form_id} ({len(df)} customers)",
-			showlegend=True
-		))
-	
-	# Calculate center point
-	all_lats = []
-	all_lons = []
-	for form_id, df in form_results.items():
-		if not df.empty:
-			all_lats.extend(df['LAT_NUM'].tolist())
-			all_lons.extend(df['LON_NUM'].tolist())
-	
-	if all_lats:
-		center_lat = sum(all_lats) / len(all_lats)
-		center_lon = sum(all_lons) / len(all_lons)
-		zoom = 6
-	else:
-		center_lat = 39.8283
-		center_lon = -98.5795
-		zoom = 4
-	
-	fig.update_layout(
-		mapbox=dict(
-			style="open-street-map",
-			center=dict(lat=center_lat, lon=center_lon),
-			zoom=zoom
-		),
-		height=500,
-		margin=dict(l=0, r=0, t=0, b=0),
-		showlegend=True,
-		legend=dict(
-			yanchor="top",
-			y=0.99,
-			xanchor="left",
-			x=0.01,
-			bgcolor="rgba(255,255,255,0.8)"
-		)
-	)
-	
-	return fig
+    .qty-btn.minus {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+        border-right: none;
+    }
 
-def to_excel(form_results):
-	output = BytesIO()
-	with pd.ExcelWriter(output , engine='openpyxl') as writer:
-		for form_id, df in form_results.items():
-			df.to_excel(writer , sheet_name = f"Form_{form_id}", index = False)
-	output.seek(0)
-	return output
+    .qty-btn.plus {
+        border-top-left-radius: 0;
+        border-bottom-left-radius: 0;
+        border-left: none;
+    }
 
-def data_filteration(customer_data, branch_data, banker_data, form_id):
-	st.subheader(f"Form {form_id}")
-	
-	# Select AU Section
-	with st.expander("Select AU", expanded=True):
-		col1, col2, col3 = st.columns(3)
-		
-		with col1:
-			state = st.selectbox(f"State (Form {form_id})", branch_data['STATECODE'].dropna().unique(), key=f"State_{form_id}")
-			
-		filter_data = branch_data[branch_data['STATECODE'] == state]
-		
-		with col2:
-			city = st.selectbox(f"City (Form {form_id})", filter_data['CITY'].dropna().unique(), key=f"City_{form_id}")
-			
-		au_options = filter_data[filter_data['CITY'] == city]['AU'].dropna().unique()
-		with col3:
-			selected_au = st.selectbox(f"AU (Form {form_id})", au_options, key = f"AU_{form_id}")
-	
-	# Select Customers Section
-	with st.expander("Select Customers", expanded=True):
-		col1, col2, col3 = st.columns(3)
-		
-		with col1:
-			role_options = ['All Roles'] + list(customer_data['TYPE'].dropna().unique())
-			role = st.selectbox(f"Role (Form {form_id})", role_options, key=f"Role_{form_id}")
-			if role == 'All Roles':
-				role = None
-		
-		with col2:
-			cust_state_options = ['All States'] + list(customer_data['BILLINGSTATE'].dropna().unique())
-			cust_state = st.selectbox(f"Customer State (Form {form_id})", cust_state_options, key=f"state_{form_id}")
-			if cust_state == 'All States':
-				cust_state = None
-		
-		with col3:
-			cust_portcd = st.multiselect(f"Portfolio Code (Form {form_id})", customer_data['PORT_CODE'].dropna().unique(), key=f"port_cd_{form_id}")
-			if not cust_portcd:
-				cust_portcd = None
-		
-		col4, col5 = st.columns(2)
-		with col4:
-			max_dist = st.slider(f"Max Distance (Form {form_id})", 20, 100, 60, key=f"Distance_{form_id}")
-		with col5:
-			min_rev = st.slider(f"Minimum Revenue (Form {form_id})", 0, 20000, 5000, key=f"revenue_{form_id}")
-		
-		min_deposit = st.slider(f"Minimum Deposit (Form {form_id})", 0, 200000, 100000, key=f"deposit_{form_id}")
-	
-	# Get AU data
-	AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
-	AU_lat = AU_row['BRANCH_LAT_NUM']
-	AU_lon = AU_row['BRANCH_LON_NUM']
-	
-	# Filter customers by distance box
-	box_lat = max_dist/111
-	box_lon = max_dist/ (111 * np.cos(np.radians(AU_lat)))
-	
-	customer_data_boxed = customer_data[(customer_data['LAT_NUM'] >= AU_lat - box_lat) &
-										(customer_data['LAT_NUM'] <= AU_lat + box_lat) &
-										(customer_data['LON_NUM'] <= AU_lon + box_lon) &
-										(customer_data['LON_NUM'] >= AU_lon - box_lon)]
-	
-	# Calculate distances
-	customer_data_boxed['Distance'] = customer_data_boxed.apply(
-		lambda row: haversine_distance(row['LAT_NUM'], row['LON_NUM'], AU_lat, AU_lon), axis=1
-	)
-	
-	customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-	filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
-	
-	# Apply distance filter for all roles except CENTRALIZED
-	if role is None or (role is not None and role.lower().strip() != 'centralized'):
-		filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
-	
-	# Apply role-specific filters
-	if role is not None:
-		filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
-		role_clean = role.strip().lower()
-		filtered_data = filtered_data[filtered_data['TYPE_CLEAN'] == role_clean]
-		filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
-	
-	# Apply other filters
-	filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
-	filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
-	
-	if cust_state is not None:
-		filtered_data = filtered_data[filtered_data['BILLINGSTATE'] == cust_state]
-	
-	if cust_portcd is not None:
-		filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
-	
-	# Create and display map
-	if not filtered_data.empty:
-		st.subheader("Geographic Distribution")
-		
-		au_df = pd.DataFrame([AU_row])
-		map_fig = create_interactive_map(filtered_data, au_df, max_dist, form_id)
-		st.plotly_chart(map_fig, use_container_width=True)
-		
-		# Display statistics
-		col1, col2, col3, col4 = st.columns(4)
-		with col1:
-			st.metric("Total Customers", len(filtered_data))
-		with col2:
-			st.metric("Avg Distance", f"{filtered_data['Distance'].mean():.1f} km")
-		with col3:
-			st.metric("Total Revenue", f"${filtered_data['BANK_REVENUE'].sum():,.0f}")
-		with col4:
-			st.metric("Total Deposits", f"${filtered_data['DEPOSIT_BAL'].sum():,.0f}")
-		
-		# Additional metrics for special categories
-		if len(filtered_data) > 0:
-			unmanaged_total = len(filtered_data[
-				(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-				(filtered_data['PORT_CODE'].isna())
-			])
-			
-			if unmanaged_total > 0:
-				st.markdown("#### Special Customer Categories")
-				col1, col2, col3, col4 = st.columns(4)
-				with col1:
-					st.metric("🟡 Unmanaged", unmanaged_total)
-				with col2:
-					unmanaged_revenue = filtered_data[
-						(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-						(filtered_data['PORT_CODE'].isna())
-					]['BANK_REVENUE'].sum()
-					st.metric("Unmanaged Revenue", f"${unmanaged_revenue:,.0f}")
-		
-		with st.expander("Filtered Data Summary"):
-			st.dataframe(filtered_data[['CG_ECN', 'TYPE', 'Distance', 'BANK_REVENUE', 'DEPOSIT_BAL', 'BILLINGSTATE']].head(10))
-	else:
-		st.warning("No customers found matching the current filters. Try adjusting your criteria.")
-	
-	return [filtered_data, role, city, state, max_dist, selected_au]
+    .qty-input {
+        width: 50px;
+        height: 28px;
+        border: 1px solid #d1d5db;
+        border-left: none;
+        border-right: none;
+        text-align: center;
+        font-size: 14px;
+        background-color: white;
+        outline: none;
+        border-radius: 0;
+    }
 
-def recommend_reassignment(form_res: dict) -> pd.DataFrame:
-	combine_df = pd.concat([df.assign(original_form = form_id) for form_id , df in form_res.items()], ignore_index = True)
-	
-	au_map = { form_id: ( df["BRANCH_LAT_NUM"].iloc[0], df["BRANCH_LON_NUM"].iloc[0])
-				for form_id , df in form_res.items()
-				if not df.empty}
-				
-	records = []
-	for _, row in combine_df.iterrows():
-		best_form = None
-		min_dist = float("inf")
-		for form_id , (au_lat , au_lon) in au_map.items():
-			dist = haversine_distance(row['LAT_NUM'], row['LON_NUM'] , au_lat , au_lon)
-			if dist < min_dist:
-				best_form = form_id
-				min_dist = dist
-				
-		row_data = row.to_dict()
-		row_data['recommended_form'] = best_form
-		row_data['recommended_dist'] = min_dist
-		records.append(row_data)
-		
-	return pd.DataFrame(records)
+    .qty-input:focus {
+        border-color: #ff4b4b;
+        box-shadow: 0 0 0 1px #ff4b4b;
+    }
 
-#------------------------Streamlit App---------------------------------------------------------------
-st.set_page_config("Portfolio Creation tool", layout="wide")
-st.title("Portfolio creation tool")
-page = st.selectbox("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
+    /* Hide default number input arrows */
+    .qty-input::-webkit-outer-spin-button,
+    .qty-input::-webkit-inner-spin-button {
+        -webkit-appearance: none;
+        margin: 0;
+    }
 
-#------------------------File Upload----------------------------------------------------------------------------------
-st.sidebar.header("Upload CSV files")
-cust_file = st.sidebar.file_uploader("Customer Data", type=["csv"])
-banker_file = st.sidebar.file_uploader("Banker Data", type=["csv"])
-branch_file = st.sidebar.file_uploader("Branch Data", type=["csv"])
+    .qty-input[type=number] {
+        -moz-appearance: textfield;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-if 'form_results' not in st.session_state:
-	st.session_state.form_results = {}
-	
-if 'form_controls' not in st.session_state:
-	st.session_state.form_controls = {}
-	
-if 'recommend_reassignment' not in st.session_state:
-	st.session_state.recommend_reassignment = {}
+def create_quantity_selector(portfolio_id, current_value, max_value, form_id):
+    """Create a quantity selector with +/- buttons"""
+    
+    # Create unique keys for each portfolio
+    minus_key = f"minus_{portfolio_id}_{form_id}"
+    plus_key = f"plus_{portfolio_id}_{form_id}"
+    
+    # Create columns for the selector
+    col1, col2, col3 = st.columns([1, 2, 1])
+    
+    with col1:
+        # Minus button
+        minus_clicked = st.button(
+            "−", 
+            key=minus_key,
+            help="Decrease quantity",
+            use_container_width=True
+        )
+    
+    with col2:
+        # Number input (display only)
+        st.markdown(
+            f'<div style="text-align: center; padding: 4px; border: 1px solid #d1d5db; background: white; border-radius: 4px;">{current_value}</div>',
+            unsafe_allow_html=True
+        )
+    
+    with col3:
+        # Plus button
+        plus_clicked = st.button(
+            "+", 
+            key=plus_key,
+            help="Increase quantity",
+            use_container_width=True
+        )
+    
+    # Handle button clicks
+    if minus_clicked and current_value > 0:
+        return current_value - 1
+    elif plus_clicked and current_value < max_value:
+        return current_value + 1
+    else:
+        return current_value
 
-if page == "Portfolio Assignment":
-	if cust_file and banker_file and branch_file:
-		customer_data = pd.read_csv(cust_file)
-		banker_data = pd.read_csv(banker_file)
-		branch_data = pd.read_csv(branch_file)
-		data = merge_dfs(customer_data, banker_data, branch_data)
-		
-		st.sidebar.header("Form Configuration")
-		num_forms = st.sidebar.number_input("Number of Portfolios", min_value=1, max_value=10, value=1)
-		
-		tab_titles = [f"Form {i}" for i in range(1, num_forms+1)]
-		tabs = st.tabs(tab_titles)
-		
-		assigned_customers = set()
-		form_results = {}
-		
-		for form_id, tab in enumerate(tabs, start=1):
-			with tab:
-				filtered_data, role, city, state, max_dist, selected_au = data_filteration(
-					customer_data, branch_data, banker_data, form_id
-				)
-				
-				filtered_data['FormID'] = form_id
-				st.session_state.form_controls.setdefault(form_id, {})
-				
-				valid_pids = set(filtered_data['PORT_CODE'].unique())
-				st.session_state.form_controls[form_id] = {
-					pid: val for pid, val in st.session_state.form_controls[form_id].items()
-					if pid in valid_pids
-				}
-				
-				# Conflict detection
-				assigned = {cid for fid, df in st.session_state.form_results.items() 
-						   if fid != form_id for cid in df['CG_ECN']}
-				conflicts = filtered_data[filtered_data['CG_ECN'].isin(assigned)]
-				if not conflicts.empty:
-					st.warning(f"{len(conflicts)} customers already assigned and removed")
-					filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(assigned)]
-				
-				if not filtered_data.empty:
-					# Create portfolio summary table with +/- selection
-					st.subheader("Portfolio Summary & Customer Selection")
-					
-					# Group by portfolio for assigned customers
-					grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
-					
-					# Initialize portfolio data
-					portfolio_data = []
-					for pid, group in grouped:
-						total_customer = len(data[data["PORT_CODE"] == pid])
-						
-						# Determine portfolio type from the banker data or customer type
-						portfolio_type = "Unknown"
-						if not group.empty:
-							# Get the most common type for this portfolio (excluding Unmanaged)
-							types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
-							if not types.empty:
-								portfolio_type = types.index[0]
-						
-						# Initialize form controls
-						st.session_state.form_controls[form_id][pid] = {"n": len(group), "exclude": []}
-						
-						portfolio_data.append({
-							'id': pid,
-							'type': portfolio_type,
-							'total': total_customer,
-							'available': len(group),
-							'revenue': group['BANK_REVENUE'].sum(),
-							'deposits': group['DEPOSIT_BAL'].sum()
-						})
-					
-					# Add unmanaged customers
-					unmanaged_customers = filtered_data[
-						(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-						(filtered_data['PORT_CODE'].isna())
-					]
-					
-					if not unmanaged_customers.empty:
-						# Initialize form controls for unmanaged
-						st.session_state.form_controls[form_id]['UNMANAGED'] = {"n": len(unmanaged_customers), "exclude": []}
-						
-						portfolio_data.append({
-							'id': 'UNMANAGED',
-							'type': 'Unmanaged',
-							'total': len(data[
-								(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-								(data['PORT_CODE'].isna())
-							]),
-							'available': len(unmanaged_customers),
-							'revenue': unmanaged_customers['BANK_REVENUE'].sum(),
-							'deposits': unmanaged_customers['DEPOSIT_BAL'].sum()
-						})
-					
-					# Display table with integrated +/- controls
-					for i, portfolio in enumerate(portfolio_data):
-						pid = portfolio['id']
-						ctrl = st.session_state.form_controls[form_id][pid]
-						
-						# Create columns for the table row
-						col1, col2, col3, col4, col5, col6, col7, col8, col9, col10 = st.columns([1.2, 1, 0.8, 0.8, 1.2, 1.2, 0.3, 0.6, 0.3, 0.5])
-						
-						# Add header row only once
-						if i == 0:
-							with col1:
-								st.write("**Portfolio ID**")
-							with col2:
-								st.write("**Type**")
-							with col3:
-								st.write("**Total**")
-							with col4:
-								st.write("**Available**")
-							with col5:
-								st.write("**Revenue**")
-							with col6:
-								st.write("**Deposits**")
-							with col7:
-								st.write("")
-							with col8:
-								st.write("**Select**")
-							with col9:
-								st.write("")
-							with col10:
-								st.write("")
-							
-							# Add separator
-							st.divider()
-						
-						# Portfolio row data
-						with col1:
-							if pid == 'UNMANAGED':
-								st.write("*UNMANAGED*")
-							else:
-								st.write(pid)
-						
-						with col2:
-							type_colors = {
-								'Unassigned': '🔴',
-								'In-market': '🔵', 
-								'Centralized': '🟣',
-								'Unmanaged': '🟡'
-							}
-							emoji = type_colors.get(portfolio['type'], '⚪')
-							st.write(f"{emoji} {portfolio['type']}")
-						
-						with col3:
-							st.write(portfolio['total'])
-						
-						with col4:
-							st.write(portfolio['available'])
-						
-						with col5:
-							st.write(f"${portfolio['revenue']:,.0f}")
-						
-						with col6:
-							st.write(f"${portfolio['deposits']:,.0f}")
-						
-						with col7:
-							if st.button("➖", key=f"minus_{form_id}_{pid}", help="Decrease selection"):
-								if ctrl["n"] > 0:
-									ctrl["n"] -= 1
-									st.rerun()
-						
-						with col8:
-							current_value = ctrl["n"]
-							ctrl["n"] = st.number_input(
-								"Select",
-								min_value=0,
-								max_value=portfolio['available'],
-								value=min(current_value, portfolio['available']),
-								key=f"input_{form_id}_{pid}",
-								label_visibility="collapsed"
-							)
-						
-						with col9:
-							if st.button("➕", key=f"plus_{form_id}_{pid}", help="Increase selection"):
-								if ctrl["n"] < portfolio['available']:
-									ctrl["n"] += 1
-									st.rerun()
-						
-						with col10:
-							st.write(f"/{portfolio['available']}")
-						
-						ctrl["exclude"] = []
-						
-						# Add separator between rows except for last row
-						if i < len(portfolio_data) - 1:
-							st.write("")
-				else:
-					st.info("No customers available for selection with current filters.")
-				
-				if st.button(f"Save Form {form_id}", key=f"save_{form_id}"):
-					if not filtered_data.empty:
-						result = []
-						au_row = branch_data[branch_data['AU'] == selected_au].iloc[0]
-						b_au, b_lat, b_lon = au_row['AU'], au_row['BRANCH_LAT_NUM'], au_row['BRANCH_LON_NUM']
-						
-						# Handle regular portfolios
-						grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
-						for pid, group in grouped:
-							if pid in st.session_state.form_controls[form_id]:
-								ctrl = st.session_state.form_controls[form_id][pid]
-								selected_customers = group[~group["CG_ECN"].isin(ctrl["exclude"])]
-								top_n = selected_customers.sort_values(by='Distance').head(ctrl["n"])
-								top_n['AU'] = b_au
-								top_n['BRANCH_LAT_NUM'] = b_lat
-								top_n['BRANCH_LON_NUM'] = b_lon
-								result.append(top_n)
-						
-						# Handle unmanaged customers
-						unmanaged_customers = filtered_data[
-							(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-							(filtered_data['PORT_CODE'].isna())
-						]
-						if not unmanaged_customers.empty and 'UNMANAGED' in st.session_state.form_controls[form_id]:
-							ctrl = st.session_state.form_controls[form_id]['UNMANAGED']
-							selected_unmanaged = unmanaged_customers[~unmanaged_customers["CG_ECN"].isin(ctrl["exclude"])]
-							top_n_unmanaged = selected_unmanaged.sort_values(by='Distance').head(ctrl["n"])
-							top_n_unmanaged['AU'] = b_au
-							top_n_unmanaged['BRANCH_LAT_NUM'] = b_lat
-							top_n_unmanaged['BRANCH_LON_NUM'] = b_lon
-							result.append(top_n_unmanaged)
-							if pid in st.session_state.form_controls[form_id]:
-								ctrl = st.session_state.form_controls[form_id][pid]
-								selected_customers = group[~group["CG_ECN"].isin(ctrl["exclude"])]
-								top_n = selected_customers.sort_values(by='Distance').head(ctrl["n"])
-								top_n['AU'] = b_au
-								top_n['BRANCH_LAT_NUM'] = b_lat
-								top_n['BRANCH_LON_NUM'] = b_lon
-								result.append(top_n)
-						
-						form_df = pd.concat(result) if result else pd.DataFrame()
-						
-						# Handle conflicts
-						conflicted_ids = []
-						reassigned_rows = []
-						for cid in form_df["CG_ECN"]:
-							for other_fid, other_df in st.session_state.form_results.items():
-								if other_fid == form_id:
-									continue
-								if cid in other_df["CG_ECN"].values:
-									old_row = other_df[other_df["CG_ECN"] == cid].iloc[0]
-									new_row = form_df[form_df["CG_ECN"] == cid].iloc[0]
-									
-									if new_row['Distance'] < old_row['Distance']:
-										st.session_state.form_results[other_fid] = other_df[other_df["CG_ECN"] != cid]
-										reassigned_rows.append(new_row)
-										conflicted_ids.append((cid, other_fid, old_row['Distance'], form_id, new_row['Distance']))
-									else:
-										form_df = form_df[form_df["CG_ECN"] != cid]
-						
-						if reassigned_rows:
-							form_df = pd.concat([form_df, pd.DataFrame(reassigned_rows)])
-						
-						st.session_state.form_results[form_id] = form_df
-						st.success(f"Form {form_id} saved with {len(form_df)} customers")
-						
-						if conflicted_ids:
-							with st.expander("Conflict resolutions (Auto Handled)"):
-								conflict_df = pd.DataFrame(conflicted_ids, columns=[
-									"CG_ECN", "Previous Form", "Previous Distance", "Assigned Form", "New Distance"
-								])
-								st.warning("Some customers were reassigned based on distance:")
-								st.dataframe(conflict_df, use_container_width=True)
-					else:
-						st.error("No customers to save. Please adjust your filters.")
-		
-		# Live tracking
-		from collections import defaultdict
-		tracker = defaultdict(int)
-		data_for_pivot = []
-		pid_track = {}
-		already_assigned = {cid for df in st.session_state.form_results.values() for cid in df['CG_ECN']}
-		
-		for fid, controls in st.session_state.form_controls.items():
-			pid_track[fid] = 0
-			for pid, ctrl in controls.items():
-				df_pid = data[data['PORT_CODE'] == pid]
-				valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
-							  ~df_pid['CG_ECN'].isin(already_assigned)]
-				
-				sel_count = min(len(valid), ctrl['n'])
-				if sel_count > 0:
-					tracker[pid] += sel_count
-					data_for_pivot.append([pid, "Form"+str(fid), sel_count])
-				
-				pid_track[fid] += sel_count
-		
-		tracker_df = pd.DataFrame(data_for_pivot, columns=["PortfolioID", "FormID", "Customers"])
-		if not tracker_df.empty:
-			tracker_df = pd.pivot_table(tracker_df, values="Customers", index="PortfolioID", columns="FormID", aggfunc='sum')
-		
-		st.markdown("-----")
-		st.sidebar.subheader("Live Portfolio Tracker")
-		if tracker:
-			tdf = pd.DataFrame([{"PortfolioID": pid, "Customers selected": n} for pid, n in tracker.items()])
-			st.sidebar.dataframe(tdf)
-		
-		# Show Unmanaged summary in sidebar
-		st.sidebar.markdown("**Special Customer Categories**")
-		total_unmanaged = 0
-		
-		for fid, controls in st.session_state.form_controls.items():
-			form_unmanaged = 0
-			
-			for pid, ctrl in controls.items():
-				if pid == 'UNMANAGED':
-					# Handle unmanaged customers
-					unmanaged_data = data[
-						(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-						(data['PORT_CODE'].isna())
-					]
-					valid_unmanaged = unmanaged_data[~unmanaged_data['CG_ECN'].isin(ctrl['exclude']) &
-													~unmanaged_data['CG_ECN'].isin(already_assigned)]
-					form_unmanaged += min(len(valid_unmanaged), ctrl['n'])
-				else:
-					# Handle regular portfolios
-					df_pid = data[data['PORT_CODE'] == pid]
-					valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
-								  ~df_pid['CG_ECN'].isin(already_assigned)]
-					
-					# Don't count unmanaged customers in regular portfolios
-					valid = valid[valid['TYPE'].str.lower().str.strip() != 'unmanaged']
-			
-			total_unmanaged += form_unmanaged
-			
-			if form_unmanaged > 0:
-				st.sidebar.write(f"Form {fid}:")
-				st.sidebar.write(f"  🟡 Unmanaged: {form_unmanaged}")
-		
-		if total_unmanaged > 0:
-			st.sidebar.markdown("**Total Special Categories:**")
-			st.sidebar.write(f"🟡 Total Unmanaged: {total_unmanaged}")
-		
-		st.sidebar.markdown("**Customer count per Form**")
-		if not tracker_df.empty:
-			st.sidebar.dataframe(tracker_df)
-		for fid, counts in pid_track.items():
-			st.sidebar.write(f"Form {fid} → {counts} Customer(s)")
-		
-		st.markdown("----")
-		
-		if st.session_state.form_results:
-			st.subheader("Combined Geographic View")
-			combined_map = create_combined_map(st.session_state.form_results, branch_data)
-			if combined_map:
-				st.plotly_chart(combined_map, use_container_width=True)
-		
-		if st.button("Recommended form"):
-			if st.session_state.form_results:
-				rec_df = recommend_reassignment(st.session_state.form_results)
-				st.session_state.recommend_reassignment = rec_df
-				st.subheader("Form reassignment")
-				st.dataframe(st.session_state.recommend_reassignment)
-			else:
-				st.warning("No forms saved yet. Please save at least one form first.")
-		
-		if st.button("Save all forms"):
-			if st.session_state.form_results:
-				combined_result = pd.concat(st.session_state.form_results.values())
-				st.session_state.final_result = combined_result
-				st.success("All Forms are saved successfully")
-				st.write(st.session_state.final_result)
-				
-				# Download button
-				excel_buffer = to_excel(st.session_state.form_results)
-				st.download_button(
-					label="Download Excel Report",
-					data=excel_buffer,
-					file_name="portfolio_assignments.xlsx",
-					mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-				)
-			else:
-				st.warning("No forms to save. Please create and save at least one form first.")
-	
-	else:
-		st.info("Please upload all 3 files to begin")
+def create_portfolio_summary_table(portfolio_data, form_id):
+    """Create the portfolio summary table with +/- selectors"""
+    
+    # Initialize session state for this form if not exists
+    if f'portfolio_selections_{form_id}' not in st.session_state:
+        st.session_state[f'portfolio_selections_{form_id}'] = {}
+        # Initialize with default values (all available)
+        for _, row in portfolio_data.iterrows():
+            st.session_state[f'portfolio_selections_{form_id}'][row['Portfolio ID']] = row['Available']
+    
+    st.subheader("Portfolio Summary & Customer Selection")
+    
+    # Create the table headers
+    col_headers = st.columns([2, 2, 1.5, 1.5, 2, 2, 1.5])
+    headers = ['Portfolio ID', 'Portfolio Type', 'Total Customers', 'Available', 'Total Revenue', 'Total Deposits', 'Select']
+    
+    for i, header in enumerate(headers):
+        with col_headers[i]:
+            st.markdown(f"**{header}**")
+    
+    st.divider()
+    
+    # Create rows for each portfolio
+    for _, row in portfolio_data.iterrows():
+        portfolio_id = row['Portfolio ID']
+        max_available = row['Available']
+        
+        # Get current selection from session state
+        current_selection = st.session_state[f'portfolio_selections_{form_id}'].get(portfolio_id, max_available)
+        
+        # Create columns for this row
+        cols = st.columns([2, 2, 1.5, 1.5, 2, 2, 1.5])
+        
+        with cols[0]:
+            st.write(portfolio_id)
+        with cols[1]:
+            st.write(row['Portfolio Type'])
+        with cols[2]:
+            st.write(row['Total Customers'])
+        with cols[3]:
+            st.write(max_available)
+        with cols[4]:
+            st.write(row['Total Revenue'])
+        with cols[5]:
+            st.write(row['Total Deposits'])
+        with cols[6]:
+            # Create the quantity selector
+            new_selection = create_quantity_selector(
+                portfolio_id, 
+                current_selection, 
+                max_available, 
+                form_id
+            )
+            
+            # Update session state if value changed
+            if new_selection != current_selection:
+                st.session_state[f'portfolio_selections_{form_id}'][portfolio_id] = new_selection
+                st.rerun()
+    
+    # Return the current selections
+    return st.session_state[f'portfolio_selections_{form_id}']
 
-elif page == "Portfolio Mapping":
-	st.subheader("Portfolio Mapping")
-	
-	if cust_file and banker_file and branch_file:
-		customer_data = pd.read_csv(cust_file)
-		banker_data = pd.read_csv(banker_file)
-		branch_data = pd.read_csv(branch_file)
-		data = merge_dfs(customer_data, banker_data, branch_data)
-		
-		# Portfolio mapping functionality can be added here
-		st.info("Portfolio Mapping functionality coming soon...")
-		
-		col1, col2 = st.columns(2)
-		
-		with col1:
-			st.subheader("Customer Distribution by Type")
-			if not data.empty and 'TYPE' in data.columns:
-				type_counts = data['TYPE'].value_counts()
-				st.bar_chart(type_counts)
-		
-		with col2:
-			st.subheader("Customer Distribution by State")
-			if not data.empty and 'BILLINGSTATE' in data.columns:
-				state_counts = data['BILLINGSTATE'].value_counts().head(10)
-				st.bar_chart(state_counts)
-		
-		if not data.empty:
-			st.subheader("Summary Statistics")
-			col1, col2, col3, col4 = st.columns(4)
-			
-			with col1:
-				st.metric("Total Customers", len(data))
-			with col2:
-				if 'BANK_REVENUE' in data.columns:
-					st.metric("Total Revenue", f"${data['BANK_REVENUE'].sum():,.0f}")
-			with col3:
-				if 'DEPOSIT_BAL' in data.columns:
-					st.metric("Total Deposits", f"${data['DEPOSIT_BAL'].sum():,.0f}")
-			with col4:
-				if 'PORT_CODE' in data.columns:
-					st.metric("Unique Portfolios", data['PORT_CODE'].nunique())
-	else:
-		st.info("Please upload all 3 files to begin portfolio mapping")
+# Alternative implementation using HTML/JavaScript (more visually appealing)
+def create_advanced_portfolio_table(portfolio_data, form_id):
+    """Create portfolio table with HTML-based +/- buttons"""
+    
+    # Initialize session state
+    if f'portfolio_selections_{form_id}' not in st.session_state:
+        st.session_state[f'portfolio_selections_{form_id}'] = {}
+        for _, row in portfolio_data.iterrows():
+            st.session_state[f'portfolio_selections_{form_id}'][row['Portfolio ID']] = row['Available']
+    
+    st.subheader("Portfolio Summary & Customer Selection")
+    
+    # Create the HTML table
+    table_html = """
+    <table style="width: 100%; border-collapse: collapse; margin: 20px 0;">
+        <thead>
+            <tr style="background-color: #f8f9fa; border-bottom: 2px solid #dee2e6;">
+                <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Portfolio ID</th>
+                <th style="padding: 12px; text-align: left; border: 1px solid #dee2e6;">Portfolio Type</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Total Customers</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Available</th>
+                <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Total Revenue</th>
+                <th style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">Total Deposits</th>
+                <th style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">Select</th>
+            </tr>
+        </thead>
+        <tbody>
+    """
+    
+    for _, row in portfolio_data.iterrows():
+        portfolio_id = row['Portfolio ID']
+        current_selection = st.session_state[f'portfolio_selections_{form_id}'].get(portfolio_id, row['Available'])
+        
+        table_html += f"""
+            <tr style="border-bottom: 1px solid #dee2e6;">
+                <td style="padding: 12px; border: 1px solid #dee2e6;">{portfolio_id}</td>
+                <td style="padding: 12px; border: 1px solid #dee2e6;">{row['Portfolio Type']}</td>
+                <td style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">{row['Total Customers']}</td>
+                <td style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">{row['Available']}</td>
+                <td style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">{row['Total Revenue']}</td>
+                <td style="padding: 12px; text-align: right; border: 1px solid #dee2e6;">{row['Total Deposits']}</td>
+                <td style="padding: 12px; text-align: center; border: 1px solid #dee2e6;">
+                    <div class="quantity-selector">
+                        <button class="qty-btn minus" onclick="updateQuantity('{portfolio_id}', {form_id}, -1, {row['Available']})">−</button>
+                        <input type="number" class="qty-input" id="{portfolio_id}_{form_id}" value="{current_selection}" min="0" max="{row['Available']}" readonly>
+                        <button class="qty-btn plus" onclick="updateQuantity('{portfolio_id}', {form_id}, 1, {row['Available']})">+</button>
+                    </div>
+                </td>
+            </tr>
+        """
+    
+    table_html += """
+        </tbody>
+    </table>
+    
+    <script>
+        function updateQuantity(portfolioId, formId, change, maxValue) {
+            const inputId = portfolioId + '_' + formId;
+            const input = document.getElementById(inputId);
+            const currentValue = parseInt(input.value);
+            const newValue = currentValue + change;
+            
+            if (newValue >= 0 && newValue <= maxValue) {
+                input.value = newValue;
+                // You would need to implement a callback to update Streamlit session state
+                // This would require additional JavaScript-Python communication
+            }
+        }
+    </script>
+    """
+    
+    st.markdown(table_html, unsafe_allow_html=True)
+    
+    # Create individual controls below the table for actual functionality
+    st.markdown("**Adjust Selections:**")
+    
+    updated_selections = {}
+    cols = st.columns(len(portfolio_data))
+    
+    for i, (_, row) in enumerate(portfolio_data.iterrows()):
+        portfolio_id = row['Portfolio ID']
+        current_selection = st.session_state[f'portfolio_selections_{form_id}'].get(portfolio_id, row['Available'])
+        
+        with cols[i]:
+            new_value = st.number_input(
+                f"{portfolio_id}",
+                min_value=0,
+                max_value=row['Available'],
+                value=current_selection,
+                key=f"input_{portfolio_id}_{form_id}"
+            )
+            updated_selections[portfolio_id] = new_value
+    
+    # Update session state
+    st.session_state[f'portfolio_selections_{form_id}'] = updated_selections
+    
+    return updated_selections
+
+# Main function to integrate into your existing code
+def data_filteration_with_quantity_selector(customer_data, branch_data, banker_data, form_id):
+    """Enhanced data_filteration function with quantity selector"""
+    
+    st.subheader(f"Form {form_id}")
+    
+    # ... (your existing AU selection and customer filtering code remains the same) ...
+    
+    # After filtering, create the portfolio summary
+    if not filtered_data.empty:
+        # Create portfolio summary data
+        portfolio_summary = []
+        
+        # Group by portfolio for assigned customers
+        grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+        
+        for pid, group in grouped:
+            total_customer = len(customer_data[customer_data["PORT_CODE"] == pid])
+            
+            # Determine portfolio type
+            portfolio_type = "Unknown"
+            if not group.empty:
+                types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+                if not types.empty:
+                    portfolio_type = types.index[0]
+            
+            portfolio_summary.append({
+                'Portfolio ID': pid,
+                'Portfolio Type': portfolio_type,
+                'Total Customers': total_customer,
+                'Available': len(group),
+                'Total Revenue': f"${group['BANK_REVENUE'].sum():,.0f}",
+                'Total Deposits': f"${group['DEPOSIT_BAL'].sum():,.0f}"
+            })
+        
+        # Add unmanaged customers
+        unmanaged_customers = filtered_data[
+            (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+            (filtered_data['PORT_CODE'].isna())
+        ]
+        
+        if not unmanaged_customers.empty:
+            portfolio_summary.append({
+                'Portfolio ID': 'UNMANAGED',
+                'Portfolio Type': 'Unmanaged',
+                'Total Customers': len(customer_data[
+                    (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                    (customer_data['PORT_CODE'].isna())
+                ]),
+                'Available': len(unmanaged_customers),
+                'Total Revenue': f"${unmanaged_customers['BANK_REVENUE'].sum():,.0f}",
+                'Total Deposits': f"${unmanaged_customers['DEPOSIT_BAL'].sum():,.0f}"
+            })
+        
+        # Create the portfolio table with quantity selectors
+        portfolio_df = pd.DataFrame(portfolio_summary)
+        selections = create_portfolio_summary_table(portfolio_df, form_id)
+        
+        # Display current selections summary
+        st.markdown("**Current Selections Summary:**")
+        total_selected = sum(selections.values())
+        st.metric("Total Selected Customers", total_selected)
+        
+        # Show breakdown
+        for portfolio_id, count in selections.items():
+            if count > 0:
+                st.write(f"• {portfolio_id}: {count} customers")
+    
+    # ... (rest of your existing code remains the same) ...
+    
+    return filtered_data, selections
+
+# Example usage in your main app
+def main():
+    st.title("Portfolio Creation Tool")
+    
+    # Example portfolio data
+    portfolio_data = pd.DataFrame([
+        {
+            'Portfolio ID': 'PORT_001',
+            'Portfolio Type': 'Commercial',
+            'Total Customers': 45,
+            'Available': 23,
+            'Total Revenue': '$2,450,000',
+            'Total Deposits': '$8,900,000'
+        },
+        {
+            'Portfolio ID': 'PORT_002',
+            'Portfolio Type': 'Private Banking',
+            'Total Customers': 28,
+            'Available': 18,
+            'Total Revenue': '$1,850,000',
+            'Total Deposits': '$12,300,000'
+        },
+        {
+            'Portfolio ID': 'UNMANAGED',
+            'Portfolio Type': 'Unmanaged',
+            'Total Customers': 15,
+            'Available': 8,
+            'Total Revenue': '$680,000',
+            'Total Deposits': '$2,100,000'
+        }
+    ])
+    
+    # Demo the quantity selector
+    form_id = 1
+    selections = create_portfolio_summary_table(portfolio_data, form_id)
+    
+    st.markdown("---")
+    st.markdown("**Selected Quantities:**")
+    st.json(selections)
+
+if __name__ == "__main__":
+    main()
