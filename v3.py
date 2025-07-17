@@ -356,72 +356,33 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 	customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
 	filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
 	
-	# Debug information
-	st.write(f"Debug - Total customers after merge: {len(filtered_data)}")
-	if not filtered_data.empty:
-		st.write(f"Debug - Unique TYPE values: {filtered_data['TYPE'].value_counts()}")
-		st.write(f"Debug - Customers within {max_dist}km: {len(filtered_data[filtered_data['Distance'] <= max_dist])}")
-	
-	# FIXED FILTERING LOGIC
-	# First, always apply distance filter for all roles except CENTRALIZED
+	# Apply distance filter for all roles except CENTRALIZED
 	if role is None or (role is not None and role.lower().strip() != 'centralized'):
 		filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
 	
-	# Then apply role-specific filters
+	# Apply role-specific filters
 	if role is not None:
-		# Clean up the TYPE column to handle NaN and whitespace
 		filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
 		role_clean = role.strip().lower()
-		
-		# Debug information for role filtering
-		st.write(f"Debug - Looking for role: '{role_clean}'")
-		st.write(f"Debug - Available roles after cleaning: {filtered_data['TYPE_CLEAN'].value_counts()}")
-		
-		# Filter by role
-		before_role_filter = len(filtered_data)
 		filtered_data = filtered_data[filtered_data['TYPE_CLEAN'] == role_clean]
-		after_role_filter = len(filtered_data)
-		
-		st.write(f"Debug - Customers before role filter: {before_role_filter}")
-		st.write(f"Debug - Customers after role filter: {after_role_filter}")
-		
-		# Drop the temporary column
 		filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
 	
 	# Apply other filters
-	before_revenue_filter = len(filtered_data)
 	filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
-	after_revenue_filter = len(filtered_data)
-	st.write(f"Debug - Customers after revenue filter (>= ${min_rev}): {after_revenue_filter} (removed {before_revenue_filter - after_revenue_filter})")
-	
-	before_deposit_filter = len(filtered_data)
 	filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
-	after_deposit_filter = len(filtered_data)
-	st.write(f"Debug - Customers after deposit filter (>= ${min_deposit}): {after_deposit_filter} (removed {before_deposit_filter - after_deposit_filter})")
 	
 	if cust_state is not None:
-		before_state_filter = len(filtered_data)
 		filtered_data = filtered_data[filtered_data['BILLINGSTATE'] == cust_state]
-		after_state_filter = len(filtered_data)
-		st.write(f"Debug - Customers after state filter ({cust_state}): {after_state_filter} (removed {before_state_filter - after_state_filter})")
 	
 	if cust_portcd is not None:
-		before_port_filter = len(filtered_data)
 		filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
-		after_port_filter = len(filtered_data)
-		st.write(f"Debug - Customers after portfolio filter: {after_port_filter} (removed {before_port_filter - after_port_filter})")
 	
 	# Create and display map
 	if not filtered_data.empty:
 		st.subheader("Geographic Distribution")
 		
-		# Create AU dataframe for map
 		au_df = pd.DataFrame([AU_row])
-		
-		# Create map
 		map_fig = create_interactive_map(filtered_data, au_df, max_dist, form_id)
-		
-		# Display map
 		st.plotly_chart(map_fig, use_container_width=True)
 		
 		# Display statistics
@@ -435,7 +396,27 @@ def data_filteration(customer_data, branch_data, banker_data, form_id):
 		with col4:
 			st.metric("Total Deposits", f"${filtered_data['DEPOSIT_BAL'].sum():,.0f}")
 		
-		# Show sample of filtered data
+		# Additional metrics for Unassigned and Unmanaged
+		if len(filtered_data) > 0:
+			unassigned_total = len(filtered_data[filtered_data['TYPE'].str.lower().str.strip() == 'unassigned'])
+			unmanaged_total = len(filtered_data[filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged'])
+			
+			if unassigned_total > 0 or unmanaged_total > 0:
+				st.markdown("#### Special Customer Categories")
+				col1, col2, col3, col4 = st.columns(4)
+				with col1:
+					st.metric("🔴 Unassigned", unassigned_total)
+				with col2:
+					st.metric("🟡 Unmanaged", unmanaged_total)
+				with col3:
+					if unassigned_total > 0:
+						unassigned_revenue = filtered_data[filtered_data['TYPE'].str.lower().str.strip() == 'unassigned']['BANK_REVENUE'].sum()
+						st.metric("Unassigned Revenue", f"${unassigned_revenue:,.0f}")
+				with col4:
+					if unmanaged_total > 0:
+						unmanaged_revenue = filtered_data[filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged']['BANK_REVENUE'].sum()
+						st.metric("Unmanaged Revenue", f"${unmanaged_revenue:,.0f}")
+		
 		with st.expander("Sample Filtered Data"):
 			st.dataframe(filtered_data[['CG_ECN', 'TYPE', 'Distance', 'BANK_REVENUE', 'DEPOSIT_BAL', 'BILLINGSTATE']].head(10))
 	else:
@@ -532,7 +513,23 @@ if page == "Portfolio Assignment":
 					for pid, group in grouped:
 						total_customer = len(data[data["PORT_CODE"] == pid])
 						
-						with st.expander(f"Portfolio {pid} - {total_customer} total customers, {len(group)} available"):
+						# Count unassigned and unmanaged customers in this portfolio
+						unassigned_count = len(group[group['TYPE'].str.lower().str.strip() == 'unassigned'])
+						unmanaged_count = len(group[group['TYPE'].str.lower().str.strip() == 'unmanaged'])
+						
+						# Create a more detailed title
+						title_parts = [f"Portfolio {pid}"]
+						title_parts.append(f"{total_customer} total customers")
+						title_parts.append(f"{len(group)} available")
+						
+						if unassigned_count > 0:
+							title_parts.append(f"{unassigned_count} Unassigned")
+						if unmanaged_count > 0:
+							title_parts.append(f"{unmanaged_count} Unmanaged")
+						
+						portfolio_title = " - ".join(title_parts)
+						
+						with st.expander(portfolio_title):
 							st.session_state.form_controls[form_id][pid] = {"n": len(group), "exclude": []}
 							ctrl = st.session_state.form_controls[form_id][pid]
 							ctrl["n"] = st.number_input(
@@ -544,7 +541,25 @@ if page == "Portfolio Assignment":
 							)
 							ctrl["exclude"] = []
 							
-							# Show sample customers from this portfolio
+							# Show breakdown by customer type
+							if len(group) > 0:
+								st.write("**Customer Type Breakdown:**")
+								type_breakdown = group['TYPE'].value_counts()
+								col1, col2 = st.columns(2)
+								
+								with col1:
+									for customer_type, count in type_breakdown.items():
+										st.write(f"• {customer_type}: {count}")
+								
+								with col2:
+									if unassigned_count > 0 or unmanaged_count > 0:
+										st.write("**Special Categories:**")
+										if unassigned_count > 0:
+											st.write(f"🔴 Unassigned: {unassigned_count}")
+										if unmanaged_count > 0:
+											st.write(f"🟡 Unmanaged: {unmanaged_count}")
+							
+							st.write("**Sample Customers:**")
 							st.dataframe(group[['CG_ECN', 'TYPE', 'Distance', 'BANK_REVENUE', 'DEPOSIT_BAL']].head())
 				else:
 					st.info("No customers available for selection with current filters.")
@@ -633,16 +648,52 @@ if page == "Portfolio Assignment":
 			tdf = pd.DataFrame([{"PortfolioID": pid, "Customers selected": n} for pid, n in tracker.items()])
 			st.sidebar.dataframe(tdf)
 		
+		# Show Unassigned/Unmanaged summary in sidebar
+		st.sidebar.markdown("**Special Customer Categories**")
+		total_unassigned = 0
+		total_unmanaged = 0
+		
+		for fid, controls in st.session_state.form_controls.items():
+			form_unassigned = 0
+			form_unmanaged = 0
+			
+			for pid, ctrl in controls.items():
+				df_pid = data[data['PORT_CODE'] == pid]
+				valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
+							  ~df_pid['CG_ECN'].isin(already_assigned)]
+				
+				# Count unassigned and unmanaged in this portfolio for this form
+				pid_unassigned = len(valid[valid['TYPE'].str.lower().str.strip() == 'unassigned'])
+				pid_unmanaged = len(valid[valid['TYPE'].str.lower().str.strip() == 'unmanaged'])
+				
+				form_unassigned += min(pid_unassigned, ctrl['n'])
+				form_unmanaged += min(pid_unmanaged, ctrl['n'])
+			
+			total_unassigned += form_unassigned
+			total_unmanaged += form_unmanaged
+			
+			if form_unassigned > 0 or form_unmanaged > 0:
+				st.sidebar.write(f"Form {fid}:")
+				if form_unassigned > 0:
+					st.sidebar.write(f"  🔴 Unassigned: {form_unassigned}")
+				if form_unmanaged > 0:
+					st.sidebar.write(f"  🟡 Unmanaged: {form_unmanaged}")
+		
+		if total_unassigned > 0 or total_unmanaged > 0:
+			st.sidebar.markdown("**Total Special Categories:**")
+			if total_unassigned > 0:
+				st.sidebar.write(f"🔴 Total Unassigned: {total_unassigned}")
+			if total_unmanaged > 0:
+				st.sidebar.write(f"🟡 Total Unmanaged: {total_unmanaged}")
+		
 		st.sidebar.markdown("**Customer count per Form**")
 		if not tracker_df.empty:
 			st.sidebar.dataframe(tracker_df)
 		for fid, counts in pid_track.items():
 			st.sidebar.write(f"Form {fid} → {counts} Customer(s)")
 		
-		# Combined map and recommendations
 		st.markdown("----")
 		
-		# Show combined map if forms are saved
 		if st.session_state.form_results:
 			st.subheader("Combined Geographic View")
 			combined_map = create_combined_map(st.session_state.form_results, branch_data)
@@ -691,7 +742,6 @@ elif page == "Portfolio Mapping":
 		# Portfolio mapping functionality can be added here
 		st.info("Portfolio Mapping functionality coming soon...")
 		
-		# You can add visualization and analysis features here
 		col1, col2 = st.columns(2)
 		
 		with col1:
@@ -706,7 +756,6 @@ elif page == "Portfolio Mapping":
 				state_counts = data['BILLINGSTATE'].value_counts().head(10)
 				st.bar_chart(state_counts)
 		
-		# Summary statistics
 		if not data.empty:
 			st.subheader("Summary Statistics")
 			col1, col2, col3, col4 = st.columns(4)
