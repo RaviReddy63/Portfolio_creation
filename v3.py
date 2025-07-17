@@ -524,12 +524,7 @@ st.set_page_config("Portfolio Creation tool", layout="wide")
 st.title("Portfolio creation tool")
 page = st.selectbox("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
 
-#------------------------File Upload----------------------------------------------------------------------------------
-st.sidebar.header("Upload CSV files")
-cust_file = st.sidebar.file_uploader("Customer Data", type=["csv"])
-banker_file = st.sidebar.file_uploader("Banker Data", type=["csv"])
-branch_file = st.sidebar.file_uploader("Branch Data", type=["csv"])
-
+# Initialize session state
 if 'form_results' not in st.session_state:
 	st.session_state.form_results = {}
 	
@@ -538,6 +533,18 @@ if 'form_controls' not in st.session_state:
 	
 if 'recommend_reassignment' not in st.session_state:
 	st.session_state.recommend_reassignment = {}
+
+# Load data from local CSV files
+@st.cache_data
+def load_data():
+	customer_data = pd.read_csv("customer_data.csv")
+	banker_data = pd.read_csv("banker_data.csv")
+	branch_data = pd.read_csv("branch_data.csv")
+	return customer_data, banker_data, branch_data
+
+# Load data on app startup
+customer_data, banker_data, branch_data = load_data()
+data = merge_dfs(customer_data, banker_data, branch_data)
 
 if page == "Portfolio Assignment":
 	st.sidebar.header("Form Configuration")
@@ -576,204 +583,193 @@ if page == "Portfolio Assignment":
 			if not conflicts.empty:
 				st.warning(f"{len(conflicts)} customers already assigned and removed")
 				filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(assigned)]
-				
-				if st.button(f"Save Form {form_id}", key=f"save_{form_id}"):
-					if not filtered_data.empty:
-						result = []
-						au_row = branch_data[branch_data['AU'] == selected_au].iloc[0]
-						b_au, b_lat, b_lon = au_row['AU'], au_row['BRANCH_LAT_NUM'], au_row['BRANCH_LON_NUM']
-						
-						# Handle regular portfolios
-						grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
-						for pid, group in grouped:
-							if pid in st.session_state.form_controls[form_id]:
-								ctrl = st.session_state.form_controls[form_id][pid]
-								selected_customers = group[~group["CG_ECN"].isin(ctrl["exclude"])]
-								top_n = selected_customers.sort_values(by='Distance').head(ctrl["n"])
-								top_n['AU'] = b_au
-								top_n['BRANCH_LAT_NUM'] = b_lat
-								top_n['BRANCH_LON_NUM'] = b_lon
-								result.append(top_n)
-						
-						# Handle unmanaged customers
-						unmanaged_customers = filtered_data[
-							(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-							(filtered_data['PORT_CODE'].isna())
-						]
-						if not unmanaged_customers.empty and 'UNMANAGED' in st.session_state.form_controls[form_id]:
-							ctrl = st.session_state.form_controls[form_id]['UNMANAGED']
-							selected_unmanaged = unmanaged_customers[~unmanaged_customers["CG_ECN"].isin(ctrl["exclude"])]
-							top_n_unmanaged = selected_unmanaged.sort_values(by='Distance').head(ctrl["n"])
-							top_n_unmanaged['AU'] = b_au
-							top_n_unmanaged['BRANCH_LAT_NUM'] = b_lat
-							top_n_unmanaged['BRANCH_LON_NUM'] = b_lon
-							result.append(top_n_unmanaged)
-						
-						form_df = pd.concat(result) if result else pd.DataFrame()
-						
-						# Handle conflicts
-						conflicted_ids = []
-						reassigned_rows = []
-						for cid in form_df["CG_ECN"]:
-							for other_fid, other_df in st.session_state.form_results.items():
-								if other_fid == form_id:
-									continue
-								if cid in other_df["CG_ECN"].values:
-									old_row = other_df[other_df["CG_ECN"] == cid].iloc[0]
-									new_row = form_df[form_df["CG_ECN"] == cid].iloc[0]
-									
-									if new_row['Distance'] < old_row['Distance']:
-										st.session_state.form_results[other_fid] = other_df[other_df["CG_ECN"] != cid]
-										reassigned_rows.append(new_row)
-										conflicted_ids.append((cid, other_fid, old_row['Distance'], form_id, new_row['Distance']))
-									else:
-										form_df = form_df[form_df["CG_ECN"] != cid]
-						
-						if reassigned_rows:
-							form_df = pd.concat([form_df, pd.DataFrame(reassigned_rows)])
-						
-						st.session_state.form_results[form_id] = form_df
-						st.success(f"Form {form_id} saved with {len(form_df)} customers")
-						
-						if conflicted_ids:
-							with st.expander("Conflict resolutions (Auto Handled)"):
-								conflict_df = pd.DataFrame(conflicted_ids, columns=[
-									"CG_ECN", "Previous Form", "Previous Distance", "Assigned Form", "New Distance"
-								])
-								st.warning("Some customers were reassigned based on distance:")
-								st.dataframe(conflict_df, use_container_width=True)
-					else:
-						st.error("No customers to save. Please adjust your filters.")
-		
-		# Live tracking
-		from collections import defaultdict
-		tracker = defaultdict(int)
-		data_for_pivot = []
-		pid_track = {}
-		already_assigned = {cid for df in st.session_state.form_results.values() for cid in df['CG_ECN']}
-		
-		for fid, controls in st.session_state.form_controls.items():
-			pid_track[fid] = 0
-			for pid, ctrl in controls.items():
-				if pid == 'UNMANAGED':
-					# Handle unmanaged customers
-					unmanaged_data = data[
-						(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-						(data['PORT_CODE'].isna())
-					]
-					valid_unmanaged = unmanaged_data[~unmanaged_data['CG_ECN'].isin(ctrl['exclude']) &
-													~unmanaged_data['CG_ECN'].isin(already_assigned)]
-					sel_count = min(len(valid_unmanaged), ctrl['n'])
-					if sel_count > 0:
-						tracker[pid] += sel_count
-						data_for_pivot.append([pid, "Form"+str(fid), sel_count])
-				else:
-					# Handle regular portfolios
-					df_pid = data[data['PORT_CODE'] == pid]
-					valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
-								  ~df_pid['CG_ECN'].isin(already_assigned)]
+			
+			if st.button(f"Save Form {form_id}", key=f"save_{form_id}"):
+				if not filtered_data.empty:
+					result = []
+					au_row = branch_data[branch_data['AU'] == selected_au].iloc[0]
+					b_au, b_lat, b_lon = au_row['AU'], au_row['BRANCH_LAT_NUM'], au_row['BRANCH_LON_NUM']
 					
-					sel_count = min(len(valid), ctrl['n'])
-					if sel_count > 0:
-						tracker[pid] += sel_count
-						data_for_pivot.append([pid, "Form"+str(fid), sel_count])
-				
-				pid_track[fid] += sel_count
-		
-		tracker_df = pd.DataFrame(data_for_pivot, columns=["PortfolioID", "FormID", "Customers"])
-		if not tracker_df.empty:
-			tracker_df = pd.pivot_table(tracker_df, values="Customers", index="PortfolioID", columns="FormID", aggfunc='sum')
-		
-		st.markdown("-----")
-		st.sidebar.subheader("Live Portfolio Tracker")
-		if tracker:
-			tdf = pd.DataFrame([{"PortfolioID": pid, "Customers selected": n} for pid, n in tracker.items()])
-			st.sidebar.dataframe(tdf)
-		
-		st.sidebar.markdown("**Customer count per Form**")
-		if not tracker_df.empty:
-			st.sidebar.dataframe(tracker_df)
-		for fid, counts in pid_track.items():
-			st.sidebar.write(f"Form {fid} → {counts} Customer(s)")
-		
-		st.markdown("----")
-		
-		if st.session_state.form_results:
-			st.subheader("Combined Geographic View")
-			combined_map = create_combined_map(st.session_state.form_results, branch_data)
-			if combined_map:
-				st.plotly_chart(combined_map, use_container_width=True)
-		
-		if st.button("Recommended form"):
-			if st.session_state.form_results:
-				rec_df = recommend_reassignment(st.session_state.form_results)
-				st.session_state.recommend_reassignment = rec_df
-				st.subheader("Form reassignment")
-				st.dataframe(st.session_state.recommend_reassignment)
-			else:
-				st.warning("No forms saved yet. Please save at least one form first.")
-		
-		if st.button("Save all forms"):
-			if st.session_state.form_results:
-				combined_result = pd.concat(st.session_state.form_results.values())
-				st.session_state.final_result = combined_result
-				st.success("All Forms are saved successfully")
-				st.write(st.session_state.final_result)
-				
-				# Download button
-				excel_buffer = to_excel(st.session_state.form_results)
-				st.download_button(
-					label="Download Excel Report",
-					data=excel_buffer,
-					file_name="portfolio_assignments.xlsx",
-					mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-				)
-			else:
-				st.warning("No forms to save. Please create and save at least one form first.")
+					# Handle regular portfolios
+					grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+					for pid, group in grouped:
+						if pid in st.session_state.form_controls[form_id]:
+							ctrl = st.session_state.form_controls[form_id][pid]
+							selected_customers = group[~group["CG_ECN"].isin(ctrl["exclude"])]
+							top_n = selected_customers.sort_values(by='Distance').head(ctrl["n"])
+							top_n['AU'] = b_au
+							top_n['BRANCH_LAT_NUM'] = b_lat
+							top_n['BRANCH_LON_NUM'] = b_lon
+							result.append(top_n)
+					
+					# Handle unmanaged customers
+					unmanaged_customers = filtered_data[
+						(filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+						(filtered_data['PORT_CODE'].isna())
+					]
+					if not unmanaged_customers.empty and 'UNMANAGED' in st.session_state.form_controls[form_id]:
+						ctrl = st.session_state.form_controls[form_id]['UNMANAGED']
+						selected_unmanaged = unmanaged_customers[~unmanaged_customers["CG_ECN"].isin(ctrl["exclude"])]
+						top_n_unmanaged = selected_unmanaged.sort_values(by='Distance').head(ctrl["n"])
+						top_n_unmanaged['AU'] = b_au
+						top_n_unmanaged['BRANCH_LAT_NUM'] = b_lat
+						top_n_unmanaged['BRANCH_LON_NUM'] = b_lon
+						result.append(top_n_unmanaged)
+					
+					form_df = pd.concat(result) if result else pd.DataFrame()
+					
+					# Handle conflicts
+					conflicted_ids = []
+					reassigned_rows = []
+					for cid in form_df["CG_ECN"]:
+						for other_fid, other_df in st.session_state.form_results.items():
+							if other_fid == form_id:
+								continue
+							if cid in other_df["CG_ECN"].values:
+								old_row = other_df[other_df["CG_ECN"] == cid].iloc[0]
+								new_row = form_df[form_df["CG_ECN"] == cid].iloc[0]
+								
+								if new_row['Distance'] < old_row['Distance']:
+									st.session_state.form_results[other_fid] = other_df[other_df["CG_ECN"] != cid]
+									reassigned_rows.append(new_row)
+									conflicted_ids.append((cid, other_fid, old_row['Distance'], form_id, new_row['Distance']))
+								else:
+									form_df = form_df[form_df["CG_ECN"] != cid]
+					
+					if reassigned_rows:
+						form_df = pd.concat([form_df, pd.DataFrame(reassigned_rows)])
+					
+					st.session_state.form_results[form_id] = form_df
+					st.success(f"Form {form_id} saved with {len(form_df)} customers")
+					
+					if conflicted_ids:
+						with st.expander("Conflict resolutions (Auto Handled)"):
+							conflict_df = pd.DataFrame(conflicted_ids, columns=[
+								"CG_ECN", "Previous Form", "Previous Distance", "Assigned Form", "New Distance"
+							])
+							st.warning("Some customers were reassigned based on distance:")
+							st.dataframe(conflict_df, use_container_width=True)
+				else:
+					st.error("No customers to save. Please adjust your filters.")
 	
-	else:
-		st.info("Please upload all 3 files to begin")
+	# Live tracking
+	from collections import defaultdict
+	tracker = defaultdict(int)
+	data_for_pivot = []
+	pid_track = {}
+	already_assigned = {cid for df in st.session_state.form_results.values() for cid in df['CG_ECN']}
+	
+	for fid, controls in st.session_state.form_controls.items():
+		pid_track[fid] = 0
+		for pid, ctrl in controls.items():
+			if pid == 'UNMANAGED':
+				# Handle unmanaged customers
+				unmanaged_data = data[
+					(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+					(data['PORT_CODE'].isna())
+				]
+				valid_unmanaged = unmanaged_data[~unmanaged_data['CG_ECN'].isin(ctrl['exclude']) &
+												~unmanaged_data['CG_ECN'].isin(already_assigned)]
+				sel_count = min(len(valid_unmanaged), ctrl['n'])
+				if sel_count > 0:
+					tracker[pid] += sel_count
+					data_for_pivot.append([pid, "Form"+str(fid), sel_count])
+			else:
+				# Handle regular portfolios
+				df_pid = data[data['PORT_CODE'] == pid]
+				valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
+							  ~df_pid['CG_ECN'].isin(already_assigned)]
+				
+				sel_count = min(len(valid), ctrl['n'])
+				if sel_count > 0:
+					tracker[pid] += sel_count
+					data_for_pivot.append([pid, "Form"+str(fid), sel_count])
+			
+			pid_track[fid] += sel_count
+	
+	tracker_df = pd.DataFrame(data_for_pivot, columns=["PortfolioID", "FormID", "Customers"])
+	if not tracker_df.empty:
+		tracker_df = pd.pivot_table(tracker_df, values="Customers", index="PortfolioID", columns="FormID", aggfunc='sum')
+	
+	st.markdown("-----")
+	st.sidebar.subheader("Live Portfolio Tracker")
+	if tracker:
+		tdf = pd.DataFrame([{"PortfolioID": pid, "Customers selected": n} for pid, n in tracker.items()])
+		st.sidebar.dataframe(tdf)
+	
+	st.sidebar.markdown("**Customer count per Form**")
+	if not tracker_df.empty:
+		st.sidebar.dataframe(tracker_df)
+	for fid, counts in pid_track.items():
+		st.sidebar.write(f"Form {fid} → {counts} Customer(s)")
+	
+	st.markdown("----")
+	
+	if st.session_state.form_results:
+		st.subheader("Combined Geographic View")
+		combined_map = create_combined_map(st.session_state.form_results, branch_data)
+		if combined_map:
+			st.plotly_chart(combined_map, use_container_width=True)
+	
+	if st.button("Recommended form"):
+		if st.session_state.form_results:
+			rec_df = recommend_reassignment(st.session_state.form_results)
+			st.session_state.recommend_reassignment = rec_df
+			st.subheader("Form reassignment")
+			st.dataframe(st.session_state.recommend_reassignment)
+		else:
+			st.warning("No forms saved yet. Please save at least one form first.")
+	
+	if st.button("Save all forms"):
+		if st.session_state.form_results:
+			combined_result = pd.concat(st.session_state.form_results.values())
+			st.session_state.final_result = combined_result
+			st.success("All Forms are saved successfully")
+			st.write(st.session_state.final_result)
+			
+			# Download button
+			excel_buffer = to_excel(st.session_state.form_results)
+			st.download_button(
+				label="Download Excel Report",
+				data=excel_buffer,
+				file_name="portfolio_assignments.xlsx",
+				mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+			)
+		else:
+			st.warning("No forms to save. Please create and save at least one form first.")
 
 elif page == "Portfolio Mapping":
 	st.subheader("Portfolio Mapping")
 	
-	if cust_file and banker_file and branch_file:
-		customer_data = pd.read_csv(cust_file)
-		banker_data = pd.read_csv(banker_file)
-		branch_data = pd.read_csv(branch_file)
-		data = merge_dfs(customer_data, banker_data, branch_data)
-		
-		# Portfolio mapping functionality can be added here
-		st.info("Portfolio Mapping functionality coming soon...")
-		
-		col1, col2 = st.columns(2)
+	# Portfolio mapping functionality can be added here
+	st.info("Portfolio Mapping functionality coming soon...")
+	
+	col1, col2 = st.columns(2)
+	
+	with col1:
+		st.subheader("Customer Distribution by Type")
+		if not data.empty and 'TYPE' in data.columns:
+			type_counts = data['TYPE'].value_counts()
+			st.bar_chart(type_counts)
+	
+	with col2:
+		st.subheader("Customer Distribution by State")
+		if not data.empty and 'BILLINGSTATE' in data.columns:
+			state_counts = data['BILLINGSTATE'].value_counts().head(10)
+			st.bar_chart(state_counts)
+	
+	if not data.empty:
+		st.subheader("Summary Statistics")
+		col1, col2, col3, col4 = st.columns(4)
 		
 		with col1:
-			st.subheader("Customer Distribution by Type")
-			if not data.empty and 'TYPE' in data.columns:
-				type_counts = data['TYPE'].value_counts()
-				st.bar_chart(type_counts)
-		
+			st.metric("Total Customers", len(data))
 		with col2:
-			st.subheader("Customer Distribution by State")
-			if not data.empty and 'BILLINGSTATE' in data.columns:
-				state_counts = data['BILLINGSTATE'].value_counts().head(10)
-				st.bar_chart(state_counts)
-		
-		if not data.empty:
-			st.subheader("Summary Statistics")
-			col1, col2, col3, col4 = st.columns(4)
-			
-			with col1:
-				st.metric("Total Customers", len(data))
-			with col2:
-				if 'BANK_REVENUE' in data.columns:
-					st.metric("Total Revenue", f"${data['BANK_REVENUE'].sum():,.0f}")
-			with col3:
-				if 'DEPOSIT_BAL' in data.columns:
-					st.metric("Total Deposits", f"${data['DEPOSIT_BAL'].sum():,.0f}")
-			with col4:
-				if 'PORT_CODE' in data.columns:
-					st.metric("Unique Portfolios", data['PORT_CODE'].nunique())
-	else:
-		st.info("Please upload all 3 files to begin portfolio mapping")
+			if 'BANK_REVENUE' in data.columns:
+				st.metric("Total Revenue", f"${data['BANK_REVENUE'].sum():,.0f}")
+		with col3:
+			if 'DEPOSIT_BAL' in data.columns:
+				st.metric("Total Deposits", f"${data['DEPOSIT_BAL'].sum():,.0f}")
+		with col4:
+			if 'PORT_CODE' in data.columns:
+				st.metric("Unique Portfolios", data['PORT_CODE'].nunique())
