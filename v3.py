@@ -524,7 +524,14 @@ def recommend_reassignment(form_res: dict) -> pd.DataFrame:
 
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
-st.title("Portfolio creation tool")
+
+# Header with title and number of portfolios
+col1, col2 = st.columns([3, 1])
+with col1:
+	st.title("Portfolio Creation Tool")
+with col2:
+	num_forms = st.number_input("Number of Portfolios", min_value=1, max_value=10, value=1, key="num_portfolios")
+
 page = st.selectbox("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
 
 # Initialize session state
@@ -550,13 +557,10 @@ customer_data, banker_data, branch_data = load_data()
 data = merge_dfs(customer_data, banker_data, branch_data)
 
 if page == "Portfolio Assignment":
-	st.sidebar.header("Form Configuration")
-	num_forms = st.sidebar.number_input("Number of Portfolios", min_value=1, max_value=10, value=1)
 	
 	tab_titles = [f"Form {i}" for i in range(1, num_forms+1)]
 	tabs = st.tabs(tab_titles)
 	
-	assigned_customers = set()
 	form_results = {}
 	
 	for form_id, tab in enumerate(tabs, start=1):
@@ -654,57 +658,6 @@ if page == "Portfolio Assignment":
 							st.dataframe(conflict_df, use_container_width=True)
 				else:
 					st.error("No customers to save. Please adjust your filters.")
-	
-	# Live tracking
-	from collections import defaultdict
-	tracker = defaultdict(int)
-	data_for_pivot = []
-	pid_track = {}
-	already_assigned = {cid for df in st.session_state.form_results.values() for cid in df['CG_ECN']}
-	
-	for fid, controls in st.session_state.form_controls.items():
-		pid_track[fid] = 0
-		for pid, ctrl in controls.items():
-			if pid == 'UNMANAGED':
-				# Handle unmanaged customers
-				unmanaged_data = data[
-					(data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-					(data['PORT_CODE'].isna())
-				]
-				valid_unmanaged = unmanaged_data[~unmanaged_data['CG_ECN'].isin(ctrl['exclude']) &
-												~unmanaged_data['CG_ECN'].isin(already_assigned)]
-				sel_count = min(len(valid_unmanaged), ctrl['n'])
-				if sel_count > 0:
-					tracker[pid] += sel_count
-					data_for_pivot.append([pid, "Form"+str(fid), sel_count])
-			else:
-				# Handle regular portfolios
-				df_pid = data[data['PORT_CODE'] == pid]
-				valid = df_pid[~df_pid['CG_ECN'].isin(ctrl['exclude']) &
-							  ~df_pid['CG_ECN'].isin(already_assigned)]
-				
-				sel_count = min(len(valid), ctrl['n'])
-				if sel_count > 0:
-					tracker[pid] += sel_count
-					data_for_pivot.append([pid, "Form"+str(fid), sel_count])
-			
-			pid_track[fid] += sel_count
-	
-	tracker_df = pd.DataFrame(data_for_pivot, columns=["PortfolioID", "FormID", "Customers"])
-	if not tracker_df.empty:
-		tracker_df = pd.pivot_table(tracker_df, values="Customers", index="PortfolioID", columns="FormID", aggfunc='sum')
-	
-	st.markdown("-----")
-	st.sidebar.subheader("Live Portfolio Tracker")
-	if tracker:
-		tdf = pd.DataFrame([{"PortfolioID": pid, "Customers selected": n} for pid, n in tracker.items()])
-		st.sidebar.dataframe(tdf)
-	
-	st.sidebar.markdown("**Customer count per Form**")
-	if not tracker_df.empty:
-		st.sidebar.dataframe(tracker_df)
-	for fid, counts in pid_track.items():
-		st.sidebar.write(f"Form {fid} → {counts} Customer(s)")
 	
 	st.markdown("----")
 	
