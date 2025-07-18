@@ -20,30 +20,6 @@ def haversine_distance(clat, clon, blat, blon):
     distance = 6371*c
     return distance
 
-def find_nearest_au_for_customer(customer_lat, customer_lon, branch_data):
-    """Find the nearest AU for a single customer - simplified version"""
-    min_distance = float('inf')
-    nearest_au = None
-    nearest_au_lat = None
-    nearest_au_lon = None
-    
-    for _, branch in branch_data.iterrows():
-        if pd.isna(branch['BRANCH_LAT_NUM']) or pd.isna(branch['BRANCH_LON_NUM']):
-            continue
-            
-        distance = haversine_distance(
-            customer_lat, customer_lon, 
-            branch['BRANCH_LAT_NUM'], branch['BRANCH_LON_NUM']
-        )
-        
-        if distance < min_distance:
-            min_distance = distance
-            nearest_au = branch['AU']
-            nearest_au_lat = branch['BRANCH_LAT_NUM']
-            nearest_au_lon = branch['BRANCH_LON_NUM']
-    
-    return nearest_au, min_distance, nearest_au_lat, nearest_au_lon
-
 def merge_dfs(customer_data, banker_data, branch_data):
     customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
     final_table = customer_data.merge(banker_data, on = "PORT_CODE", how = "left")
@@ -200,15 +176,15 @@ def to_excel(all_portfolios):
     output.seek(0)
     return output
 
-def filter_customers_for_au_nearest(customer_data, banker_data, selected_au, branch_data, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
-    """Modified function: assign customers to nearest AU instead of specific AU"""
+def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
+    """Filter customers for a specific AU based on criteria"""
     
     # Get AU data
     AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
     AU_lat = AU_row['BRANCH_LAT_NUM']
     AU_lon = AU_row['BRANCH_LON_NUM']
     
-    # Filter customers by distance box first (performance optimization)
+    # Filter customers by distance box
     box_lat = max_dist/111
     box_lon = max_dist/ (111 * np.cos(np.radians(AU_lat)))
     
@@ -217,33 +193,13 @@ def filter_customers_for_au_nearest(customer_data, banker_data, selected_au, bra
                                         (customer_data['LON_NUM'] <= AU_lon + box_lon) &
                                         (customer_data['LON_NUM'] >= AU_lon - box_lon)]
     
-    # For each customer in the box, find their NEAREST AU (not just distance to selected AU)
-    nearest_au_assignments = []
+    # Calculate distances
+    customer_data_boxed['Distance'] = customer_data_boxed.apply(
+        lambda row: haversine_distance(row['LAT_NUM'], row['LON_NUM'], AU_lat, AU_lon), axis=1
+    )
     
-    for idx, customer in customer_data_boxed.iterrows():
-        if pd.isna(customer['LAT_NUM']) or pd.isna(customer['LON_NUM']):
-            continue
-            
-        nearest_au, distance, nearest_lat, nearest_lon = find_nearest_au_for_customer(
-            customer['LAT_NUM'], customer['LON_NUM'], branch_data
-        )
-        
-        # Only include customers whose nearest AU is the selected AU
-        if nearest_au == int(selected_au):
-            customer_copy = customer.copy()
-            customer_copy['Distance'] = distance
-            customer_copy['AU'] = nearest_au
-            customer_copy['BRANCH_LAT_NUM'] = nearest_lat
-            customer_copy['BRANCH_LON_NUM'] = nearest_lon
-            nearest_au_assignments.append(customer_copy)
-    
-    if not nearest_au_assignments:
-        return pd.DataFrame(), AU_row
-    
-    # Convert to DataFrame
-    filtered_data = pd.DataFrame(nearest_au_assignments)
-    filtered_data = filtered_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-    filtered_data = filtered_data.merge(banker_data, on="PORT_CODE", how='left')
+    customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+    filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
     
     # Apply distance filter for all roles except CENTRALIZED
     if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
@@ -266,7 +222,88 @@ def filter_customers_for_au_nearest(customer_data, banker_data, selected_au, bra
     if cust_portcd is not None:
         filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
     
+    # Add AU information
+    filtered_data['AU'] = selected_au
+    filtered_data['BRANCH_LAT_NUM'] = AU_lat
+    filtered_data['BRANCH_LON_NUM'] = AU_lon
+    
     return filtered_data, AU_row
+
+def reassign_to_nearest_au(portfolios_created, selected_aus, branch_data):
+    """Reassign customers to their nearest AU from the selected AUs"""
+    
+    if not portfolios_created or not selected_aus:
+        return portfolios_created, {}
+    
+    # Combine all customers from all portfolios
+    all_customers = []
+    for au_id, customers_df in portfolios_created.items():
+        if not customers_df.empty:
+            customers_copy = customers_df.copy()
+            customers_copy['original_au'] = au_id
+            all_customers.append(customers_copy)
+    
+    if not all_customers:
+        return portfolios_created, {}
+    
+    combined_customers = pd.concat(all_customers, ignore_index=True)
+    
+    # Get AU coordinates for selected AUs
+    au_coordinates = {}
+    for au_id in selected_aus:
+        au_row = branch_data[branch_data['AU'] == au_id]
+        if not au_row.empty:
+            au_coordinates[au_id] = (au_row.iloc[0]['BRANCH_LAT_NUM'], au_row.iloc[0]['BRANCH_LON_NUM'])
+    
+    # Reassign each customer to nearest AU
+    reassignment_summary = []
+    
+    for idx, customer in combined_customers.iterrows():
+        if pd.isna(customer['LAT_NUM']) or pd.isna(customer['LON_NUM']):
+            continue
+            
+        nearest_au = None
+        min_distance = float('inf')
+        
+        # Check distance to all selected AUs
+        for au_id, (au_lat, au_lon) in au_coordinates.items():
+            distance = haversine_distance(customer['LAT_NUM'], customer['LON_NUM'], au_lat, au_lon)
+            if distance < min_distance:
+                min_distance = distance
+                nearest_au = au_id
+        
+        # Update customer data
+        original_au = customer['original_au']
+        if nearest_au and nearest_au != original_au:
+            # Update AU information
+            combined_customers.at[idx, 'AU'] = nearest_au
+            combined_customers.at[idx, 'BRANCH_LAT_NUM'] = au_coordinates[nearest_au][0]
+            combined_customers.at[idx, 'BRANCH_LON_NUM'] = au_coordinates[nearest_au][1]
+            combined_customers.at[idx, 'Distance'] = min_distance
+            
+            # Track reassignment
+            reassignment_summary.append({
+                'Customer': customer.get('CG_ECN', 'N/A'),
+                'Original AU': original_au,
+                'New AU': nearest_au,
+                'New Distance': min_distance,
+                'Portfolio': customer.get('PORT_CODE', 'N/A'),
+                'Revenue': customer.get('BANK_REVENUE', 0)
+            })
+        elif nearest_au:
+            # Update distance even if AU doesn't change
+            combined_customers.at[idx, 'Distance'] = min_distance
+    
+    # Rebuild portfolios_created with reassigned customers
+    new_portfolios_created = {}
+    for au_id in selected_aus:
+        au_customers = combined_customers[combined_customers['AU'] == au_id]
+        if not au_customers.empty:
+            # Remove the temporary 'original_au' column
+            au_customers = au_customers.drop('original_au', axis=1)
+            new_portfolios_created[au_id] = au_customers.reset_index(drop=True)
+    
+    return new_portfolios_created, reassignment_summary
 
 def recommend_reassignment(all_portfolios: dict) -> pd.DataFrame:
     if not all_portfolios:
@@ -317,7 +354,7 @@ except:
         st.info("To display a logo, place logo.svg or logo.png in your project directory")
 
 # Header with title
-st.title("Portfolio Creation Tool - Nearest AU Assignment")
+st.title("Portfolio Creation Tool")
 
 page = st.selectbox("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
 
@@ -347,7 +384,6 @@ if page == "Portfolio Assignment":
     
     # AU Selection Section
     st.subheader("Select AUs for Portfolio Creation")
-    st.info("ℹ️ Customers will be automatically assigned to their nearest AU from the selected AUs")
     
     # Multi-select for AUs
     with st.expander("Select AUs", expanded=True):
@@ -409,18 +445,13 @@ if page == "Portfolio Assignment":
         if not selected_aus:
             st.error("Please select at least one AU")
         else:
-            # Create portfolios for each selected AU using nearest AU logic
+            # Create portfolios for each selected AU
             portfolios_created = {}
             portfolio_summaries = {}
             
-            progress_bar = st.progress(0)
-            status_text = st.empty()
-            
-            for idx, au_id in enumerate(selected_aus):
-                status_text.text(f"Processing AU {au_id}...")
-                
-                # Filter customers for this AU (only those whose nearest AU is this AU)
-                filtered_data, au_row = filter_customers_for_au_nearest(
+            for au_id in selected_aus:
+                # Filter customers for this AU
+                filtered_data, au_row = filter_customers_for_au(
                     customer_data, banker_data, au_id, branch_data, 
                     role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
                 )
@@ -474,15 +505,82 @@ if page == "Portfolio Assignment":
                     
                     portfolios_created[au_id] = filtered_data
                     portfolio_summaries[au_id] = portfolio_summary
-                
-                progress_bar.progress((idx + 1) / len(selected_aus))
-            
-            status_text.text("Processing complete!")
-            progress_bar.empty()
-            status_text.empty()
             
             if portfolios_created:
-                st.success(f"Portfolios created for {len(portfolios_created)} AUs (customers assigned to nearest AU)")
+                # Apply nearest AU reassignment
+                with st.spinner("Reassigning customers to nearest AUs..."):
+                    portfolios_created, reassignment_summary = reassign_to_nearest_au(
+                        portfolios_created, selected_aus, branch_data
+                    )
+                
+                # Show reassignment summary if any customers were moved
+                if reassignment_summary:
+                    st.info(f"🔄 Reassigned {len(reassignment_summary)} customers to their nearest AU")
+                    with st.expander("View Reassignment Details", expanded=False):
+                        reassignment_df = pd.DataFrame(reassignment_summary)
+                        st.dataframe(
+                            reassignment_df,
+                            column_config={
+                                "Customer": st.column_config.TextColumn("Customer ID"),
+                                "Original AU": st.column_config.NumberColumn("Original AU"),
+                                "New AU": st.column_config.NumberColumn("New AU"),
+                                "New Distance": st.column_config.NumberColumn("New Distance (km)", format="%.1f"),
+                                "Portfolio": st.column_config.TextColumn("Portfolio"),
+                                "Revenue": st.column_config.NumberColumn("Revenue", format="$%.0f")
+                            },
+                            hide_index=True,
+                            use_container_width=True
+                        )
+                
+                st.success(f"Portfolios created for {len(portfolios_created)} AUs")
+                
+                # Recalculate portfolio summaries after reassignment
+                portfolio_summaries = {}
+                for au_id, filtered_data in portfolios_created.items():
+                    portfolio_summary = []
+                    
+                    # Group by portfolio for assigned customers
+                    grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+                    
+                    for pid, group in grouped:
+                        total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
+                        
+                        # Determine portfolio type
+                        portfolio_type = "Unknown"
+                        if not group.empty:
+                            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+                            if not types.empty:
+                                portfolio_type = types.index[0]
+                        
+                        portfolio_summary.append({
+                            'AU': au_id,
+                            'Portfolio ID': pid,
+                            'Portfolio Type': portfolio_type,
+                            'Total Customers': total_customer,
+                            'Available': len(group),
+                            'Select': len(group)
+                        })
+                    
+                    # Add unmanaged customers
+                    unmanaged_customers = filtered_data[
+                        (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                        (filtered_data['PORT_CODE'].isna())
+                    ]
+                    
+                    if not unmanaged_customers.empty:
+                        portfolio_summary.append({
+                            'AU': au_id,
+                            'Portfolio ID': 'UNMANAGED',
+                            'Portfolio Type': 'Unmanaged',
+                            'Total Customers': len(customer_data[
+                                (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                                (customer_data['PORT_CODE'].isna())
+                            ]),
+                            'Available': len(unmanaged_customers),
+                            'Select': len(unmanaged_customers)
+                        })
+                    
+                    portfolio_summaries[au_id] = portfolio_summary
                 
                 # Store the created portfolios data
                 st.session_state.portfolios_created = portfolios_created
