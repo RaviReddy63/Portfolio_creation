@@ -780,6 +780,16 @@ if page == "Portfolio Assignment":
             
             # Display the map with preview portfolios
             if preview_portfolios:
+                # Debug: Show AU locations being passed to map
+                st.write("Debug - AU locations for map:")
+                for au_id, filtered_data in st.session_state.portfolios_created.items():
+                    if not filtered_data.empty:
+                        au_row = branch_data[branch_data['AU'] == au_id]
+                        if not au_row.empty:
+                            au_lat = au_row.iloc[0]['BRANCH_LAT_NUM']
+                            au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
+                            st.write(f"AU {au_id}: LAT={au_lat}, LON={au_lon}")
+                
                 combined_map = create_combined_map(preview_portfolios, branch_data)
                 if combined_map:
                     st.plotly_chart(combined_map, use_container_width=True)
