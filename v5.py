@@ -60,36 +60,17 @@ def create_combined_map(all_portfolios, branch_data):
     # Color scheme for different AU portfolios
     portfolio_colors = ['green', 'blue', 'purple', 'orange', 'darkred', 'lightblue', 'pink', 'darkgreen', 'brown', 'gray', 'cyan', 'magenta', 'yellow', 'red', 'lime']
     
-    # Get all unique AU locations
+    # Get all unique AU locations from branch_data
     au_locations = set()
     for portfolio_id, df in all_portfolios.items():
         if not df.empty:
-            au_locations.add((df['AU'].iloc[0], df['BRANCH_LAT_NUM'].iloc[0], df['BRANCH_LON_NUM'].iloc[0]))
-    
-    # Add AU markers
-    for au_id, au_lat, au_lon in au_locations:
-        au_details = branch_data[branch_data['AU'] == au_id]
-        au_name = au_details['CITY'].iloc[0] if not au_details.empty else f"AU {au_id}"
-        
-        fig.add_trace(go.Scattermapbox(
-            lat=[au_lat],
-            lon=[au_lon],
-            mode='markers',
-            marker=dict(
-                size=12,
-                color='black',
-                symbol='triangle-up'
-            ),
-            text=f"AU {au_id}",
-            hovertemplate=f"""
-            <b>AU {au_id}</b><br>
-            Location: {au_name}<br>
-            Coordinates: {au_lat:.4f}, {au_lon:.4f}
-            <extra></extra>
-            """,
-            name=f"AU {au_id}",
-            showlegend=True
-        ))
+            au_id = df['AU'].iloc[0]
+            # Get AU coordinates from branch_data
+            au_row = branch_data[branch_data['AU'] == au_id]
+            if not au_row.empty:
+                au_lat = au_row.iloc[0]['BRANCH_LAT_NUM']
+                au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
+                au_locations.add((au_id, au_lat, au_lon))
     
     # Add customers from each AU portfolio with unique colors
     for portfolio_idx, (portfolio_id, df) in enumerate(all_portfolios.items()):
@@ -127,6 +108,31 @@ def create_combined_map(all_portfolios, branch_data):
             hovertemplate='%{text}<extra></extra>',
             text=hover_text,
             name=f"AU {au_id} Portfolio ({len(df)} customers)",
+            showlegend=True
+        ))
+    
+    # Add AU markers (on top)
+    for au_id, au_lat, au_lon in au_locations:
+        au_details = branch_data[branch_data['AU'] == au_id]
+        au_name = au_details['CITY'].iloc[0] if not au_details.empty else f"AU {au_id}"
+        
+        fig.add_trace(go.Scattermapbox(
+            lat=[au_lat],
+            lon=[au_lon],
+            mode='markers',
+            marker=dict(
+                size=12,
+                color='black',
+                symbol='triangle-up'
+            ),
+            text=f"AU {au_id}",
+            hovertemplate=f"""
+            <b>AU {au_id}</b><br>
+            Location: {au_name}<br>
+            Coordinates: {au_lat:.4f}, {au_lon:.4f}
+            <extra></extra>
+            """,
+            name=f"AU {au_id}",
             showlegend=True
         ))
     
