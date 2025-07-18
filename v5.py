@@ -76,9 +76,9 @@ def create_combined_map(all_portfolios, branch_data):
             lon=[au_lon],
             mode='markers',
             marker=dict(
-                size=15,
-                color='red',
-                symbol='building'
+                size=12,
+                color='black',
+                symbol='triangle-up'
             ),
             text=f"AU {au_id}",
             hovertemplate=f"""
@@ -410,7 +410,10 @@ except:
 # Header with title
 st.title("Portfolio Creation Tool")
 
-page = st.selectbox("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
+# Add pages to sidebar
+with st.sidebar:
+    st.markdown("## Navigation")
+    page = st.radio("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
 
 # Initialize session state
 if 'all_portfolios' not in st.session_state:
