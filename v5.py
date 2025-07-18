@@ -111,7 +111,7 @@ def create_combined_map(all_portfolios, branch_data):
             showlegend=True
         ))
     
-    # Add AU markers (on top)
+    # Add AU markers (on top) - CHANGED: symbol from 'triangle-up' to 'circle' and color remains black
     for au_id, au_lat, au_lon in au_locations:
         au_details = branch_data[branch_data['AU'] == au_id]
         au_name = au_details['CITY'].iloc[0] if not au_details.empty else f"AU {au_id}"
@@ -123,7 +123,7 @@ def create_combined_map(all_portfolios, branch_data):
             marker=dict(
                 size=12,
                 color='black',
-                symbol='triangle-up'
+                symbol='circle'  # Changed from 'triangle-up' to 'circle'
             ),
             text=f"AU {au_id}",
             hovertemplate=f"""
@@ -413,12 +413,14 @@ except:
     except:
         st.info("To display a logo, place logo.svg or logo.png in your project directory")
 
-# Header with title
-st.title("Portfolio Creation Tool")
-
-# Add pages to sidebar
-with st.sidebar:
-    page = st.selectbox("", ["Portfolio Assignment", "Portfolio Mapping"])
+# Header with title and navigation
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title("Portfolio Creation Tool")
+with col2:
+    # Add navigation buttons in the header
+    st.markdown("") # Add some spacing
+    page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
 
 # Initialize session state
 if 'all_portfolios' not in st.session_state:
