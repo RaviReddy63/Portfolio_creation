@@ -176,59 +176,6 @@ def to_excel(all_portfolios):
     output.seek(0)
     return output
 
-def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
-    """Filter customers for a specific AU based on criteria"""
-    
-    # Get AU data
-    AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
-    AU_lat = AU_row['BRANCH_LAT_NUM']
-    AU_lon = AU_row['BRANCH_LON_NUM']
-    
-    # Filter customers by distance box
-    box_lat = max_dist/111
-    box_lon = max_dist/ (111 * np.cos(np.radians(AU_lat)))
-    
-    customer_data_boxed = customer_data[(customer_data['LAT_NUM'] >= AU_lat - box_lat) &
-                                        (customer_data['LAT_NUM'] <= AU_lat + box_lat) &
-                                        (customer_data['LON_NUM'] <= AU_lon + box_lon) &
-                                        (customer_data['LON_NUM'] >= AU_lon - box_lon)]
-    
-    # Calculate distances
-    customer_data_boxed['Distance'] = customer_data_boxed.apply(
-        lambda row: haversine_distance(row['LAT_NUM'], row['LON_NUM'], AU_lat, AU_lon), axis=1
-    )
-    
-    customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-    filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
-    
-    # Apply distance filter for all roles except CENTRALIZED
-    if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
-        filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
-    
-    # Apply role-specific filters
-    if role is not None:
-        filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
-        role_clean = [r.strip().lower() for r in role]
-        filtered_data = filtered_data[filtered_data['TYPE_CLEAN'].isin(role_clean)]
-        filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
-    
-    # Apply other filters
-    filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
-    filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
-    
-    if cust_state is not None:
-        filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
-    
-    if cust_portcd is not None:
-        filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
-    
-    # Add AU information
-    filtered_data['AU'] = selected_au
-    filtered_data['BRANCH_LAT_NUM'] = AU_lat
-    filtered_data['BRANCH_LON_NUM'] = AU_lon
-    
-    return filtered_data, AU_row
-
 def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, selected_aus, branch_data):
     """Apply the selection changes from portfolio controls to filter customers"""
     
@@ -282,6 +229,59 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
             updated_portfolios[au_id] = pd.DataFrame()
     
     return updated_portfolios
+
+def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
+    """Filter customers for a specific AU based on criteria"""
+    
+    # Get AU data
+    AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
+    AU_lat = AU_row['BRANCH_LAT_NUM']
+    AU_lon = AU_row['BRANCH_LON_NUM']
+    
+    # Filter customers by distance box
+    box_lat = max_dist/111
+    box_lon = max_dist/ (111 * np.cos(np.radians(AU_lat)))
+    
+    customer_data_boxed = customer_data[(customer_data['LAT_NUM'] >= AU_lat - box_lat) &
+                                        (customer_data['LAT_NUM'] <= AU_lat + box_lat) &
+                                        (customer_data['LON_NUM'] <= AU_lon + box_lon) &
+                                        (customer_data['LON_NUM'] >= AU_lon - box_lon)]
+    
+    # Calculate distances
+    customer_data_boxed['Distance'] = customer_data_boxed.apply(
+        lambda row: haversine_distance(row['LAT_NUM'], row['LON_NUM'], AU_lat, AU_lon), axis=1
+    )
+    
+    customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+    filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
+    
+    # Apply distance filter for all roles except CENTRALIZED
+    if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
+        filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
+    
+    # Apply role-specific filters
+    if role is not None:
+        filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
+        role_clean = [r.strip().lower() for r in role]
+        filtered_data = filtered_data[filtered_data['TYPE_CLEAN'].isin(role_clean)]
+        filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
+    
+    # Apply other filters
+    filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
+    filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
+    
+    if cust_state is not None:
+        filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
+    
+    if cust_portcd is not None:
+        filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
+    
+    # Add AU information
+    filtered_data['AU'] = selected_au
+    filtered_data['BRANCH_LAT_NUM'] = AU_lat
+    filtered_data['BRANCH_LON_NUM'] = AU_lon
+    
+    return filtered_data, AU_row
 
 def reassign_to_nearest_au(portfolios_created, selected_aus, branch_data):
     """Reassign customers to their nearest AU from the selected AUs"""
@@ -619,84 +619,26 @@ if page == "Portfolio Assignment":
                 
                 # Store the created portfolios data
                 st.session_state.portfolios_created = portfolios_created
+                st.session_state.portfolio_summaries = portfolio_summaries
                 
-                # Show Portfolio Summary Tables and Geographic Distribution in horizontal stack
-                st.markdown("----")
+    # Display results if portfolios exist in session state
+    if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
+        portfolios_created = st.session_state.portfolios_created
+        portfolio_summaries = st.session_state.get('portfolio_summaries', {})
+        
+        # Show Portfolio Summary Tables and Geographic Distribution
+        st.markdown("----")
+        col1, col2 = st.columns([1, 1])
+        
+        with col1:
+            st.subheader("Portfolio Summary Tables")
+            
+            # Create tabs for each AU
+            if len(portfolios_created) > 1:
+                au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_created.keys()])
                 
-                # Create horizontal layout with equal width columns
-                col1, col2 = st.columns([1, 1])
-                
-                with col1:
-                    st.subheader("Portfolio Summary Tables")
-                    
-                    # Create tabs for each AU
-                    if len(portfolios_created) > 1:
-                        au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_created.keys()])
-                        
-                        for tab_idx, (au_id, tab) in enumerate(zip(portfolios_created.keys(), au_tabs)):
-                            with tab:
-                                if au_id in portfolio_summaries:
-                                    portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
-                                    portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
-                                    
-                                    # Create editable dataframe
-                                    edited_df = st.data_editor(
-                                        portfolio_df,
-                                        column_config={
-                                            "AU": st.column_config.NumberColumn("AU", disabled=True),
-                                            "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
-                                            "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-                                            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-                                            "Available": st.column_config.NumberColumn("Available", disabled=True),
-                                            "Select": st.column_config.NumberColumn(
-                                                "Select",
-                                                help="Number of customers to select from this portfolio",
-                                                min_value=0,
-                                                step=1
-                                            )
-                                        },
-                                        hide_index=True,
-                                        use_container_width=True,
-                                        key=f"portfolio_editor_{au_id}_main"
-                                    )
-                                    
-                                    # Store the edited data
-                                    st.session_state.portfolio_controls[au_id] = edited_df
-                                    
-                                    # Add Apply Changes button
-                                    if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}"):
-                                        with st.spinner("Applying selection changes..."):
-                                            # Apply the portfolio selection changes
-                                            updated_portfolios = apply_portfolio_selection_changes(
-                                                st.session_state.portfolios_created, 
-                                                st.session_state.portfolio_controls, 
-                                                [au_id], 
-                                                branch_data
-                                            )
-                                            
-                                            # Update the portfolios in session state
-                                            st.session_state.portfolios_created.update(updated_portfolios)
-                                            
-                                            st.success("Portfolio selection updated!")
-                                    
-                                    # Summary statistics for this AU
-                                    au_filtered_data = portfolios_created[au_id]
-                                    if not au_filtered_data.empty:
-                                        st.subheader("AU Summary Statistics")
-                                        # Use 4 columns for metrics in a single row
-                                        col_a, col_b, col_c, col_d = st.columns(4)
-                                        with col_a:
-                                            st.metric("Total Customers", len(au_filtered_data))
-                                        with col_b:
-                                            st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
-                                        with col_c:
-                                            st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
-                                        with col_d:
-                                            st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
-                    else:
-                        # Single AU case
-                        au_id = list(portfolios_created.keys())[0]
-                        
+                for tab_idx, (au_id, tab) in enumerate(zip(portfolios_created.keys(), au_tabs)):
+                    with tab:
                         if au_id in portfolio_summaries:
                             portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
                             portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
@@ -726,7 +668,7 @@ if page == "Portfolio Assignment":
                             st.session_state.portfolio_controls[au_id] = edited_df
                             
                             # Add Apply Changes button
-                            if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}_single"):
+                            if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}"):
                                 with st.spinner("Applying selection changes..."):
                                     # Apply the portfolio selection changes
                                     updated_portfolios = apply_portfolio_selection_changes(
@@ -742,7 +684,7 @@ if page == "Portfolio Assignment":
                                     st.success("Portfolio selection updated!")
                             
                             # Summary statistics for this AU
-                            au_filtered_data = portfolios_created[au_id]
+                            au_filtered_data = st.session_state.portfolios_created[au_id]
                             if not au_filtered_data.empty:
                                 st.subheader("AU Summary Statistics")
                                 # Use 4 columns for metrics in a single row
@@ -755,56 +697,91 @@ if page == "Portfolio Assignment":
                                     st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
                                 with col_d:
                                     st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
-                
-                with col2:
-                    st.subheader("Geographic Distribution")
-                    
-                    # Create preview portfolios for map display - one portfolio per AU
-                    preview_portfolios = {}
-                    
-                    for au_id, filtered_data in portfolios_created.items():
-                        if au_id in portfolio_summaries:
-                            portfolio_summary = portfolio_summaries[au_id]
-                            
-                            # Collect all selected customers for this AU (this becomes one portfolio)
-                            au_customers = []
-                            
-                            for portfolio_info in portfolio_summary:
-                                pid = portfolio_info['Portfolio ID']
-                                select_count = portfolio_info['Select']
-                                
-                                if select_count > 0:
-                                    if pid == 'UNMANAGED':
-                                        # Handle unmanaged customers
-                                        unmanaged_customers = filtered_data[
-                                            (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                                            (filtered_data['PORT_CODE'].isna())
-                                        ]
-                                        if not unmanaged_customers.empty:
-                                            selected_customers = unmanaged_customers.sort_values(by='Distance').head(select_count)
-                                            au_customers.append(selected_customers)
-                                    else:
-                                        # Handle regular portfolios
-                                        portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == pid]
-                                        if not portfolio_customers.empty:
-                                            selected_customers = portfolio_customers.sort_values(by='Distance').head(select_count)
-                                            au_customers.append(selected_customers)
-                            
-                            # Combine all customers for this AU into one portfolio
-                            if au_customers:
-                                au_portfolio = pd.concat(au_customers, ignore_index=True)
-                                preview_portfolios[f"AU_{au_id}_Portfolio"] = au_portfolio
-                    
-                    # Display the map with preview portfolios
-                    if preview_portfolios:
-                        combined_map = create_combined_map(preview_portfolios, branch_data)
-                        if combined_map:
-                            st.plotly_chart(combined_map, use_container_width=True)
-                    else:
-                        st.info("No customers selected for map display")
-                
             else:
-                st.warning("No customers found for the selected AUs with current filters.")
+                # Single AU case
+                au_id = list(portfolios_created.keys())[0]
+                
+                if au_id in portfolio_summaries:
+                    portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
+                    portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
+                    
+                    # Create editable dataframe
+                    edited_df = st.data_editor(
+                        portfolio_df,
+                        column_config={
+                            "AU": st.column_config.NumberColumn("AU", disabled=True),
+                            "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
+                            "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
+                            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
+                            "Available": st.column_config.NumberColumn("Available", disabled=True),
+                            "Select": st.column_config.NumberColumn(
+                                "Select",
+                                help="Number of customers to select from this portfolio",
+                                min_value=0,
+                                step=1
+                            )
+                        },
+                        hide_index=True,
+                        use_container_width=True,
+                        key=f"portfolio_editor_{au_id}_main"
+                    )
+                    
+                    # Store the edited data
+                    st.session_state.portfolio_controls[au_id] = edited_df
+                    
+                    # Add Apply Changes button
+                    if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}_single"):
+                        with st.spinner("Applying selection changes..."):
+                            # Apply the portfolio selection changes
+                            updated_portfolios = apply_portfolio_selection_changes(
+                                st.session_state.portfolios_created, 
+                                st.session_state.portfolio_controls, 
+                                [au_id], 
+                                branch_data
+                            )
+                            
+                            # Update the portfolios in session state
+                            st.session_state.portfolios_created.update(updated_portfolios)
+                            
+                            st.success("Portfolio selection updated!")
+                    
+                    # Summary statistics for this AU
+                    au_filtered_data = st.session_state.portfolios_created[au_id]
+                    if not au_filtered_data.empty:
+                        st.subheader("AU Summary Statistics")
+                        # Use 4 columns for metrics in a single row
+                        col_a, col_b, col_c, col_d = st.columns(4)
+                        with col_a:
+                            st.metric("Total Customers", len(au_filtered_data))
+                        with col_b:
+                            st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
+                        with col_c:
+                            st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
+                        with col_d:
+                            st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
+        
+        with col2:
+            st.subheader("Geographic Distribution")
+            
+            # Create preview portfolios for map display - one portfolio per AU
+            preview_portfolios = {}
+            
+            for au_id, filtered_data in st.session_state.portfolios_created.items():
+                if not filtered_data.empty:
+                    preview_portfolios[f"AU_{au_id}_Portfolio"] = filtered_data
+            
+            # Display the map with preview portfolios
+            if preview_portfolios:
+                combined_map = create_combined_map(preview_portfolios, branch_data)
+                if combined_map:
+                    st.plotly_chart(combined_map, use_container_width=True)
+            else:
+                st.info("No customers selected for map display")
+    
+    else:
+        # Show message when no portfolios exist
+        if st.session_state.get('portfolios_created') is not None:
+            st.warning("No customers found for the selected AUs with current filters.")
     
     # Show recommendation reassignment table if it exists
     if 'recommend_reassignment' in st.session_state and isinstance(st.session_state.recommend_reassignment, pd.DataFrame) and not st.session_state.recommend_reassignment.empty:
