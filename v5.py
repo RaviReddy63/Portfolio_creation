@@ -412,41 +412,7 @@ st.title("Portfolio Creation Tool")
 
 # Add pages to sidebar
 with st.sidebar:
-    # Set default page if not set
-    if 'page' not in st.session_state:
-        st.session_state.page = "Portfolio Assignment"
-    
-    # Custom CSS for selected button
-    st.markdown("""
-    <style>
-    .selected-button {
-        background-color: #f0f2f6;
-        padding: 0.25rem 0.75rem;
-        border-radius: 0.25rem;
-        border: 1px solid #e6e9ef;
-        margin-bottom: 0.5rem;
-        font-weight: 500;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Portfolio Assignment button/indicator
-    if st.session_state.page == "Portfolio Assignment":
-        st.markdown('<div class="selected-button">📊 Portfolio Assignment</div>', unsafe_allow_html=True)
-    else:
-        if st.button("📊 Portfolio Assignment"):
-            st.session_state.page = "Portfolio Assignment"
-            st.rerun()
-    
-    # Portfolio Mapping button/indicator
-    if st.session_state.page == "Portfolio Mapping":
-        st.markdown('<div class="selected-button">🗺️ Portfolio Mapping</div>', unsafe_allow_html=True)
-    else:
-        if st.button("🗺️ Portfolio Mapping"):
-            st.session_state.page = "Portfolio Mapping"
-            st.rerun()
-    
-    page = st.session_state.page
+    page = st.selectbox("", ["Portfolio Assignment", "Portfolio Mapping"])
 
 # Initialize session state
 if 'all_portfolios' not in st.session_state:
