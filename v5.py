@@ -476,31 +476,25 @@ if page == "Portfolio Assignment":
     st.subheader("Customer Selection Criteria")
     
     with st.expander("Customer Filters", expanded=True):
-        col1, col2, col3, col4, col5 = st.columns([1, 1, 0.2, 1, 1])
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
-            if not cust_state:
-                cust_state = None
-        
-        with col2:
             role_options = list(customer_data['TYPE'].dropna().unique())
             role = st.multiselect("Role", role_options, key="role")
             if not role:
                 role = None
         
-        with col3:
-            st.markdown("<div style='text-align: center; margin-top: 30px; font-weight: bold; color: #ff6b6b;'>OR</div>", unsafe_allow_html=True)
+        with col2:
+            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+            cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
+            if not cust_state:
+                cust_state = None
         
-        with col4:
+        with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
             cust_portcd = st.multiselect("Portfolio Code", customer_data_temp['PORT_CODE'].dropna().unique(), key="cust_portcd")
             if not cust_portcd:
                 cust_portcd = None
-        
-        with col5:
-            st.markdown("")  # Empty column for spacing
         
         col4, col5, col6 = st.columns(3)
         with col4:
