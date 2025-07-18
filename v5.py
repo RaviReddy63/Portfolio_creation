@@ -229,6 +229,60 @@ def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data
     
     return filtered_data, AU_row
 
+def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, selected_aus, branch_data):
+    """Apply the selection changes from portfolio controls to filter customers"""
+    
+    updated_portfolios = {}
+    
+    for au_id in selected_aus:
+        if au_id not in portfolios_created or au_id not in portfolio_controls:
+            continue
+            
+        original_data = portfolios_created[au_id].copy()
+        control_data = portfolio_controls[au_id]
+        
+        # Start with empty list for this AU
+        selected_customers = []
+        
+        # Process each portfolio selection
+        for _, row in control_data.iterrows():
+            portfolio_id = row['Portfolio ID']
+            select_count = row['Select']
+            
+            if select_count <= 0:
+                continue
+                
+            if portfolio_id == 'UNMANAGED':
+                # Handle unmanaged customers
+                unmanaged_customers = original_data[
+                    (original_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                    (original_data['PORT_CODE'].isna())
+                ].copy()
+                
+                if not unmanaged_customers.empty:
+                    # Sort by distance (closest first) and take the requested count
+                    unmanaged_sorted = unmanaged_customers.sort_values('Distance').head(select_count)
+                    selected_customers.append(unmanaged_sorted)
+                    
+            else:
+                # Handle regular portfolios
+                portfolio_customers = original_data[original_data['PORT_CODE'] == portfolio_id].copy()
+                
+                if not portfolio_customers.empty:
+                    # Sort by distance (closest first) and take the requested count
+                    portfolio_sorted = portfolio_customers.sort_values('Distance').head(select_count)
+                    selected_customers.append(portfolio_sorted)
+        
+        # Combine all selected customers for this AU
+        if selected_customers:
+            au_final_customers = pd.concat(selected_customers, ignore_index=True)
+            updated_portfolios[au_id] = au_final_customers
+        else:
+            # No customers selected for this AU
+            updated_portfolios[au_id] = pd.DataFrame()
+    
+    return updated_portfolios
+
 def reassign_to_nearest_au(portfolios_created, selected_aus, branch_data):
     """Reassign customers to their nearest AU from the selected AUs"""
     
@@ -513,25 +567,6 @@ if page == "Portfolio Assignment":
                         portfolios_created, selected_aus, branch_data
                     )
                 
-                # Show reassignment summary if any customers were moved
-                if reassignment_summary:
-                    st.info(f"🔄 Reassigned {len(reassignment_summary)} customers to their nearest AU")
-                    with st.expander("View Reassignment Details", expanded=False):
-                        reassignment_df = pd.DataFrame(reassignment_summary)
-                        st.dataframe(
-                            reassignment_df,
-                            column_config={
-                                "Customer": st.column_config.TextColumn("Customer ID"),
-                                "Original AU": st.column_config.NumberColumn("Original AU"),
-                                "New AU": st.column_config.NumberColumn("New AU"),
-                                "New Distance": st.column_config.NumberColumn("New Distance (km)", format="%.1f"),
-                                "Portfolio": st.column_config.TextColumn("Portfolio"),
-                                "Revenue": st.column_config.NumberColumn("Revenue", format="$%.0f")
-                            },
-                            hide_index=True,
-                            use_container_width=True
-                        )
-                
                 st.success(f"Portfolios created for {len(portfolios_created)} AUs")
                 
                 # Recalculate portfolio summaries after reassignment
@@ -628,6 +663,23 @@ if page == "Portfolio Assignment":
                                     # Store the edited data
                                     st.session_state.portfolio_controls[au_id] = edited_df
                                     
+                                    # Add Apply Changes button
+                                    if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}"):
+                                        with st.spinner("Applying selection changes..."):
+                                            # Apply the portfolio selection changes
+                                            updated_portfolios = apply_portfolio_selection_changes(
+                                                st.session_state.portfolios_created, 
+                                                st.session_state.portfolio_controls, 
+                                                [au_id], 
+                                                branch_data
+                                            )
+                                            
+                                            # Update the portfolios in session state
+                                            st.session_state.portfolios_created.update(updated_portfolios)
+                                            
+                                            st.success("Portfolio selection updated!")
+                                            st.rerun()
+                                    
                                     # Summary statistics for this AU
                                     au_filtered_data = portfolios_created[au_id]
                                     if not au_filtered_data.empty:
@@ -673,6 +725,23 @@ if page == "Portfolio Assignment":
                             
                             # Store the edited data
                             st.session_state.portfolio_controls[au_id] = edited_df
+                            
+                            # Add Apply Changes button
+                            if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}_single"):
+                                with st.spinner("Applying selection changes..."):
+                                    # Apply the portfolio selection changes
+                                    updated_portfolios = apply_portfolio_selection_changes(
+                                        st.session_state.portfolios_created, 
+                                        st.session_state.portfolio_controls, 
+                                        [au_id], 
+                                        branch_data
+                                    )
+                                    
+                                    # Update the portfolios in session state
+                                    st.session_state.portfolios_created.update(updated_portfolios)
+                                    
+                                    st.success("Portfolio selection updated!")
+                                    st.rerun()
                             
                             # Summary statistics for this AU
                             au_filtered_data = portfolios_created[au_id]
