@@ -122,7 +122,7 @@ def create_combined_map(all_portfolios, branch_data):
             mode='markers',
             marker=dict(
                 size=12,
-                color='black',
+                color='red',
                 symbol='triangle-up'
             ),
             text=f"AU {au_id}",
