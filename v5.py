@@ -10,7 +10,7 @@ from plotly.subplots import make_subplots
 
 def haversine_distance(clat, clon, blat, blon):
     if math.isnan(clat) or math.isnan(clon) or math.isnan(blat) or math.isnan(blon):
-        return float('inf')  # Return infinity for invalid coordinates
+        return 0
         
     delta_lat = radians(clat - blat)
     delta_lon = radians(clon - blon)
@@ -20,10 +20,12 @@ def haversine_distance(clat, clon, blat, blon):
     distance = 6371*c
     return distance
 
-def find_nearest_au(customer_lat, customer_lon, branch_data):
-    """Find the nearest AU for a customer based on their coordinates"""
+def find_nearest_au_for_customer(customer_lat, customer_lon, branch_data):
+    """Find the nearest AU for a single customer - simplified version"""
     min_distance = float('inf')
     nearest_au = None
+    nearest_au_lat = None
+    nearest_au_lon = None
     
     for _, branch in branch_data.iterrows():
         if pd.isna(branch['BRANCH_LAT_NUM']) or pd.isna(branch['BRANCH_LON_NUM']):
@@ -37,38 +39,10 @@ def find_nearest_au(customer_lat, customer_lon, branch_data):
         if distance < min_distance:
             min_distance = distance
             nearest_au = branch['AU']
+            nearest_au_lat = branch['BRANCH_LAT_NUM']
+            nearest_au_lon = branch['BRANCH_LON_NUM']
     
-    return nearest_au, min_distance
-
-def assign_customers_to_nearest_au(customer_data, branch_data):
-    """Assign each customer to their nearest AU and calculate distance"""
-    customer_data_with_au = customer_data.copy()
-    
-    # Initialize new columns
-    customer_data_with_au['NEAREST_AU'] = None
-    customer_data_with_au['DISTANCE_TO_AU'] = None
-    customer_data_with_au['AU_LAT'] = None
-    customer_data_with_au['AU_LON'] = None
-    
-    # Process each customer
-    for idx, customer in customer_data_with_au.iterrows():
-        if pd.isna(customer['LAT_NUM']) or pd.isna(customer['LON_NUM']):
-            continue
-            
-        nearest_au, distance = find_nearest_au(
-            customer['LAT_NUM'], customer['LON_NUM'], branch_data
-        )
-        
-        if nearest_au is not None:
-            customer_data_with_au.at[idx, 'NEAREST_AU'] = nearest_au
-            customer_data_with_au.at[idx, 'DISTANCE_TO_AU'] = distance
-            
-            # Get AU coordinates
-            au_info = branch_data[branch_data['AU'] == nearest_au].iloc[0]
-            customer_data_with_au.at[idx, 'AU_LAT'] = au_info['BRANCH_LAT_NUM']
-            customer_data_with_au.at[idx, 'AU_LON'] = au_info['BRANCH_LON_NUM']
-    
-    return customer_data_with_au
+    return nearest_au, min_distance, nearest_au_lat, nearest_au_lon
 
 def merge_dfs(customer_data, banker_data, branch_data):
     customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
@@ -114,7 +88,7 @@ def create_combined_map(all_portfolios, branch_data):
     au_locations = set()
     for portfolio_id, df in all_portfolios.items():
         if not df.empty:
-            au_locations.add((df['NEAREST_AU'].iloc[0], df['AU_LAT'].iloc[0], df['AU_LON'].iloc[0]))
+            au_locations.add((df['AU'].iloc[0], df['BRANCH_LAT_NUM'].iloc[0], df['BRANCH_LON_NUM'].iloc[0]))
     
     # Add AU markers
     for au_id, au_lat, au_lon in au_locations:
@@ -156,9 +130,9 @@ def create_combined_map(all_portfolios, branch_data):
         for _, customer in df.iterrows():
             hover_text.append(f"""
             <b>{customer.get('CG_ECN', 'N/A')}</b><br>
-            Nearest AU: {customer.get('NEAREST_AU', 'N/A')}<br>
+            AU Portfolio: {au_id}<br>
             Portfolio ID: {customer.get('PORT_CODE', 'N/A')}<br>
-            Distance to AU: {customer.get('DISTANCE_TO_AU', 0):.1f} km<br>
+            Distance: {customer.get('Distance', 0):.1f} km<br>
             Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
             Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
             State: {customer.get('BILLINGSTATE', 'N/A')}<br>
@@ -226,24 +200,54 @@ def to_excel(all_portfolios):
     output.seek(0)
     return output
 
-def filter_customers_by_criteria(customer_data_with_au, banker_data, selected_aus, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
-    """Filter customers based on criteria and their nearest AU assignment"""
+def filter_customers_for_au_nearest(customer_data, banker_data, selected_au, branch_data, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
+    """Modified function: assign customers to nearest AU instead of specific AU"""
     
-    # Start with customers assigned to selected AUs
-    if selected_aus:
-        filtered_data = customer_data_with_au[customer_data_with_au['NEAREST_AU'].isin(selected_aus)].copy()
-    else:
-        filtered_data = customer_data_with_au.copy()
+    # Get AU data
+    AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
+    AU_lat = AU_row['BRANCH_LAT_NUM']
+    AU_lon = AU_row['BRANCH_LON_NUM']
     
-    # Rename column for merge
+    # Filter customers by distance box first (performance optimization)
+    box_lat = max_dist/111
+    box_lon = max_dist/ (111 * np.cos(np.radians(AU_lat)))
+    
+    customer_data_boxed = customer_data[(customer_data['LAT_NUM'] >= AU_lat - box_lat) &
+                                        (customer_data['LAT_NUM'] <= AU_lat + box_lat) &
+                                        (customer_data['LON_NUM'] <= AU_lon + box_lon) &
+                                        (customer_data['LON_NUM'] >= AU_lon - box_lon)]
+    
+    # For each customer in the box, find their NEAREST AU (not just distance to selected AU)
+    nearest_au_assignments = []
+    
+    for idx, customer in customer_data_boxed.iterrows():
+        if pd.isna(customer['LAT_NUM']) or pd.isna(customer['LON_NUM']):
+            continue
+            
+        nearest_au, distance, nearest_lat, nearest_lon = find_nearest_au_for_customer(
+            customer['LAT_NUM'], customer['LON_NUM'], branch_data
+        )
+        
+        # Only include customers whose nearest AU is the selected AU
+        if nearest_au == int(selected_au):
+            customer_copy = customer.copy()
+            customer_copy['Distance'] = distance
+            customer_copy['AU'] = nearest_au
+            customer_copy['BRANCH_LAT_NUM'] = nearest_lat
+            customer_copy['BRANCH_LON_NUM'] = nearest_lon
+            nearest_au_assignments.append(customer_copy)
+    
+    if not nearest_au_assignments:
+        return pd.DataFrame(), AU_row
+    
+    # Convert to DataFrame
+    filtered_data = pd.DataFrame(nearest_au_assignments)
     filtered_data = filtered_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-    
-    # Merge with banker data
     filtered_data = filtered_data.merge(banker_data, on="PORT_CODE", how='left')
     
-    # Apply distance filter (except for CENTRALIZED roles)
+    # Apply distance filter for all roles except CENTRALIZED
     if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
-        filtered_data = filtered_data[filtered_data['DISTANCE_TO_AU'] <= max_dist]
+        filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
     
     # Apply role-specific filters
     if role is not None:
@@ -262,72 +266,34 @@ def filter_customers_by_criteria(customer_data_with_au, banker_data, selected_au
     if cust_portcd is not None:
         filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
     
-    return filtered_data
+    return filtered_data, AU_row
 
-def create_portfolios_by_au(filtered_data, branch_data):
-    """Create portfolios grouped by AU"""
-    portfolios_by_au = {}
-    portfolio_summaries = {}
+def recommend_reassignment(all_portfolios: dict) -> pd.DataFrame:
+    if not all_portfolios:
+        return pd.DataFrame()
     
-    # Group customers by their nearest AU
-    for au_id in filtered_data['NEAREST_AU'].unique():
-        if pd.isna(au_id):
-            continue
-            
-        au_customers = filtered_data[filtered_data['NEAREST_AU'] == au_id].copy()
-        
-        if au_customers.empty:
-            continue
-        
-        # Create portfolio summary for this AU
-        portfolio_summary = []
-        
-        # Group by portfolio for assigned customers
-        grouped = au_customers[au_customers['PORT_CODE'].notna()].groupby("PORT_CODE")
-        
-        for pid, group in grouped:
-            # Find total customers in this portfolio (across all AUs)
-            total_customer = len(filtered_data[filtered_data["PORT_CODE"] == pid])
-            
-            # Determine portfolio type
-            portfolio_type = "Unknown"
-            if not group.empty:
-                types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
-                if not types.empty:
-                    portfolio_type = types.index[0]
-            
-            portfolio_summary.append({
-                'AU': au_id,
-                'Portfolio ID': pid,
-                'Portfolio Type': portfolio_type,
-                'Total Customers': total_customer,
-                'Available': len(group),
-                'Select': len(group)
-            })
-        
-        # Add unmanaged customers
-        unmanaged_customers = au_customers[
-            (au_customers['TYPE'].str.lower().str.strip() == 'unmanaged') |
-            (au_customers['PORT_CODE'].isna())
-        ]
-        
-        if not unmanaged_customers.empty:
-            portfolio_summary.append({
-                'AU': au_id,
-                'Portfolio ID': 'UNMANAGED',
-                'Portfolio Type': 'Unmanaged',
-                'Total Customers': len(filtered_data[
-                    (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                    (filtered_data['PORT_CODE'].isna())
-                ]),
-                'Available': len(unmanaged_customers),
-                'Select': len(unmanaged_customers)
-            })
-        
-        portfolios_by_au[au_id] = au_customers
-        portfolio_summaries[au_id] = portfolio_summary
+    combine_df = pd.concat([df.assign(original_portfolio=portfolio_id) for portfolio_id, df in all_portfolios.items()], ignore_index=True)
     
-    return portfolios_by_au, portfolio_summaries
+    au_map = {portfolio_id: (df["BRANCH_LAT_NUM"].iloc[0], df["BRANCH_LON_NUM"].iloc[0])
+              for portfolio_id, df in all_portfolios.items()
+              if not df.empty}
+                
+    records = []
+    for _, row in combine_df.iterrows():
+        best_portfolio = None
+        min_dist = float("inf")
+        for portfolio_id, (au_lat, au_lon) in au_map.items():
+            dist = haversine_distance(row['LAT_NUM'], row['LON_NUM'], au_lat, au_lon)
+            if dist < min_dist:
+                best_portfolio = portfolio_id
+                min_dist = dist
+                
+        row_data = row.to_dict()
+        row_data['recommended_portfolio'] = best_portfolio
+        row_data['recommended_dist'] = min_dist
+        records.append(row_data)
+        
+    return pd.DataFrame(records)
 
 #------------------------Streamlit App---------------------------------------------------------------
 st.set_page_config("Portfolio Creation tool", layout="wide")
@@ -362,8 +328,8 @@ if 'all_portfolios' not in st.session_state:
 if 'portfolio_controls' not in st.session_state:
     st.session_state.portfolio_controls = {}
     
-if 'customer_data_with_au' not in st.session_state:
-    st.session_state.customer_data_with_au = None
+if 'recommend_reassignment' not in st.session_state:
+    st.session_state.recommend_reassignment = {}
 
 # Load data from local CSV files
 @st.cache_data
@@ -375,92 +341,36 @@ def load_data():
 
 # Load data on app startup
 customer_data, banker_data, branch_data = load_data()
-
-# Assign customers to nearest AU (cached to avoid recomputation)
-@st.cache_data
-def get_customer_data_with_au():
-    return assign_customers_to_nearest_au(customer_data, branch_data)
-
-if st.session_state.customer_data_with_au is None:
-    with st.spinner("Assigning customers to nearest AUs..."):
-        st.session_state.customer_data_with_au = get_customer_data_with_au()
-
-customer_data_with_au = st.session_state.customer_data_with_au
+data = merge_dfs(customer_data, banker_data, branch_data)
 
 if page == "Portfolio Assignment":
     
-    # Show assignment summary
-    st.subheader("Customer Assignment Summary")
-    
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        total_customers = len(customer_data_with_au)
-        assigned_customers = len(customer_data_with_au[customer_data_with_au['NEAREST_AU'].notna()])
-        st.metric("Total Customers", total_customers)
-    
-    with col2:
-        st.metric("Assigned to AUs", assigned_customers)
-    
-    with col3:
-        unassigned_customers = total_customers - assigned_customers
-        st.metric("Unassigned", unassigned_customers)
-    
-    # Show AU distribution
-    if assigned_customers > 0:
-        st.subheader("Customer Distribution by AU")
-        au_distribution = customer_data_with_au['NEAREST_AU'].value_counts().head(10)
-        st.bar_chart(au_distribution)
-    
     # AU Selection Section
     st.subheader("Select AUs for Portfolio Creation")
+    st.info("ℹ️ Customers will be automatically assigned to their nearest AU from the selected AUs")
     
-    # Multi-select for AUs based on assigned customers
-    available_aus = customer_data_with_au['NEAREST_AU'].dropna().unique()
-    available_aus = sorted([int(au) for au in available_aus if not pd.isna(au)])
-    
+    # Multi-select for AUs
     with st.expander("Select AUs", expanded=True):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Filter by state
-            au_state_info = []
-            for au in available_aus:
-                au_info = branch_data[branch_data['AU'] == au]
-                if not au_info.empty:
-                    au_state_info.append((au, au_info['STATECODE'].iloc[0]))
-            
-            available_states = list(set([state for _, state in au_state_info if pd.notna(state)]))
-            states = st.multiselect("State", sorted(available_states), key="states")
+            states = st.multiselect("State", branch_data['STATECODE'].dropna().unique(), key="states")
         
+        # Filter branch data based on selected states
+        if states:
+            filtered_branch_data = branch_data[branch_data['STATECODE'].isin(states)]
+        else:
+            filtered_branch_data = branch_data
+            
         with col2:
-            # Filter AUs by selected states
-            if states:
-                filtered_aus = [au for au, state in au_state_info if state in states]
-            else:
-                filtered_aus = available_aus
-            
-            cities = []
-            for au in filtered_aus:
-                au_info = branch_data[branch_data['AU'] == au]
-                if not au_info.empty:
-                    cities.append(au_info['CITY'].iloc[0])
-            
-            unique_cities = sorted(list(set([city for city in cities if pd.notna(city)])))
-            selected_cities = st.multiselect("City", unique_cities, key="cities")
+            cities = st.multiselect("City", filtered_branch_data['CITY'].dropna().unique(), key="cities")
+        
+        # Filter further based on selected cities
+        if cities:
+            filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
         
         with col3:
-            # Filter AUs by selected cities
-            if selected_cities:
-                city_filtered_aus = []
-                for au in filtered_aus:
-                    au_info = branch_data[branch_data['AU'] == au]
-                    if not au_info.empty and au_info['CITY'].iloc[0] in selected_cities:
-                        city_filtered_aus.append(au)
-                final_aus = city_filtered_aus
-            else:
-                final_aus = filtered_aus
-            
-            selected_aus = st.multiselect("AU", final_aus, key="selected_aus")
+            selected_aus = st.multiselect("AU", filtered_branch_data['AU'].dropna().unique(), key="selected_aus")
     
     # Customer Selection Criteria
     st.subheader("Customer Selection Criteria")
@@ -469,26 +379,26 @@ if page == "Portfolio Assignment":
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            role_options = list(customer_data_with_au['TYPE'].dropna().unique())
+            role_options = list(customer_data['TYPE'].dropna().unique())
             role = st.multiselect("Role", role_options, key="role")
             if not role:
                 role = None
         
         with col2:
-            cust_state_options = list(customer_data_with_au['BILLINGSTATE'].dropna().unique())
+            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
             cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
             if not cust_state:
                 cust_state = None
         
         with col3:
-            customer_data_temp = customer_data_with_au.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
             cust_portcd = st.multiselect("Portfolio Code", customer_data_temp['PORT_CODE'].dropna().unique(), key="cust_portcd")
             if not cust_portcd:
                 cust_portcd = None
         
         col4, col5, col6 = st.columns(3)
         with col4:
-            max_dist = st.slider("Max Distance from AU (km)", 1, 200, 50, key="max_distance")
+            max_dist = st.slider("Max Distance (km)", 1, 100, 20, key="max_distance")
         with col5:
             min_rev = st.slider("Minimum Revenue", 0, 20000, 5000, step=1000, key="min_revenue")
         with col6:
@@ -499,84 +409,99 @@ if page == "Portfolio Assignment":
         if not selected_aus:
             st.error("Please select at least one AU")
         else:
-            with st.spinner("Creating portfolios..."):
-                # Filter customers based on criteria
-                filtered_data = filter_customers_by_criteria(
-                    customer_data_with_au, banker_data, selected_aus, 
+            # Create portfolios for each selected AU using nearest AU logic
+            portfolios_created = {}
+            portfolio_summaries = {}
+            
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+            
+            for idx, au_id in enumerate(selected_aus):
+                status_text.text(f"Processing AU {au_id}...")
+                
+                # Filter customers for this AU (only those whose nearest AU is this AU)
+                filtered_data, au_row = filter_customers_for_au_nearest(
+                    customer_data, banker_data, au_id, branch_data, 
                     role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
                 )
                 
                 if not filtered_data.empty:
-                    # Create portfolios by AU
-                    portfolios_by_au, portfolio_summaries = create_portfolios_by_au(filtered_data, branch_data)
+                    # Create portfolio summary for this AU
+                    portfolio_summary = []
                     
-                    if portfolios_by_au:
-                        st.success(f"Portfolios created for {len(portfolios_by_au)} AUs with {len(filtered_data)} customers")
+                    # Group by portfolio for assigned customers
+                    grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+                    
+                    for pid, group in grouped:
+                        total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
                         
-                        # Store the created portfolios data
-                        st.session_state.portfolios_created = portfolios_by_au
-                        st.session_state.portfolio_summaries = portfolio_summaries
+                        # Determine portfolio type
+                        portfolio_type = "Unknown"
+                        if not group.empty:
+                            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+                            if not types.empty:
+                                portfolio_type = types.index[0]
                         
-                        # Show Portfolio Summary Tables and Geographic Distribution
-                        st.markdown("----")
+                        portfolio_summary.append({
+                            'AU': au_id,
+                            'Portfolio ID': pid,
+                            'Portfolio Type': portfolio_type,
+                            'Total Customers': total_customer,
+                            'Available': len(group),
+                            'Select': len(group)
+                        })
+                    
+                    # Add unmanaged customers
+                    unmanaged_customers = filtered_data[
+                        (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                        (filtered_data['PORT_CODE'].isna())
+                    ]
+                    
+                    customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+                    
+                    if not unmanaged_customers.empty:
+                        portfolio_summary.append({
+                            'AU': au_id,
+                            'Portfolio ID': 'UNMANAGED',
+                            'Portfolio Type': 'Unmanaged',
+                            'Total Customers': len(customer_data[
+                                (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                                (customer_data['PORT_CODE'].isna())
+                            ]),
+                            'Available': len(unmanaged_customers),
+                            'Select': len(unmanaged_customers)
+                        })
+                    
+                    portfolios_created[au_id] = filtered_data
+                    portfolio_summaries[au_id] = portfolio_summary
+                
+                progress_bar.progress((idx + 1) / len(selected_aus))
+            
+            status_text.text("Processing complete!")
+            progress_bar.empty()
+            status_text.empty()
+            
+            if portfolios_created:
+                st.success(f"Portfolios created for {len(portfolios_created)} AUs (customers assigned to nearest AU)")
+                
+                # Store the created portfolios data
+                st.session_state.portfolios_created = portfolios_created
+                
+                # Show Portfolio Summary Tables and Geographic Distribution in horizontal stack
+                st.markdown("----")
+                
+                # Create horizontal layout with equal width columns
+                col1, col2 = st.columns([1, 1])
+                
+                with col1:
+                    st.subheader("Portfolio Summary Tables")
+                    
+                    # Create tabs for each AU
+                    if len(portfolios_created) > 1:
+                        au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_created.keys()])
                         
-                        # Create horizontal layout with equal width columns
-                        col1, col2 = st.columns([1, 1])
-                        
-                        with col1:
-                            st.subheader("Portfolio Summary Tables")
-                            
-                            # Create tabs for each AU
-                            if len(portfolios_by_au) > 1:
-                                au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_by_au.keys()])
-                                
-                                for tab_idx, (au_id, tab) in enumerate(zip(portfolios_by_au.keys(), au_tabs)):
-                                    with tab:
-                                        if au_id in portfolio_summaries:
-                                            portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
-                                            portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
-                                            
-                                            # Create editable dataframe
-                                            edited_df = st.data_editor(
-                                                portfolio_df,
-                                                column_config={
-                                                    "AU": st.column_config.NumberColumn("AU", disabled=True),
-                                                    "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
-                                                    "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-                                                    "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-                                                    "Available": st.column_config.NumberColumn("Available", disabled=True),
-                                                    "Select": st.column_config.NumberColumn(
-                                                        "Select",
-                                                        help="Number of customers to select from this portfolio",
-                                                        min_value=0,
-                                                        step=1
-                                                    )
-                                                },
-                                                hide_index=True,
-                                                use_container_width=True,
-                                                key=f"portfolio_editor_{au_id}_main"
-                                            )
-                                            
-                                            # Store the edited data
-                                            st.session_state.portfolio_controls[au_id] = edited_df
-                                            
-                                            # Summary statistics for this AU
-                                            au_filtered_data = portfolios_by_au[au_id]
-                                            if not au_filtered_data.empty:
-                                                st.subheader("AU Summary Statistics")
-                                                col_a, col_b, col_c, col_d = st.columns(4)
-                                                with col_a:
-                                                    st.metric("Total Customers", len(au_filtered_data))
-                                                with col_b:
-                                                    st.metric("Avg Distance", f"{au_filtered_data['DISTANCE_TO_AU'].mean():.1f} km")
-                                                with col_c:
-                                                    st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
-                                                with col_d:
-                                                    st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
-                            else:
-                                # Single AU case
-                                au_id = list(portfolios_by_au.keys())[0]
-                                
+                        for tab_idx, (au_id, tab) in enumerate(zip(portfolios_created.keys(), au_tabs)):
+                            with tab:
                                 if au_id in portfolio_summaries:
                                     portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
                                     portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
@@ -606,241 +531,154 @@ if page == "Portfolio Assignment":
                                     st.session_state.portfolio_controls[au_id] = edited_df
                                     
                                     # Summary statistics for this AU
-                                    au_filtered_data = portfolios_by_au[au_id]
+                                    au_filtered_data = portfolios_created[au_id]
                                     if not au_filtered_data.empty:
                                         st.subheader("AU Summary Statistics")
+                                        # Use 4 columns for metrics in a single row
                                         col_a, col_b, col_c, col_d = st.columns(4)
                                         with col_a:
                                             st.metric("Total Customers", len(au_filtered_data))
                                         with col_b:
-                                            st.metric("Avg Distance", f"{au_filtered_data['DISTANCE_TO_AU'].mean():.1f} km")
+                                            st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
                                         with col_c:
                                             st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
                                         with col_d:
                                             st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
-                        
-                        with col2:
-                            st.subheader("Geographic Distribution")
-                            
-                            # Create preview portfolios for map display
-                            preview_portfolios = {}
-                            
-                            for au_id, au_customers in portfolios_by_au.items():
-                                if au_id in portfolio_summaries:
-                                    portfolio_summary = portfolio_summaries[au_id]
-                                    
-                                    # Collect all selected customers for this AU
-                                    selected_customers = []
-                                    
-                                    for portfolio_info in portfolio_summary:
-                                        pid = portfolio_info['Portfolio ID']
-                                        select_count = portfolio_info['Select']
-                                        
-                                        if select_count > 0:
-                                            if pid == 'UNMANAGED':
-                                                unmanaged_customers = au_customers[
-                                                    (au_customers['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                                                    (au_customers['PORT_CODE'].isna())
-                                                ]
-                                                if not unmanaged_customers.empty:
-                                                    selected = unmanaged_customers.sort_values(by='DISTANCE_TO_AU').head(select_count)
-                                                    selected_customers.append(selected)
-                                            else:
-                                                portfolio_customers = au_customers[au_customers['PORT_CODE'] == pid]
-                                                if not portfolio_customers.empty:
-                                                    selected = portfolio_customers.sort_values(by='DISTANCE_TO_AU').head(select_count)
-                                                    selected_customers.append(selected)
-                                    
-                                    # Combine all customers for this AU
-                                    if selected_customers:
-                                        au_portfolio = pd.concat(selected_customers, ignore_index=True)
-                                        preview_portfolios[f"AU_{au_id}_Portfolio"] = au_portfolio
-                            
-                            # Display the map
-                            if preview_portfolios:
-                                combined_map = create_combined_map(preview_portfolios, branch_data)
-                                if combined_map:
-                                    st.plotly_chart(combined_map, use_container_width=True)
-                            else:
-                                st.info("No customers selected for map display")
-                                
                     else:
-                        st.warning("No portfolios could be created with the current filters.")
-                else:
-                    st.warning("No customers found matching the selected criteria.")
+                        # Single AU case
+                        au_id = list(portfolios_created.keys())[0]
+                        
+                        if au_id in portfolio_summaries:
+                            portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
+                            portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
+                            
+                            # Create editable dataframe
+                            edited_df = st.data_editor(
+                                portfolio_df,
+                                column_config={
+                                    "AU": st.column_config.NumberColumn("AU", disabled=True),
+                                    "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
+                                    "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
+                                    "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
+                                    "Available": st.column_config.NumberColumn("Available", disabled=True),
+                                    "Select": st.column_config.NumberColumn(
+                                        "Select",
+                                        help="Number of customers to select from this portfolio",
+                                        min_value=0,
+                                        step=1
+                                    )
+                                },
+                                hide_index=True,
+                                use_container_width=True,
+                                key=f"portfolio_editor_{au_id}_main"
+                            )
+                            
+                            # Store the edited data
+                            st.session_state.portfolio_controls[au_id] = edited_df
+                            
+                            # Summary statistics for this AU
+                            au_filtered_data = portfolios_created[au_id]
+                            if not au_filtered_data.empty:
+                                st.subheader("AU Summary Statistics")
+                                # Use 4 columns for metrics in a single row
+                                col_a, col_b, col_c, col_d = st.columns(4)
+                                with col_a:
+                                    st.metric("Total Customers", len(au_filtered_data))
+                                with col_b:
+                                    st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
+                                with col_c:
+                                    st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
+                                with col_d:
+                                    st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
+                
+                with col2:
+                    st.subheader("Geographic Distribution")
+                    
+                    # Create preview portfolios for map display - one portfolio per AU
+                    preview_portfolios = {}
+                    
+                    for au_id, filtered_data in portfolios_created.items():
+                        if au_id in portfolio_summaries:
+                            portfolio_summary = portfolio_summaries[au_id]
+                            
+                            # Collect all selected customers for this AU (this becomes one portfolio)
+                            au_customers = []
+                            
+                            for portfolio_info in portfolio_summary:
+                                pid = portfolio_info['Portfolio ID']
+                                select_count = portfolio_info['Select']
+                                
+                                if select_count > 0:
+                                    if pid == 'UNMANAGED':
+                                        # Handle unmanaged customers
+                                        unmanaged_customers = filtered_data[
+                                            (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                                            (filtered_data['PORT_CODE'].isna())
+                                        ]
+                                        if not unmanaged_customers.empty:
+                                            selected_customers = unmanaged_customers.sort_values(by='Distance').head(select_count)
+                                            au_customers.append(selected_customers)
+                                    else:
+                                        # Handle regular portfolios
+                                        portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == pid]
+                                        if not portfolio_customers.empty:
+                                            selected_customers = portfolio_customers.sort_values(by='Distance').head(select_count)
+                                            au_customers.append(selected_customers)
+                            
+                            # Combine all customers for this AU into one portfolio
+                            if au_customers:
+                                au_portfolio = pd.concat(au_customers, ignore_index=True)
+                                preview_portfolios[f"AU_{au_id}_Portfolio"] = au_portfolio
+                    
+                    # Display the map with preview portfolios
+                    if preview_portfolios:
+                        combined_map = create_combined_map(preview_portfolios, branch_data)
+                        if combined_map:
+                            st.plotly_chart(combined_map, use_container_width=True)
+                    else:
+                        st.info("No customers selected for map display")
+                
+            else:
+                st.warning("No customers found for the selected AUs with current filters.")
+    
+    # Show recommendation reassignment table if it exists
+    if 'recommend_reassignment' in st.session_state and isinstance(st.session_state.recommend_reassignment, pd.DataFrame) and not st.session_state.recommend_reassignment.empty:
+        st.markdown("----")
+        st.subheader("Recommended Reassignments")
+        st.dataframe(st.session_state.recommend_reassignment, use_container_width=True)
 
 elif page == "Portfolio Mapping":
-    st.subheader("Portfolio Mapping - Nearest AU Analysis")
+    st.subheader("Portfolio Mapping")
     
-    if customer_data_with_au is not None:
-        # Show overall assignment statistics
-        st.subheader("AU Assignment Overview")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.subheader("Customer Distribution by AU")
-            au_counts = customer_data_with_au['NEAREST_AU'].value_counts().head(15)
-            st.bar_chart(au_counts)
-        
-        with col2:
-            st.subheader("Average Distance to Nearest AU")
-            avg_distances = customer_data_with_au.groupby('NEAREST_AU')['DISTANCE_TO_AU'].mean().head(15)
-            st.bar_chart(avg_distances)
-        
-        # Distance analysis
-        st.subheader("Distance Analysis")
+    # Portfolio mapping functionality
+    st.info("Portfolio Mapping functionality coming soon...")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("Customer Distribution by Type")
+        if not data.empty and 'TYPE' in data.columns:
+            type_counts = data['TYPE'].value_counts()
+            st.bar_chart(type_counts)
+    
+    with col2:
+        st.subheader("Customer Distribution by State")
+        if not data.empty and 'BILLINGSTATE' in data.columns:
+            state_counts = data['BILLINGSTATE'].value_counts().head(10)
+            st.bar_chart(state_counts)
+    
+    if not data.empty:
+        st.subheader("Summary Statistics")
         col1, col2, col3, col4 = st.columns(4)
         
         with col1:
-            avg_distance = customer_data_with_au['DISTANCE_TO_AU'].mean()
-            st.metric("Average Distance to AU", f"{avg_distance:.1f} km")
-        
+            st.metric("Total Customers", len(data))
         with col2:
-            median_distance = customer_data_with_au['DISTANCE_TO_AU'].median()
-            st.metric("Median Distance to AU", f"{median_distance:.1f} km")
-        
+            if 'BANK_REVENUE' in data.columns:
+                st.metric("Total Revenue", f"${data['BANK_REVENUE'].sum():,.0f}")
         with col3:
-            max_distance = customer_data_with_au['DISTANCE_TO_AU'].max()
-            st.metric("Maximum Distance", f"{max_distance:.1f} km")
-        
+            if 'DEPOSIT_BAL' in data.columns:
+                st.metric("Total Deposits", f"${data['DEPOSIT_BAL'].sum():,.0f}")
         with col4:
-            customers_within_50km = len(customer_data_with_au[customer_data_with_au['DISTANCE_TO_AU'] <= 50])
-            percentage_within_50km = (customers_within_50km / len(customer_data_with_au)) * 100
-            st.metric("Within 50km", f"{percentage_within_50km:.1f}%")
-        
-        # Show detailed AU information
-        st.subheader("AU Details with Customer Assignments")
-        
-        # Create AU summary table
-        au_summary_data = []
-        for au_id in customer_data_with_au['NEAREST_AU'].dropna().unique():
-            au_customers = customer_data_with_au[customer_data_with_au['NEAREST_AU'] == au_id]
-            au_info = branch_data[branch_data['AU'] == au_id]
-            
-            if not au_info.empty:
-                au_summary_data.append({
-                    'AU': au_id,
-                    'City': au_info['CITY'].iloc[0],
-                    'State': au_info['STATECODE'].iloc[0],
-                    'Customers Assigned': len(au_customers),
-                    'Avg Distance (km)': au_customers['DISTANCE_TO_AU'].mean(),
-                    'Max Distance (km)': au_customers['DISTANCE_TO_AU'].max(),
-                    'Total Revenue': au_customers['BANK_REVENUE'].sum(),
-                    'Total Deposits': au_customers['DEPOSIT_BAL'].sum()
-                })
-        
-        if au_summary_data:
-            au_summary_df = pd.DataFrame(au_summary_data)
-            au_summary_df = au_summary_df.sort_values('Customers Assigned', ascending=False)
-            
-            st.dataframe(
-                au_summary_df,
-                column_config={
-                    "AU": st.column_config.NumberColumn("AU"),
-                    "City": st.column_config.TextColumn("City"),
-                    "State": st.column_config.TextColumn("State"),
-                    "Customers Assigned": st.column_config.NumberColumn("Customers Assigned"),
-                    "Avg Distance (km)": st.column_config.NumberColumn("Avg Distance (km)", format="%.1f"),
-                    "Max Distance (km)": st.column_config.NumberColumn("Max Distance (km)", format="%.1f"),
-                    "Total Revenue": st.column_config.NumberColumn("Total Revenue", format="$%.0f"),
-                    "Total Deposits": st.column_config.NumberColumn("Total Deposits", format="$%.0f")
-                },
-                hide_index=True,
-                use_container_width=True
-            )
-        
-        # Distance distribution histogram
-        st.subheader("Distance Distribution")
-        
-        # Create histogram data
-        distances = customer_data_with_au['DISTANCE_TO_AU'].dropna()
-        
-        import plotly.express as px
-        fig_hist = px.histogram(
-            x=distances,
-            nbins=50,
-            title="Distribution of Customer Distances to Nearest AU",
-            labels={'x': 'Distance to Nearest AU (km)', 'y': 'Number of Customers'}
-        )
-        fig_hist.update_layout(showlegend=False)
-        st.plotly_chart(fig_hist, use_container_width=True)
-        
-        # Show customers that might need reassignment (very far from their nearest AU)
-        st.subheader("Customers Far from Nearest AU")
-        
-        distance_threshold = st.slider("Distance Threshold (km)", 50, 500, 100, step=25)
-        far_customers = customer_data_with_au[customer_data_with_au['DISTANCE_TO_AU'] > distance_threshold]
-        
-        if not far_customers.empty:
-            st.warning(f"Found {len(far_customers)} customers more than {distance_threshold}km from their nearest AU")
-            
-            # Show sample of far customers
-            display_cols = ['CG_ECN', 'BILLINGSTATE', 'NEAREST_AU', 'DISTANCE_TO_AU', 'BANK_REVENUE', 'DEPOSIT_BAL']
-            far_customers_display = far_customers[display_cols].head(20)
-            
-            st.dataframe(
-                far_customers_display,
-                column_config={
-                    "CG_ECN": st.column_config.TextColumn("Customer ID"),
-                    "BILLINGSTATE": st.column_config.TextColumn("State"),
-                    "NEAREST_AU": st.column_config.NumberColumn("Nearest AU"),
-                    "DISTANCE_TO_AU": st.column_config.NumberColumn("Distance (km)", format="%.1f"),
-                    "BANK_REVENUE": st.column_config.NumberColumn("Revenue", format="$%.0f"),
-                    "DEPOSIT_BAL": st.column_config.NumberColumn("Deposits", format="$%.0f")
-                },
-                hide_index=True,
-                use_container_width=True
-            )
-        else:
-            st.success(f"All customers are within {distance_threshold}km of their nearest AU")
-        
-        # Geographic visualization of all assignments
-        st.subheader("Geographic View of All AU Assignments")
-        
-        # Create a map showing all customers and their AU assignments
-        if st.button("Generate Complete Assignment Map"):
-            with st.spinner("Creating comprehensive map..."):
-                # Sample data if too large
-                map_data = customer_data_with_au.dropna(subset=['LAT_NUM', 'LON_NUM', 'NEAREST_AU'])
-                
-                if len(map_data) > 5000:
-                    st.info(f"Sampling 5000 customers from {len(map_data)} total for map performance")
-                    map_data = map_data.sample(n=5000, random_state=42)
-                
-                # Create portfolios for mapping (group by AU)
-                all_au_portfolios = {}
-                for au_id in map_data['NEAREST_AU'].unique():
-                    au_customers = map_data[map_data['NEAREST_AU'] == au_id]
-                    if not au_customers.empty:
-                        all_au_portfolios[f"AU_{int(au_id)}_All"] = au_customers
-                
-                if all_au_portfolios:
-                    complete_map = create_combined_map(all_au_portfolios, branch_data)
-                    if complete_map:
-                        st.plotly_chart(complete_map, use_container_width=True)
-    else:
-        st.error("Customer data with AU assignments not available. Please check data loading.")
-
-# Add download functionality for AU assignments
-if customer_data_with_au is not None and not customer_data_with_au.empty:
-    st.sidebar.markdown("---")
-    st.sidebar.subheader("Download Data")
-    
-    if st.sidebar.button("Download AU Assignments"):
-        # Prepare data for download
-        download_data = customer_data_with_au[[
-            'CG_ECN', 'BILLINGSTATE', 'LAT_NUM', 'LON_NUM', 
-            'NEAREST_AU', 'DISTANCE_TO_AU', 'AU_LAT', 'AU_LON',
-            'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE'
-        ]].copy()
-        
-        # Convert to CSV
-        csv_data = download_data.to_csv(index=False)
-        
-        st.sidebar.download_button(
-            label="Download CSV",
-            data=csv_data,
-            file_name="customer_au_assignments.csv",
-            mime="text/csv"
-        )
+            if 'PORT_CODE' in data.columns:
+                st.metric("Unique Portfolios", data['PORT_CODE'].nunique())
