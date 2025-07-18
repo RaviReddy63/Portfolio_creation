@@ -412,8 +412,7 @@ st.title("Portfolio Creation Tool")
 
 # Add pages to sidebar
 with st.sidebar:
-    st.markdown("## Navigation")
-    page = st.radio("Select Page", ["Portfolio Assignment", "Portfolio Mapping"])
+    page = st.selectbox("", ["Portfolio Assignment", "Portfolio Mapping"])
 
 # Initialize session state
 if 'all_portfolios' not in st.session_state:
