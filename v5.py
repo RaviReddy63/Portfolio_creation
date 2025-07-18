@@ -72,6 +72,14 @@ def create_combined_map(all_portfolios, branch_data):
                 au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
                 au_locations.add((au_id, au_lat, au_lon))
     
+    # Debug: Check if au_locations is empty
+    print(f"DEBUG: au_locations count: {len(au_locations)}")
+    print(f"DEBUG: au_locations content: {au_locations}")
+    if len(au_locations) == 0:
+        print("DEBUG: au_locations is EMPTY!")
+    else:
+        print("DEBUG: au_locations has data, should show AU markers")
+    
     # Add customers from each AU portfolio with unique colors
     for portfolio_idx, (portfolio_id, df) in enumerate(all_portfolios.items()):
         if df.empty:
