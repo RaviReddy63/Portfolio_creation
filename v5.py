@@ -678,7 +678,6 @@ if page == "Portfolio Assignment":
                                             st.session_state.portfolios_created.update(updated_portfolios)
                                             
                                             st.success("Portfolio selection updated!")
-                                            st.rerun()
                                     
                                     # Summary statistics for this AU
                                     au_filtered_data = portfolios_created[au_id]
@@ -741,7 +740,6 @@ if page == "Portfolio Assignment":
                                     st.session_state.portfolios_created.update(updated_portfolios)
                                     
                                     st.success("Portfolio selection updated!")
-                                    st.rerun()
                             
                             # Summary statistics for this AU
                             au_filtered_data = portfolios_created[au_id]
