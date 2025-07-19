@@ -17,7 +17,7 @@ def haversine_distance(clat, clon, blat, blon):
     
     a = sin(delta_lat/2)**2 + cos(radians(clat))*cos(radians(blat))*sin(delta_lon/2)**2
     c = 2*atan2(sqrt(a), sqrt(1-a))
-    distance = 6371*c
+    distance = 3959*c  # Changed from 6371 km to 3959 miles (Earth's radius in miles)
     return distance
 
 def merge_dfs(customer_data, banker_data, branch_data):
@@ -26,16 +26,16 @@ def merge_dfs(customer_data, banker_data, branch_data):
     final_table.fillna(0, inplace = True)
     return final_table
 
-def create_distance_circle(center_lat, center_lon, radius_km, num_points=100):
+def create_distance_circle(center_lat, center_lon, radius_miles, num_points=100):
     """Create points for a circle around a center point"""
     angles = np.linspace(0, 2*np.pi, num_points)
     circle_lats = []
     circle_lons = []
     
     for angle in angles:
-        # Convert km to degrees (rough approximation)
-        lat_offset = radius_km / 111.0  # 1 degree lat ≈ 111 km
-        lon_offset = radius_km / (111.0 * math.cos(math.radians(center_lat)))
+        # Convert miles to degrees (rough approximation)
+        lat_offset = radius_miles / 69.0  # 1 degree lat ≈ 69 miles
+        lon_offset = radius_miles / (69.0 * math.cos(math.radians(center_lat)))
         
         lat = center_lat + lat_offset * math.cos(angle)
         lon = center_lon + lon_offset * math.sin(angle)
@@ -89,7 +89,7 @@ def create_combined_map(all_portfolios, branch_data):
             <b>{customer.get('CG_ECN', 'N/A')}</b><br>
             AU Portfolio: {au_id}<br>
             Portfolio ID: {customer.get('PORT_CODE', 'N/A')}<br>
-            Distance: {customer.get('Distance', 0):.1f} km<br>
+            Distance: {customer.get('Distance', 0):.1f} miles<br>
             Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
             Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
             State: {customer.get('BILLINGSTATE', 'N/A')}<br>
@@ -246,9 +246,9 @@ def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data
     AU_lat = AU_row['BRANCH_LAT_NUM']
     AU_lon = AU_row['BRANCH_LON_NUM']
     
-    # Filter customers by distance box
-    box_lat = max_dist/111
-    box_lon = max_dist/ (111 * np.cos(np.radians(AU_lat)))
+    # Filter customers by distance box (convert miles to degrees)
+    box_lat = max_dist/69  # Changed from 111 km to 69 miles per degree
+    box_lon = max_dist/ (69 * np.cos(np.radians(AU_lat)))  # Changed from 111 km to 69 miles per degree
     
     customer_data_boxed = customer_data[(customer_data['LAT_NUM'] >= AU_lat - box_lat) &
                                         (customer_data['LAT_NUM'] <= AU_lat + box_lat) &
@@ -263,7 +263,7 @@ def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data
     customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
     filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
     
-    # Apply distance filter for all roles except CENTRALIZED
+    # Apply distance filter for all roles except CENTRALIZED (distance now in miles)
     if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
         filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
     
@@ -627,7 +627,7 @@ if page == "Portfolio Assignment":
         
         col4, col5, col6 = st.columns(3)
         with col4:
-            max_dist = st.slider("Max Distance (km)", 1, 100, value=st.session_state.filter_max_dist, key="max_distance")
+            max_dist = st.slider("Max Distance (miles)", 1, 100, value=st.session_state.filter_max_dist, key="max_distance")
             st.session_state.filter_max_dist = max_dist
         with col5:
             min_rev = st.slider("Minimum Revenue", 0, 20000, value=st.session_state.filter_min_rev, step=1000, key="min_revenue")
@@ -909,11 +909,13 @@ if page == "Portfolio Assignment":
                                 with col_a:
                                     st.metric("Total Customers", len(au_filtered_data))
                                 with col_b:
-                                    st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
+                                    st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
                                 with col_c:
-                                    st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
+                                    avg_revenue_k = au_filtered_data['BANK_REVENUE'].mean() / 1000
+                                    st.metric("Average Revenue", f"{avg_revenue_k:.0f}K")
                                 with col_d:
-                                    st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
+                                    avg_deposit_mm = au_filtered_data['DEPOSIT_BAL'].mean() / 1000000
+                                    st.metric("Average Deposits", f"{avg_deposit_mm:.0f}MM")
             else:
                 # Single AU case
                 au_id = list(portfolios_created.keys())[0]
@@ -971,11 +973,13 @@ if page == "Portfolio Assignment":
                         with col_a:
                             st.metric("Total Customers", len(au_filtered_data))
                         with col_b:
-                            st.metric("Avg Distance", f"{au_filtered_data['Distance'].mean():.1f} km")
+                            st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
                         with col_c:
-                            st.metric("Average Revenue", f"${au_filtered_data['BANK_REVENUE'].mean():,.0f}")
+                            avg_revenue_k = au_filtered_data['BANK_REVENUE'].mean() / 1000
+                            st.metric("Average Revenue", f"{avg_revenue_k:.0f}K")
                         with col_d:
-                            st.metric("Average Deposits", f"${au_filtered_data['DEPOSIT_BAL'].mean():,.0f}")
+                            avg_deposit_mm = au_filtered_data['DEPOSIT_BAL'].mean() / 1000000
+                            st.metric("Average Deposits", f"{avg_deposit_mm:.0f}MM")
         
         with col2:
             st.subheader("Geographic Distribution")
