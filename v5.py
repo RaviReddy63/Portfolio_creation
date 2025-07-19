@@ -513,8 +513,11 @@ if page == "Portfolio Assignment":
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            states = st.multiselect("State", branch_data['STATECODE'].dropna().unique(), 
-                                  default=st.session_state.filter_states, key="states")
+            available_states = list(branch_data['STATECODE'].dropna().unique())
+            # Filter default states to only include available options
+            default_states = [s for s in st.session_state.filter_states if s in available_states]
+            states = st.multiselect("State", available_states, 
+                                  default=default_states, key="states")
             st.session_state.filter_states = states
         
         # Filter branch data based on selected states
@@ -524,8 +527,11 @@ if page == "Portfolio Assignment":
             filtered_branch_data = branch_data
             
         with col2:
-            cities = st.multiselect("City", filtered_branch_data['CITY'].dropna().unique(), 
-                                  default=st.session_state.filter_cities, key="cities")
+            available_cities = list(filtered_branch_data['CITY'].dropna().unique())
+            # Filter default cities to only include available options
+            default_cities = [c for c in st.session_state.filter_cities if c in available_cities]
+            cities = st.multiselect("City", available_cities, 
+                                  default=default_cities, key="cities")
             st.session_state.filter_cities = cities
         
         # Filter further based on selected cities
@@ -533,8 +539,11 @@ if page == "Portfolio Assignment":
             filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
         
         with col3:
-            selected_aus = st.multiselect("AU", filtered_branch_data['AU'].dropna().unique(), 
-                                        default=st.session_state.filter_selected_aus, key="selected_aus")
+            available_aus = list(filtered_branch_data['AU'].dropna().unique())
+            # Filter default AUs to only include available options
+            default_aus = [a for a in st.session_state.filter_selected_aus if a in available_aus]
+            selected_aus = st.multiselect("AU", available_aus, 
+                                        default=default_aus, key="selected_aus")
             st.session_state.filter_selected_aus = selected_aus
     
     # Customer Selection Criteria
@@ -566,16 +575,20 @@ if page == "Portfolio Assignment":
         
         with col1:
             cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+            # Filter default customer states to only include available options
+            default_cust_states = [s for s in st.session_state.filter_cust_state if s in cust_state_options]
             cust_state = st.multiselect("Customer State", cust_state_options, 
-                                      default=st.session_state.filter_cust_state, key="cust_state")
+                                      default=default_cust_states, key="cust_state")
             st.session_state.filter_cust_state = cust_state
             if not cust_state:
                 cust_state = None
         
         with col2:
             role_options = list(customer_data['TYPE'].dropna().unique())
+            # Filter default roles to only include available options
+            default_roles = [r for r in st.session_state.filter_role if r in role_options]
             role = st.multiselect("Role", role_options, 
-                                default=st.session_state.filter_role, key="role")
+                                default=default_roles, key="role")
             st.session_state.filter_role = role
             if not role:
                 role = None
@@ -585,8 +598,11 @@ if page == "Portfolio Assignment":
         
         with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            cust_portcd = st.multiselect("Portfolio Code", customer_data_temp['PORT_CODE'].dropna().unique(), 
-                                       default=st.session_state.filter_cust_portcd, key="cust_portcd")
+            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
+            # Filter default portfolio codes to only include available options
+            default_portfolios = [p for p in st.session_state.filter_cust_portcd if p in portfolio_options]
+            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, 
+                                       default=default_portfolios, key="cust_portcd")
             st.session_state.filter_cust_portcd = cust_portcd
             if not cust_portcd:
                 cust_portcd = None
