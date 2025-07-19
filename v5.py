@@ -642,200 +642,208 @@ if page == "Portfolio Assignment":
             min_deposit = st.slider("Minimum Deposit", 0, 200000, value=st.session_state.filter_min_deposit, step=5000, key="min_deposit")
             st.session_state.filter_min_deposit = min_deposit
     
-    # Process button
-        # Process button - positioned to extreme right
+    # Process button - positioned to extreme right
     col1, col2 = st.columns([5, 1])
     with col1:
         st.write("")  # Empty space
     with col2:
         if st.button("Create Portfolios", key="create_portfolios", type="primary"):
+            if not selected_aus:
+                st.error("Please select at least one AU")
+            else:
+                # Set flag to create portfolios
+                st.session_state.should_create_portfolios = True
+                
+    # Only create portfolios when flag is set (button was clicked)
+    if st.session_state.should_create_portfolios:
         if not selected_aus:
             st.error("Please select at least one AU")
+            st.session_state.should_create_portfolios = False
         else:
-                # Create portfolios for each selected AU
-                portfolios_created = {}
+            # Create portfolios for each selected AU
+            portfolios_created = {}
+            portfolio_summaries = {}
+            
+            for au_id in selected_aus:
+                # Filter customers for this AU
+                filtered_data, au_row = filter_customers_for_au(
+                    customer_data, banker_data, au_id, branch_data, 
+                    role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
+                )
+                
+                if not filtered_data.empty:
+                    # Create portfolio summary for this AU
+                    portfolio_summary = []
+                    
+                    # Group by portfolio for assigned customers
+                    grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+                    
+                    for pid, group in grouped:
+                        total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
+                        
+                        # Determine portfolio type
+                        portfolio_type = "Unknown"
+                        if not group.empty:
+                            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+                            if not types.empty:
+                                portfolio_type = types.index[0]
+                        
+                        portfolio_summary.append({
+                            'AU': au_id,
+                            'Portfolio ID': pid,
+                            'Portfolio Type': portfolio_type,
+                            'Total Customers': total_customer,
+                            'Available': len(group),
+                            'Select': len(group)
+                        })
+                    
+                    # Add unmanaged customers
+                    unmanaged_customers = filtered_data[
+                        (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                        (filtered_data['PORT_CODE'].isna())
+                    ]
+                    
+                    customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+                    
+                    if not unmanaged_customers.empty:
+                        portfolio_summary.append({
+                            'AU': au_id,
+                            'Portfolio ID': 'UNMANAGED',
+                            'Portfolio Type': 'Unmanaged',
+                            'Total Customers': len(customer_data[
+                                (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                                (customer_data['PORT_CODE'].isna())
+                            ]),
+                            'Available': len(unmanaged_customers),
+                            'Select': len(unmanaged_customers)
+                        })
+                    
+                    portfolios_created[au_id] = filtered_data
+                    portfolio_summaries[au_id] = portfolio_summary
+            
+            if portfolios_created:
+                # Apply nearest AU reassignment
+                with st.spinner("Reassigning customers to nearest AUs..."):
+                    portfolios_created, reassignment_summary = reassign_to_nearest_au(
+                        portfolios_created, selected_aus, branch_data
+                    )
+                
+                st.success(f"Portfolios created for {len(portfolios_created)} AUs")
+                
+                # Recalculate portfolio summaries after reassignment
                 portfolio_summaries = {}
                 
-                for au_id in selected_aus:
-                    # Filter customers for this AU
-                    filtered_data, au_row = filter_customers_for_au(
-                        customer_data, banker_data, au_id, branch_data, 
-                        role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
-                    )
+                # First, calculate totals across all AUs for each portfolio (for "Available for all new portfolios")
+                all_portfolio_counts = {}
+                for au_id, filtered_data in portfolios_created.items():
+                    # Count regular portfolios
+                    grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+                    for pid, group in grouped:
+                        if pid not in all_portfolio_counts:
+                            all_portfolio_counts[pid] = 0
+                        all_portfolio_counts[pid] += len(group)
                     
-                    if not filtered_data.empty:
-                        # Create portfolio summary for this AU
-                        portfolio_summary = []
-                        
-                        # Group by portfolio for assigned customers
-                        grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
-                        
-                        for pid, group in grouped:
-                            total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
-                            
-                            # Determine portfolio type
-                            portfolio_type = "Unknown"
-                            if not group.empty:
-                                types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
-                                if not types.empty:
-                                    portfolio_type = types.index[0]
-                            
-                            portfolio_summary.append({
-                                'AU': au_id,
-                                'Portfolio ID': pid,
-                                'Portfolio Type': portfolio_type,
-                                'Total Customers': total_customer,
-                                'Available': len(group),
-                                'Select': len(group)
-                            })
-                        
-                        # Add unmanaged customers
-                        unmanaged_customers = filtered_data[
-                            (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                            (filtered_data['PORT_CODE'].isna())
-                        ]
-                        
-                        customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-                        
-                        if not unmanaged_customers.empty:
-                            portfolio_summary.append({
-                                'AU': au_id,
-                                'Portfolio ID': 'UNMANAGED',
-                                'Portfolio Type': 'Unmanaged',
-                                'Total Customers': len(customer_data[
-                                    (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                                    (customer_data['PORT_CODE'].isna())
-                                ]),
-                                'Available': len(unmanaged_customers),
-                                'Select': len(unmanaged_customers)
-                            })
-                        
-                        portfolios_created[au_id] = filtered_data
-                        portfolio_summaries[au_id] = portfolio_summary
+                    # Count unmanaged customers
+                    unmanaged_customers = filtered_data[
+                        (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                        (filtered_data['PORT_CODE'].isna())
+                    ]
+                    if not unmanaged_customers.empty:
+                        if 'UNMANAGED' not in all_portfolio_counts:
+                            all_portfolio_counts['UNMANAGED'] = 0
+                        all_portfolio_counts['UNMANAGED'] += len(unmanaged_customers)
                 
-                if portfolios_created:
-                    # Apply nearest AU reassignment
-                    with st.spinner("Reassigning customers to nearest AUs..."):
-                        portfolios_created, reassignment_summary = reassign_to_nearest_au(
-                            portfolios_created, selected_aus, branch_data
-                        )
+                for au_id, filtered_data in portfolios_created.items():
+                    portfolio_summary = []
                     
-                    st.success(f"Portfolios created for {len(portfolios_created)} AUs")
+                    # Group by portfolio for assigned customers
+                    grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
                     
-                    # Recalculate portfolio summaries after reassignment
-                    portfolio_summaries = {}
-                    
-                    # First, calculate totals across all AUs for each portfolio (for "Available for all new portfolios")
-                    all_portfolio_counts = {}
-                    for au_id, filtered_data in portfolios_created.items():
-                        # Count regular portfolios
-                        grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
-                        for pid, group in grouped:
-                            if pid not in all_portfolio_counts:
-                                all_portfolio_counts[pid] = 0
-                            all_portfolio_counts[pid] += len(group)
+                    for pid, group in grouped:
+                        total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
                         
-                        # Count unmanaged customers
-                        unmanaged_customers = filtered_data[
-                            (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                            (filtered_data['PORT_CODE'].isna())
-                        ]
-                        if not unmanaged_customers.empty:
-                            if 'UNMANAGED' not in all_portfolio_counts:
-                                all_portfolio_counts['UNMANAGED'] = 0
-                            all_portfolio_counts['UNMANAGED'] += len(unmanaged_customers)
-                    
-                    for au_id, filtered_data in portfolios_created.items():
-                        portfolio_summary = []
+                        # Determine portfolio type
+                        portfolio_type = "Unknown"
+                        if not group.empty:
+                            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+                            if not types.empty:
+                                portfolio_type = types.index[0]
                         
-                        # Group by portfolio for assigned customers
-                        grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+                        summary_item = {
+                            'Include': True,
+                            'Portfolio ID': pid,
+                            'Portfolio Type': portfolio_type,
+                            'Total Customers': total_customer,
+                            'Available for this portfolio': len(group),
+                            'Select': len(group)
+                        }
                         
-                        for pid, group in grouped:
-                            total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
-                            
-                            # Determine portfolio type
-                            portfolio_type = "Unknown"
-                            if not group.empty:
-                                types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
-                                if not types.empty:
-                                    portfolio_type = types.index[0]
-                            
+                        # Add "Available for all new portfolios" column only if multiple AUs
+                        if len(portfolios_created) > 1:
+                            summary_item['Available for all new portfolios'] = all_portfolio_counts.get(pid, 0)
+                            # Reorder columns
                             summary_item = {
                                 'Include': True,
-                                'Portfolio ID': pid,
-                                'Portfolio Type': portfolio_type,
-                                'Total Customers': total_customer,
-                                'Available for this portfolio': len(group),
-                                'Select': len(group)
+                                'Portfolio ID': summary_item['Portfolio ID'],
+                                'Portfolio Type': summary_item['Portfolio Type'],
+                                'Total Customers': summary_item['Total Customers'],
+                                'Available for all new portfolios': summary_item['Available for all new portfolios'],
+                                'Available for this portfolio': summary_item['Available for this portfolio'],
+                                'Select': summary_item['Select']
                             }
-                            
-                            # Add "Available for all new portfolios" column only if multiple AUs
-                            if len(portfolios_created) > 1:
-                                summary_item['Available for all new portfolios'] = all_portfolio_counts.get(pid, 0)
-                                # Reorder columns
-                                summary_item = {
-                                    'Include': True,
-                                    'Portfolio ID': summary_item['Portfolio ID'],
-                                    'Portfolio Type': summary_item['Portfolio Type'],
-                                    'Total Customers': summary_item['Total Customers'],
-                                    'Available for all new portfolios': summary_item['Available for all new portfolios'],
-                                    'Available for this portfolio': summary_item['Available for this portfolio'],
-                                    'Select': summary_item['Select']
-                                }
-                            
-                            portfolio_summary.append(summary_item)
                         
-                        # Add unmanaged customers
-                        unmanaged_customers = filtered_data[
-                            (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                            (filtered_data['PORT_CODE'].isna())
-                        ]
+                        portfolio_summary.append(summary_item)
+                    
+                    # Add unmanaged customers
+                    unmanaged_customers = filtered_data[
+                        (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                        (filtered_data['PORT_CODE'].isna())
+                    ]
+                    
+                    customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+                    
+                    if not unmanaged_customers.empty:
+                        summary_item = {
+                            'Include': True,
+                            'Portfolio ID': 'UNMANAGED',
+                            'Portfolio Type': 'Unmanaged',
+                            'Total Customers': len(customer_data[
+                                (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                                (customer_data['PORT_CODE'].isna())
+                            ]),
+                            'Available for this portfolio': len(unmanaged_customers),
+                            'Select': len(unmanaged_customers)
+                        }
                         
-                        customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-                        
-                        if not unmanaged_customers.empty:
+                        # Add "Available for all new portfolios" column only if multiple AUs
+                        if len(portfolios_created) > 1:
+                            summary_item['Available for all new portfolios'] = all_portfolio_counts.get('UNMANAGED', 0)
+                            # Reorder columns
                             summary_item = {
                                 'Include': True,
-                                'Portfolio ID': 'UNMANAGED',
-                                'Portfolio Type': 'Unmanaged',
-                                'Total Customers': len(customer_data[
-                                    (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                                    (customer_data['PORT_CODE'].isna())
-                                ]),
-                                'Available for this portfolio': len(unmanaged_customers),
-                                'Select': len(unmanaged_customers)
+                                'Portfolio ID': summary_item['Portfolio ID'],
+                                'Portfolio Type': summary_item['Portfolio Type'],
+                                'Total Customers': summary_item['Total Customers'],
+                                'Available for all new portfolios': summary_item['Available for all new portfolios'],
+                                'Available for this portfolio': summary_item['Available for this portfolio'],
+                                'Select': summary_item['Select']
                             }
-                            
-                            # Add "Available for all new portfolios" column only if multiple AUs
-                            if len(portfolios_created) > 1:
-                                summary_item['Available for all new portfolios'] = all_portfolio_counts.get('UNMANAGED', 0)
-                                # Reorder columns
-                                summary_item = {
-                                    'Include': True,
-                                    'Portfolio ID': summary_item['Portfolio ID'],
-                                    'Portfolio Type': summary_item['Portfolio Type'],
-                                    'Total Customers': summary_item['Total Customers'],
-                                    'Available for all new portfolios': summary_item['Available for all new portfolios'],
-                                    'Available for this portfolio': summary_item['Available for this portfolio'],
-                                    'Select': summary_item['Select']
-                                }
-                            
-                            portfolio_summary.append(summary_item)
                         
-                        portfolios_created[au_id] = filtered_data
-                        portfolio_summaries[au_id] = portfolio_summary
+                        portfolio_summary.append(summary_item)
                     
-                    # Store the created portfolios data
-                    st.session_state.portfolios_created = portfolios_created
-                    st.session_state.portfolio_summaries = portfolio_summaries
-                    
-                    # Reset the flag after portfolios are created
-                    st.session_state.should_create_portfolios = False
-                else:
-                    st.warning("No customers found for the selected AUs with current filters.")
-                    st.session_state.should_create_portfolios = False
-                    
+                    portfolios_created[au_id] = filtered_data
+                    portfolio_summaries[au_id] = portfolio_summary
+                
+                # Store the created portfolios data
+                st.session_state.portfolios_created = portfolios_created
+                st.session_state.portfolio_summaries = portfolio_summaries
+                
+                # Reset the flag after portfolios are created
+                st.session_state.should_create_portfolios = False
+            else:
+                st.warning("No customers found for the selected AUs with current filters.")
+                st.session_state.should_create_portfolios = False
+                
     # Display results if portfolios exist in session state
     if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
         portfolios_created = st.session_state.portfolios_created
@@ -1021,7 +1029,6 @@ if page == "Portfolio Assignment":
                     st.plotly_chart(combined_map, use_container_width=True)
             else:
                 st.info("No customers selected for map display")
-        
     else:
         # Show message when no portfolios exist
         if st.session_state.get('portfolios_created') is not None:
