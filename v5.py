@@ -639,37 +639,7 @@ if page == "Portfolio Assignment":
             st.session_state.filter_min_deposit = min_deposit
     
     # Process button
-    # Custom CSS for Create Portfolios button
-    st.markdown("""
-    <style>
-    /* Style for Create Portfolios button */
-    .stButton > button[kind="primary"] {
-        background-color: rgb(215, 30, 40) !important;
-        border: none !important;
-        border-radius: 25px !important;
-        color: white !important;
-        font-weight: 600 !important;
-        padding: 0.5rem 2rem !important;
-        margin: 0 !important;
-    }
-    .stButton > button[kind="primary"]:hover {
-        background-color: rgb(195, 25, 35) !important;
-        border: none !important;
-    }
-    .stButton > button[kind="primary"]:focus {
-        background-color: rgb(215, 30, 40) !important;
-        border: none !important;
-        box-shadow: none !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Right-align the button
-    col_empty, col_button = st.columns([8, 2])
-    with col_empty:
-        st.empty()
-    with col_button:
-        if st.button("Create Portfolios", key="create_portfolios", type="primary"):
+    if st.button("Create Portfolios", key="create_portfolios"):
         if not selected_aus:
             st.error("Please select at least one AU")
         else:
