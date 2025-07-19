@@ -503,7 +503,9 @@ if page == "Portfolio Assignment":
         cursor: pointer !important;
         box-shadow: none !important;
         height: auto !important;
-        margin-top: 0.5rem !important;
+        margin-top: 2.5rem !important;
+        text-align: right !important;
+        float: right !important;
     }
     div[data-testid="column"] button[kind="secondary"]:hover {
         color: #0d47a1 !important;
@@ -612,7 +614,7 @@ if page == "Portfolio Assignment":
                 role = None
         
         with col2_or:
-            st.markdown("<div style='text-align: center; padding-top: 25px; font-weight: bold;'>OR</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; padding-top: 50px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
         
         with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
@@ -912,10 +914,10 @@ if page == "Portfolio Assignment":
                                     st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
                                 with col_c:
                                     avg_revenue_k = au_filtered_data['BANK_REVENUE'].mean() / 1000
-                                    st.metric("Average Revenue", f"{avg_revenue_k:.0f}K")
+                                    st.metric("Average Revenue", f"{avg_revenue_k:.1f}K")
                                 with col_d:
                                     avg_deposit_mm = au_filtered_data['DEPOSIT_BAL'].mean() / 1000000
-                                    st.metric("Average Deposits", f"{avg_deposit_mm:.0f}MM")
+                                    st.metric("Average Deposits", f"{avg_deposit_mm:.1f}MM")
             else:
                 # Single AU case
                 au_id = list(portfolios_created.keys())[0]
@@ -976,10 +978,10 @@ if page == "Portfolio Assignment":
                             st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
                         with col_c:
                             avg_revenue_k = au_filtered_data['BANK_REVENUE'].mean() / 1000
-                            st.metric("Average Revenue", f"{avg_revenue_k:.0f}K")
+                            st.metric("Average Revenue", f"{avg_revenue_k:.1f}K")
                         with col_d:
                             avg_deposit_mm = au_filtered_data['DEPOSIT_BAL'].mean() / 1000000
-                            st.metric("Average Deposits", f"{avg_deposit_mm:.0f}MM")
+                            st.metric("Average Deposits", f"{avg_deposit_mm:.1f}MM")
         
         with col2:
             st.subheader("Geographic Distribution")
