@@ -201,9 +201,9 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
         for _, row in control_data.iterrows():
             portfolio_id = row['Portfolio ID']
             select_count = row['Select']
-            exclude = row.get('Exclude', False)
+            exclude = row.get('Exclude', True)  # Default to True (excluded)
             
-            # Skip excluded portfolios
+            # Skip excluded portfolios (only include unchecked ones)
             if exclude or select_count <= 0:
                 continue
                 
@@ -445,6 +445,34 @@ if 'portfolio_controls' not in st.session_state:
 if 'recommend_reassignment' not in st.session_state:
     st.session_state.recommend_reassignment = {}
 
+# Initialize filter states
+if 'filter_states' not in st.session_state:
+    st.session_state.filter_states = {}
+    
+if 'filter_cities' not in st.session_state:
+    st.session_state.filter_cities = []
+    
+if 'filter_selected_aus' not in st.session_state:
+    st.session_state.filter_selected_aus = []
+    
+if 'filter_cust_state' not in st.session_state:
+    st.session_state.filter_cust_state = []
+    
+if 'filter_role' not in st.session_state:
+    st.session_state.filter_role = []
+    
+if 'filter_cust_portcd' not in st.session_state:
+    st.session_state.filter_cust_portcd = []
+    
+if 'filter_max_dist' not in st.session_state:
+    st.session_state.filter_max_dist = 20
+    
+if 'filter_min_rev' not in st.session_state:
+    st.session_state.filter_min_rev = 5000
+    
+if 'filter_min_deposit' not in st.session_state:
+    st.session_state.filter_min_deposit = 100000
+
 # Load data from local CSV files
 @st.cache_data
 def load_data():
@@ -463,11 +491,31 @@ if page == "Portfolio Assignment":
     st.subheader("Select AUs for Portfolio Creation")
     
     # Multi-select for AUs
-    with st.expander("Select AUs", expanded=True):
+    col_expand, col_clear = st.columns([10, 1])
+    with col_expand:
+        au_expander = st.expander("Select AUs", expanded=True)
+    with col_clear:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+        if st.button("Clear filters", key="clear_au_filters", help="Clear AU selection filters"):
+            # Clear AU filters
+            st.session_state.filter_states = []
+            st.session_state.filter_cities = []
+            st.session_state.filter_selected_aus = []
+            # Clear created portfolios
+            if 'portfolios_created' in st.session_state:
+                del st.session_state.portfolios_created
+            if 'portfolio_summaries' in st.session_state:
+                del st.session_state.portfolio_summaries
+            st.session_state.portfolio_controls = {}
+            st.rerun()
+    
+    with au_expander:
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            states = st.multiselect("State", branch_data['STATECODE'].dropna().unique(), key="states")
+            states = st.multiselect("State", branch_data['STATECODE'].dropna().unique(), 
+                                  default=st.session_state.filter_states, key="states")
+            st.session_state.filter_states = states
         
         # Filter branch data based on selected states
         if states:
@@ -476,30 +524,59 @@ if page == "Portfolio Assignment":
             filtered_branch_data = branch_data
             
         with col2:
-            cities = st.multiselect("City", filtered_branch_data['CITY'].dropna().unique(), key="cities")
+            cities = st.multiselect("City", filtered_branch_data['CITY'].dropna().unique(), 
+                                  default=st.session_state.filter_cities, key="cities")
+            st.session_state.filter_cities = cities
         
         # Filter further based on selected cities
         if cities:
             filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
         
         with col3:
-            selected_aus = st.multiselect("AU", filtered_branch_data['AU'].dropna().unique(), key="selected_aus")
+            selected_aus = st.multiselect("AU", filtered_branch_data['AU'].dropna().unique(), 
+                                        default=st.session_state.filter_selected_aus, key="selected_aus")
+            st.session_state.filter_selected_aus = selected_aus
     
     # Customer Selection Criteria
     st.subheader("Customer Selection Criteria")
     
-    with st.expander("Customer Filters", expanded=True):
+    col_expand2, col_clear2 = st.columns([10, 1])
+    with col_expand2:
+        customer_expander = st.expander("Customer Filters", expanded=True)
+    with col_clear2:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
+        if st.button("Clear filters", key="clear_customer_filters", help="Clear customer selection filters"):
+            # Clear customer filters
+            st.session_state.filter_cust_state = []
+            st.session_state.filter_role = []
+            st.session_state.filter_cust_portcd = []
+            st.session_state.filter_max_dist = 20
+            st.session_state.filter_min_rev = 5000
+            st.session_state.filter_min_deposit = 100000
+            # Clear created portfolios
+            if 'portfolios_created' in st.session_state:
+                del st.session_state.portfolios_created
+            if 'portfolio_summaries' in st.session_state:
+                del st.session_state.portfolio_summaries
+            st.session_state.portfolio_controls = {}
+            st.rerun()
+    
+    with customer_expander:
         col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
         
         with col1:
             cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
+            cust_state = st.multiselect("Customer State", cust_state_options, 
+                                      default=st.session_state.filter_cust_state, key="cust_state")
+            st.session_state.filter_cust_state = cust_state
             if not cust_state:
                 cust_state = None
         
         with col2:
             role_options = list(customer_data['TYPE'].dropna().unique())
-            role = st.multiselect("Role", role_options, key="role")
+            role = st.multiselect("Role", role_options, 
+                                default=st.session_state.filter_role, key="role")
+            st.session_state.filter_role = role
             if not role:
                 role = None
         
@@ -508,17 +585,22 @@ if page == "Portfolio Assignment":
         
         with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            cust_portcd = st.multiselect("Portfolio Code", customer_data_temp['PORT_CODE'].dropna().unique(), key="cust_portcd")
+            cust_portcd = st.multiselect("Portfolio Code", customer_data_temp['PORT_CODE'].dropna().unique(), 
+                                       default=st.session_state.filter_cust_portcd, key="cust_portcd")
+            st.session_state.filter_cust_portcd = cust_portcd
             if not cust_portcd:
                 cust_portcd = None
         
         col4, col5, col6 = st.columns(3)
         with col4:
-            max_dist = st.slider("Max Distance (km)", 1, 100, 20, key="max_distance")
+            max_dist = st.slider("Max Distance (km)", 1, 100, value=st.session_state.filter_max_dist, key="max_distance")
+            st.session_state.filter_max_dist = max_dist
         with col5:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, 5000, step=1000, key="min_revenue")
+            min_rev = st.slider("Minimum Revenue", 0, 20000, value=st.session_state.filter_min_rev, step=1000, key="min_revenue")
+            st.session_state.filter_min_rev = min_rev
         with col6:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, 100000, step=5000, key="min_deposit")
+            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=st.session_state.filter_min_deposit, step=5000, key="min_deposit")
+            st.session_state.filter_min_deposit = min_deposit
     
     # Process button
     if st.button("Create Portfolios", key="create_portfolios"):
@@ -635,7 +717,7 @@ if page == "Portfolio Assignment":
                                 portfolio_type = types.index[0]
                         
                         summary_item = {
-                            'Exclude': False,
+                            'Exclude': True,
                             'Portfolio ID': pid,
                             'Portfolio Type': portfolio_type,
                             'Total Customers': total_customer,
@@ -648,7 +730,7 @@ if page == "Portfolio Assignment":
                             summary_item['Available for all new portfolios'] = all_portfolio_counts.get(pid, 0)
                             # Reorder columns
                             summary_item = {
-                                'Exclude': False,
+                                'Exclude': True,
                                 'Portfolio ID': summary_item['Portfolio ID'],
                                 'Portfolio Type': summary_item['Portfolio Type'],
                                 'Total Customers': summary_item['Total Customers'],
@@ -669,7 +751,7 @@ if page == "Portfolio Assignment":
                     
                     if not unmanaged_customers.empty:
                         summary_item = {
-                            'Exclude': False,
+                            'Exclude': True,
                             'Portfolio ID': 'UNMANAGED',
                             'Portfolio Type': 'Unmanaged',
                             'Total Customers': len(customer_data[
@@ -685,7 +767,7 @@ if page == "Portfolio Assignment":
                             summary_item['Available for all new portfolios'] = all_portfolio_counts.get('UNMANAGED', 0)
                             # Reorder columns
                             summary_item = {
-                                'Exclude': False,
+                                'Exclude': True,
                                 'Portfolio ID': summary_item['Portfolio ID'],
                                 'Portfolio Type': summary_item['Portfolio Type'],
                                 'Total Customers': summary_item['Total Customers'],
