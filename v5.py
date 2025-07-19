@@ -638,15 +638,7 @@ if page == "Portfolio Assignment":
             min_deposit = st.slider("Minimum Deposit", 0, 200000, value=st.session_state.filter_min_deposit, step=5000, key="min_deposit")
             st.session_state.filter_min_deposit = min_deposit
     
-    # Process button - RIGHT ALIGNED
-    st.markdown("""
-    <style>
-    .stButton > button {
-        float: right;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    
+    # Process button
     if st.button("Create Portfolios", key="create_portfolios", type="primary"):
             if not selected_aus:
                 st.error("Please select at least one AU")
