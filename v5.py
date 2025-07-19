@@ -639,9 +639,15 @@ if page == "Portfolio Assignment":
             st.session_state.filter_min_deposit = min_deposit
     
     # Process button - RIGHT ALIGNED
-    col_button_space, col_button = st.columns([4, 1])
-    with col_button:
-        if st.button("Create Portfolios", key="create_portfolios", type="primary"):
+    st.markdown("""
+    <style>
+    .stButton > button {
+        float: right;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    if st.button("Create Portfolios", key="create_portfolios", type="primary"):
             if not selected_aus:
                 st.error("Please select at least one AU")
             else:
