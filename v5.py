@@ -1,95 +1,4 @@
-else:
-                # Single AU case
-                au_id = list(portfolios_created.keys())[0]
-                
-                # Add bordered container styling
-                st.markdown("""
-                <style>
-                .portfolio-container {
-                    border: 2px solid #e6e6e6;
-                    border-radius: 10px;
-                    padding: 20px;
-                    margin: 10px 0;
-                    background-color: #fafafa;
-                }
-                /* Style for Apply Changes button */
-                .stButton > button[data-testid="baseButton-secondary"] {
-                    background-color: white !important;
-                    border: 2px solid rgb(215, 30, 40) !important;
-                    border-radius: 25px !important;
-                    color: rgb(215, 30, 40) !important;
-                    font-weight: 600 !important;
-                    padding: 0.5rem 1.5rem !important;
-                    margin: 0 !important;
-                }
-                .stButton > button[data-testid="baseButton-secondary"]:hover {
-                    background-color: rgb(215, 30, 40) !important;
-                    color: white !important;
-                    border: 2px solid rgb(215, 30, 40) !important;
-                }
-                </style>
-                """, unsafe_allow_html=True)
-                
-                st.markdown('<div class="portfolio-container">', unsafe_allow_html=True)
-                
-                if au_id in portfolio_summaries:
-                    portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
-                    portfolio_df = portfolio_df.sort_values('Available for this portfolio', ascending=False).reset_index(drop=True)
-                    
-                    # Create editable dataframe (single AU case - no "Available for all new portfolios" column)
-                    edited_df = st.data_editor(
-                        portfolio_df,
-                        column_config={
-                            "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
-                            "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
-                            "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-                            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-                            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
-                            "Select": st.column_config.NumberColumn(
-                                "Select",
-                                help="Number of customers to select from this portfolio",
-                                min_value=0,
-                                step=1
-                            )
-                        },
-                        hide_index=True,
-                        use_container_width=True,
-                        key=f"portfolio_editor_{au_id}_main"
-                    )
-                    
-                    # Store the edited data
-                    st.session_state.portfolio_controls[au_id] = edited_df
-                    
-                    # Add Apply Changes button - right aligned
-                    col_empty_apply, col_apply = st.columns([8, 2])
-                    with col_empty_apply:
-                        st.empty()
-                    with col_apply:
-                        if st.button(f"Apply Changes", key=f"apply_changes_{au_id}_single", type="secondary"):
-                            with st.spinner("Applying selection changes..."):
-                                # Apply the portfolio selection changes
-                                updated_portfolios = apply_portfolio_selection_changes(
-                                    st.session_state.portfolios_created, 
-                                    st.session_state.portfolio_controls, 
-                                    [au_id], 
-                                    branch_data
-                                )
-                                
-                                # Update the portfolios in session state
-                                st.session_state.portfolios_created.update(updated_portfolios)
-                    
-                    # Summary statistics for this AU
-                    au_filtered_data = st.session_state.portfolios_created[au_id]
-                    if not au_filtered_data.empty:
-                        st.subheader("AU Summary Statistics")
-                        # Use 4 columns for metrics in a single row
-                        col_a, col_b, col_c, col_d = st.columns(4)
-                        with col_a:
-                            st.metric("Total Customers", len(au_filtered_data))
-                        with col_b:
-                            st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
-                        with col_c:
-                            avg_revenuefrom io import BytesIO
+from io import BytesIO
 import pandas as pd
 import math
 from math import sin, cos, atan2, radians, sqrt
@@ -1077,36 +986,6 @@ if page == "Portfolio Assignment":
                 # Single AU case
                 au_id = list(portfolios_created.keys())[0]
                 
-                # Add bordered container styling
-                st.markdown("""
-                <style>
-                .portfolio-container {
-                    border: 2px solid #e6e6e6;
-                    border-radius: 10px;
-                    padding: 20px;
-                    margin: 10px 0;
-                    background-color: #fafafa;
-                }
-                /* Style for Apply Changes button */
-                .stButton > button[data-testid="baseButton-secondary"] {
-                    background-color: white !important;
-                    border: 2px solid rgb(215, 30, 40) !important;
-                    border-radius: 25px !important;
-                    color: rgb(215, 30, 40) !important;
-                    font-weight: 600 !important;
-                    padding: 0.5rem 1.5rem !important;
-                    margin: 0 !important;
-                }
-                .stButton > button[data-testid="baseButton-secondary"]:hover {
-                    background-color: rgb(215, 30, 40) !important;
-                    color: white !important;
-                    border: 2px solid rgb(215, 30, 40) !important;
-                }
-                </style>
-                """, unsafe_allow_html=True)
-                
-                st.markdown('<div class="portfolio-container">', unsafe_allow_html=True)
-                
                 if au_id in portfolio_summaries:
                     portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
                     portfolio_df = portfolio_df.sort_values('Available for this portfolio', ascending=False).reset_index(drop=True)
@@ -1135,23 +1014,21 @@ if page == "Portfolio Assignment":
                     # Store the edited data
                     st.session_state.portfolio_controls[au_id] = edited_df
                     
-                    # Add Apply Changes button - right aligned
-                    col_empty_apply, col_apply = st.columns([8, 2])
-                    with col_empty_apply:
-                        st.empty()
-                    with col_apply:
-                        if st.button(f"Apply Changes", key=f"apply_changes_{au_id}_single", type="secondary"):
-                            with st.spinner("Applying selection changes..."):
-                                # Apply the portfolio selection changes
-                                updated_portfolios = apply_portfolio_selection_changes(
-                                    st.session_state.portfolios_created, 
-                                    st.session_state.portfolio_controls, 
-                                    [au_id], 
-                                    branch_data
-                                )
-                                
-                                # Update the portfolios in session state
-                                st.session_state.portfolios_created.update(updated_portfolios)
+                    # Add Apply Changes button
+                    if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}_single"):
+                        with st.spinner("Applying selection changes..."):
+                            # Apply the portfolio selection changes
+                            updated_portfolios = apply_portfolio_selection_changes(
+                                st.session_state.portfolios_created, 
+                                st.session_state.portfolio_controls, 
+                                [au_id], 
+                                branch_data
+                            )
+                            
+                            # Update the portfolios in session state
+                            st.session_state.portfolios_created.update(updated_portfolios)
+                            
+                            st.success("Portfolio selection updated!")
                     
                     # Summary statistics for this AU
                     au_filtered_data = st.session_state.portfolios_created[au_id]
@@ -1169,8 +1046,6 @@ if page == "Portfolio Assignment":
                         with col_d:
                             avg_deposit_mm = au_filtered_data['DEPOSIT_BAL'].mean() / 1000000
                             st.metric("Average Deposits", f"{avg_deposit_mm:.1f}MM")
-                
-                st.markdown('</div>', unsafe_allow_html=True)
         
         with col2:
             st.subheader("Geographic Distribution")
