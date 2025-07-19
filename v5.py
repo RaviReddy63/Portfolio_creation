@@ -503,9 +503,7 @@ if page == "Portfolio Assignment":
         cursor: pointer !important;
         box-shadow: none !important;
         height: auto !important;
-        margin-top: 2.5rem !important;
-        text-align: right !important;
-        float: right !important;
+        margin-top: 0.5rem !important;
     }
     div[data-testid="column"] button[kind="secondary"]:hover {
         color: #0d47a1 !important;
@@ -518,6 +516,7 @@ if page == "Portfolio Assignment":
     with col_header1:
         st.subheader("Select AUs for Portfolio Creation")
     with col_clear1:
+        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)  # Small spacing to align with subheader
         if st.button("Clear filters", key="clear_au_filters", help="Clear AU selection filters", type="secondary"):
             # Clear AU filters
             st.session_state.filter_states = []
@@ -574,6 +573,7 @@ if page == "Portfolio Assignment":
     with col_header2:
         st.subheader("Customer Selection Criteria")
     with col_clear2:
+        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)  # Small spacing to align with subheader
         if st.button("Clear filters", key="clear_customer_filters", help="Clear customer selection filters", type="secondary"):
             # Clear customer filters
             st.session_state.filter_cust_state = []
@@ -614,7 +614,7 @@ if page == "Portfolio Assignment":
                 role = None
         
         with col2_or:
-            st.markdown("<div style='text-align: center; padding-top: 50px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
+            st.markdown("<div style='text-align: center; padding-top: 8px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
         
         with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
