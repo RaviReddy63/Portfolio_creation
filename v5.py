@@ -201,8 +201,10 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
         for _, row in control_data.iterrows():
             portfolio_id = row['Portfolio ID']
             select_count = row['Select']
+            exclude = row.get('Exclude', False)
             
-            if select_count <= 0:
+            # Skip excluded portfolios
+            if exclude or select_count <= 0:
                 continue
                 
             if portfolio_id == 'UNMANAGED':
@@ -595,6 +597,27 @@ if page == "Portfolio Assignment":
                 
                 # Recalculate portfolio summaries after reassignment
                 portfolio_summaries = {}
+                
+                # First, calculate totals across all AUs for each portfolio (for "Available for all new portfolios")
+                all_portfolio_counts = {}
+                for au_id, filtered_data in portfolios_created.items():
+                    # Count regular portfolios
+                    grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+                    for pid, group in grouped:
+                        if pid not in all_portfolio_counts:
+                            all_portfolio_counts[pid] = 0
+                        all_portfolio_counts[pid] += len(group)
+                    
+                    # Count unmanaged customers
+                    unmanaged_customers = filtered_data[
+                        (filtered_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+                        (filtered_data['PORT_CODE'].isna())
+                    ]
+                    if not unmanaged_customers.empty:
+                        if 'UNMANAGED' not in all_portfolio_counts:
+                            all_portfolio_counts['UNMANAGED'] = 0
+                        all_portfolio_counts['UNMANAGED'] += len(unmanaged_customers)
+                
                 for au_id, filtered_data in portfolios_created.items():
                     portfolio_summary = []
                     
@@ -611,14 +634,30 @@ if page == "Portfolio Assignment":
                             if not types.empty:
                                 portfolio_type = types.index[0]
                         
-                        portfolio_summary.append({
-                            'AU': au_id,
+                        summary_item = {
+                            'Exclude': False,
                             'Portfolio ID': pid,
                             'Portfolio Type': portfolio_type,
                             'Total Customers': total_customer,
-                            'Available': len(group),
+                            'Available for this portfolio': len(group),
                             'Select': len(group)
-                        })
+                        }
+                        
+                        # Add "Available for all new portfolios" column only if multiple AUs
+                        if len(portfolios_created) > 1:
+                            summary_item['Available for all new portfolios'] = all_portfolio_counts.get(pid, 0)
+                            # Reorder columns
+                            summary_item = {
+                                'Exclude': False,
+                                'Portfolio ID': summary_item['Portfolio ID'],
+                                'Portfolio Type': summary_item['Portfolio Type'],
+                                'Total Customers': summary_item['Total Customers'],
+                                'Available for all new portfolios': summary_item['Available for all new portfolios'],
+                                'Available for this portfolio': summary_item['Available for this portfolio'],
+                                'Select': summary_item['Select']
+                            }
+                        
+                        portfolio_summary.append(summary_item)
                     
                     # Add unmanaged customers
                     unmanaged_customers = filtered_data[
@@ -626,19 +665,38 @@ if page == "Portfolio Assignment":
                         (filtered_data['PORT_CODE'].isna())
                     ]
                     
+                    customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+                    
                     if not unmanaged_customers.empty:
-                        portfolio_summary.append({
-                            'AU': au_id,
+                        summary_item = {
+                            'Exclude': False,
                             'Portfolio ID': 'UNMANAGED',
                             'Portfolio Type': 'Unmanaged',
                             'Total Customers': len(customer_data[
                                 (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
                                 (customer_data['PORT_CODE'].isna())
                             ]),
-                            'Available': len(unmanaged_customers),
+                            'Available for this portfolio': len(unmanaged_customers),
                             'Select': len(unmanaged_customers)
-                        })
+                        }
+                        
+                        # Add "Available for all new portfolios" column only if multiple AUs
+                        if len(portfolios_created) > 1:
+                            summary_item['Available for all new portfolios'] = all_portfolio_counts.get('UNMANAGED', 0)
+                            # Reorder columns
+                            summary_item = {
+                                'Exclude': False,
+                                'Portfolio ID': summary_item['Portfolio ID'],
+                                'Portfolio Type': summary_item['Portfolio Type'],
+                                'Total Customers': summary_item['Total Customers'],
+                                'Available for all new portfolios': summary_item['Available for all new portfolios'],
+                                'Available for this portfolio': summary_item['Available for this portfolio'],
+                                'Select': summary_item['Select']
+                            }
+                        
+                        portfolio_summary.append(summary_item)
                     
+                    portfolios_created[au_id] = filtered_data
                     portfolio_summaries[au_id] = portfolio_summary
                 
                 # Store the created portfolios data
@@ -665,24 +723,43 @@ if page == "Portfolio Assignment":
                     with tab:
                         if au_id in portfolio_summaries:
                             portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
-                            portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
+                            portfolio_df = portfolio_df.sort_values('Available for this portfolio', ascending=False).reset_index(drop=True)
                             
-                            # Create editable dataframe
-                            edited_df = st.data_editor(
-                                portfolio_df,
-                                column_config={
-                                    "AU": st.column_config.NumberColumn("AU", disabled=True),
+                            # Create column config based on number of AUs
+                            if len(portfolios_created) > 1:
+                                column_config = {
+                                    "Exclude": st.column_config.CheckboxColumn("Exclude", help="Check to exclude this portfolio from selection"),
                                     "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
                                     "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
                                     "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-                                    "Available": st.column_config.NumberColumn("Available", disabled=True),
+                                    "Available for all new portfolios": st.column_config.NumberColumn("Available for all new portfolios", disabled=True),
+                                    "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
                                     "Select": st.column_config.NumberColumn(
                                         "Select",
                                         help="Number of customers to select from this portfolio",
                                         min_value=0,
                                         step=1
                                     )
-                                },
+                                }
+                            else:
+                                column_config = {
+                                    "Exclude": st.column_config.CheckboxColumn("Exclude", help="Check to exclude this portfolio from selection"),
+                                    "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
+                                    "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
+                                    "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
+                                    "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
+                                    "Select": st.column_config.NumberColumn(
+                                        "Select",
+                                        help="Number of customers to select from this portfolio",
+                                        min_value=0,
+                                        step=1
+                                    )
+                                }
+                            
+                            # Create editable dataframe
+                            edited_df = st.data_editor(
+                                portfolio_df,
+                                column_config=column_config,
                                 hide_index=True,
                                 use_container_width=True,
                                 key=f"portfolio_editor_{au_id}_main"
@@ -727,17 +804,17 @@ if page == "Portfolio Assignment":
                 
                 if au_id in portfolio_summaries:
                     portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
-                    portfolio_df = portfolio_df.sort_values('Available', ascending=False).reset_index(drop=True)
+                    portfolio_df = portfolio_df.sort_values('Available for this portfolio', ascending=False).reset_index(drop=True)
                     
-                    # Create editable dataframe
+                    # Create editable dataframe (single AU case - no "Available for all new portfolios" column)
                     edited_df = st.data_editor(
                         portfolio_df,
                         column_config={
-                            "AU": st.column_config.NumberColumn("AU", disabled=True),
+                            "Exclude": st.column_config.CheckboxColumn("Exclude", help="Check to exclude this portfolio from selection"),
                             "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
                             "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
                             "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-                            "Available": st.column_config.NumberColumn("Available", disabled=True),
+                            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
                             "Select": st.column_config.NumberColumn(
                                 "Select",
                                 help="Number of customers to select from this portfolio",
