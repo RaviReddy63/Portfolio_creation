@@ -445,6 +445,10 @@ if 'portfolio_controls' not in st.session_state:
 if 'recommend_reassignment' not in st.session_state:
     st.session_state.recommend_reassignment = {}
 
+# Add flag to track when portfolio creation should run
+if 'should_create_portfolios' not in st.session_state:
+    st.session_state.should_create_portfolios = False
+
 # Initialize filter states
 if 'filter_states' not in st.session_state:
     st.session_state.filter_states = {}
@@ -822,8 +826,14 @@ if page == "Portfolio Assignment":
                     st.session_state.portfolios_created = portfolios_created
                     st.session_state.portfolio_summaries = portfolio_summaries
                     
-        # Display results if portfolios exist in session state
-        if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
+                    # Reset the flag after portfolios are created
+                    st.session_state.should_create_portfolios = False
+                else:
+                    st.warning("No customers found for the selected AUs with current filters.")
+                    st.session_state.should_create_portfolios = False
+                    
+    # Display results if portfolios exist in session state
+    if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
             portfolios_created = st.session_state.portfolios_created
             portfolio_summaries = st.session_state.get('portfolio_summaries', {})
             
@@ -875,13 +885,13 @@ if page == "Portfolio Assignment":
                                         )
                                     }
                                 
-                                # Create editable dataframe
+                                # Create editable dataframe with unique key
                                 edited_df = st.data_editor(
                                     portfolio_df,
                                     column_config=column_config,
                                     hide_index=True,
                                     use_container_width=True,
-                                    key=f"portfolio_editor_{au_id}_main"
+                                    key=f"portfolio_editor_{au_id}_{len(portfolio_df)}"
                                 )
                                 
                                 # Store the edited data
@@ -890,18 +900,21 @@ if page == "Portfolio Assignment":
                                 # Add Apply Changes button
                                 if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}"):
                                     with st.spinner("Applying selection changes..."):
-                                        # Apply the portfolio selection changes
-                                        updated_portfolios = apply_portfolio_selection_changes(
-                                            st.session_state.portfolios_created, 
-                                            st.session_state.portfolio_controls, 
-                                            [au_id], 
-                                            branch_data
-                                        )
-                                        
-                                        # Update the portfolios in session state
-                                        st.session_state.portfolios_created.update(updated_portfolios)
-                                        
-                                        st.success("Portfolio selection updated!")
+                                        # Apply the portfolio selection changes using original data
+                                        if 'portfolios_created' in st.session_state and au_id in st.session_state.portfolios_created:
+                                            updated_portfolios = apply_portfolio_selection_changes(
+                                                st.session_state.portfolios_created, 
+                                                st.session_state.portfolio_controls, 
+                                                [au_id], 
+                                                branch_data
+                                            )
+                                            
+                                            # Update only this AU's portfolio
+                                            if au_id in updated_portfolios:
+                                                st.session_state.portfolios_created[au_id] = updated_portfolios[au_id]
+                                            
+                                            st.success("Portfolio selection updated!")
+                                            st.experimental_rerun()
                                 
                                 # Summary statistics for this AU
                                 au_filtered_data = st.session_state.portfolios_created[au_id]
@@ -927,7 +940,7 @@ if page == "Portfolio Assignment":
                         portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
                         portfolio_df = portfolio_df.sort_values('Available for this portfolio', ascending=False).reset_index(drop=True)
                         
-                        # Create editable dataframe (single AU case - no "Available for all new portfolios" column)
+                        # Create editable dataframe (single AU case) with unique key
                         edited_df = st.data_editor(
                             portfolio_df,
                             column_config={
@@ -945,7 +958,7 @@ if page == "Portfolio Assignment":
                             },
                             hide_index=True,
                             use_container_width=True,
-                            key=f"portfolio_editor_{au_id}_main"
+                            key=f"portfolio_editor_{au_id}_{len(portfolio_df)}"
                         )
                         
                         # Store the edited data
@@ -954,18 +967,21 @@ if page == "Portfolio Assignment":
                         # Add Apply Changes button
                         if st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}_single"):
                             with st.spinner("Applying selection changes..."):
-                                # Apply the portfolio selection changes
-                                updated_portfolios = apply_portfolio_selection_changes(
-                                    st.session_state.portfolios_created, 
-                                    st.session_state.portfolio_controls, 
-                                    [au_id], 
-                                    branch_data
-                                )
-                                
-                                # Update the portfolios in session state
-                                st.session_state.portfolios_created.update(updated_portfolios)
-                                
-                                st.success("Portfolio selection updated!")
+                                # Apply the portfolio selection changes using original data
+                                if 'portfolios_created' in st.session_state and au_id in st.session_state.portfolios_created:
+                                    updated_portfolios = apply_portfolio_selection_changes(
+                                        st.session_state.portfolios_created, 
+                                        st.session_state.portfolio_controls, 
+                                        [au_id], 
+                                        branch_data
+                                    )
+                                    
+                                    # Update only this AU's portfolio
+                                    if au_id in updated_portfolios:
+                                        st.session_state.portfolios_created[au_id] = updated_portfolios[au_id]
+                                    
+                                    st.success("Portfolio selection updated!")
+                                    st.experimental_rerun()
                         
                         # Summary statistics for this AU
                         au_filtered_data = st.session_state.portfolios_created[au_id]
