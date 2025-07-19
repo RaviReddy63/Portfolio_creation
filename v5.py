@@ -201,7 +201,7 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
         for _, row in control_data.iterrows():
             portfolio_id = row['Portfolio ID']
             select_count = row['Select']
-            include = row.get('Include', False)  # Default to False (not included)
+            include = row.get('Include', True)  # Default to True (included)
             
             # Only include portfolios that are checked (include=True) and have select_count > 0
             if not include or select_count <= 0:
@@ -754,7 +754,7 @@ if page == "Portfolio Assignment":
                                     portfolio_type = types.index[0]
                             
                             summary_item = {
-                                'Include': False,
+                                'Include': True,
                                 'Portfolio ID': pid,
                                 'Portfolio Type': portfolio_type,
                                 'Total Customers': total_customer,
@@ -767,7 +767,7 @@ if page == "Portfolio Assignment":
                                 summary_item['Available for all new portfolios'] = all_portfolio_counts.get(pid, 0)
                                 # Reorder columns
                                 summary_item = {
-                                    'Include': False,
+                                    'Include': True,
                                     'Portfolio ID': summary_item['Portfolio ID'],
                                     'Portfolio Type': summary_item['Portfolio Type'],
                                     'Total Customers': summary_item['Total Customers'],
@@ -788,7 +788,7 @@ if page == "Portfolio Assignment":
                         
                         if not unmanaged_customers.empty:
                             summary_item = {
-                                'Include': False,
+                                'Include': True,
                                 'Portfolio ID': 'UNMANAGED',
                                 'Portfolio Type': 'Unmanaged',
                                 'Total Customers': len(customer_data[
@@ -804,7 +804,7 @@ if page == "Portfolio Assignment":
                                 summary_item['Available for all new portfolios'] = all_portfolio_counts.get('UNMANAGED', 0)
                                 # Reorder columns
                                 summary_item = {
-                                    'Include': False,
+                                    'Include': True,
                                     'Portfolio ID': summary_item['Portfolio ID'],
                                     'Portfolio Type': summary_item['Portfolio Type'],
                                     'Total Customers': summary_item['Total Customers'],
