@@ -265,22 +265,33 @@ def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data
     if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
         filtered_data = filtered_data[filtered_data['Distance'] <= int(max_dist)]
     
-    # Apply role-specific filters
-    if role is not None:
-        filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
-        role_clean = [r.strip().lower() for r in role]
-        filtered_data = filtered_data[filtered_data['TYPE_CLEAN'].isin(role_clean)]
-        filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
+    # Apply Customer State filter
+    if cust_state is not None:
+        filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
+    
+    # Apply Role OR Portfolio Code filter (combined with OR logic)
+    if role is not None or cust_portcd is not None:
+        role_condition = pd.Series([False] * len(filtered_data), index=filtered_data.index)
+        portfolio_condition = pd.Series([False] * len(filtered_data), index=filtered_data.index)
+        
+        # Check role condition
+        if role is not None:
+            filtered_data['TYPE_CLEAN'] = filtered_data['TYPE'].fillna('').str.strip().str.lower()
+            role_clean = [r.strip().lower() for r in role]
+            role_condition = filtered_data['TYPE_CLEAN'].isin(role_clean)
+            filtered_data = filtered_data.drop('TYPE_CLEAN', axis=1)
+        
+        # Check portfolio code condition
+        if cust_portcd is not None:
+            portfolio_condition = filtered_data['PORT_CODE'].isin(cust_portcd)
+        
+        # Apply OR logic: keep rows that match either role OR portfolio code
+        combined_condition = role_condition | portfolio_condition
+        filtered_data = filtered_data[combined_condition]
     
     # Apply other filters
     filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
     filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
-    
-    if cust_state is not None:
-        filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
-    
-    if cust_portcd is not None:
-        filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(cust_portcd)]
     
     # Add AU information
     filtered_data['AU'] = selected_au
@@ -476,19 +487,22 @@ if page == "Portfolio Assignment":
     st.subheader("Customer Selection Criteria")
     
     with st.expander("Customer Filters", expanded=True):
-        col1, col2, col3 = st.columns(3)
+        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
         
         with col1:
+            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+            cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
+            if not cust_state:
+                cust_state = None
+        
+        with col2:
             role_options = list(customer_data['TYPE'].dropna().unique())
             role = st.multiselect("Role", role_options, key="role")
             if not role:
                 role = None
         
-        with col2:
-            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
-            if not cust_state:
-                cust_state = None
+        with col2_or:
+            st.markdown("<div style='text-align: center; padding-top: 25px; font-weight: bold;'>OR</div>", unsafe_allow_html=True)
         
         with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
