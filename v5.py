@@ -488,15 +488,32 @@ data = merge_dfs(customer_data, banker_data, branch_data)
 if page == "Portfolio Assignment":
     
     # AU Selection Section
-    st.subheader("Select AUs for Portfolio Creation")
-    
-    # Multi-select for AUs
-    col_expand, col_clear = st.columns([10, 1])
-    with col_expand:
-        au_expander = st.expander("Select AUs", expanded=True)
-    with col_clear:
-        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-        if st.button("Clear filters", key="clear_au_filters", help="Clear AU selection filters"):
+    col_header1, col_clear1 = st.columns([9, 1])
+    with col_header1:
+        st.subheader("Select AUs for Portfolio Creation")
+    with col_clear1:
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing to align with header
+        # Custom CSS for text-like button
+        st.markdown("""
+        <style>
+        div[data-testid="column"]:nth-of-type(2) button {
+            background: none !important;
+            border: none !important;
+            padding: 0 !important;
+            color: #1f77b4 !important;
+            text-decoration: underline !important;
+            font-size: 14px !important;
+            cursor: pointer !important;
+            box-shadow: none !important;
+        }
+        div[data-testid="column"]:nth-of-type(2) button:hover {
+            color: #0d47a1 !important;
+            background: none !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        if st.button("Clear filters", key="clear_au_filters"):
             # Clear AU filters
             st.session_state.filter_states = []
             st.session_state.filter_cities = []
@@ -509,52 +526,50 @@ if page == "Portfolio Assignment":
             st.session_state.portfolio_controls = {}
             st.rerun()
     
-    with au_expander:
-        col1, col2, col3 = st.columns(3)
+    # AU filters without expander
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        available_states = list(branch_data['STATECODE'].dropna().unique())
+        # Filter default states to only include available options
+        default_states = [s for s in st.session_state.filter_states if s in available_states]
+        states = st.multiselect("State", available_states, 
+                              default=default_states, key="states")
+        st.session_state.filter_states = states
+    
+    # Filter branch data based on selected states
+    if states:
+        filtered_branch_data = branch_data[branch_data['STATECODE'].isin(states)]
+    else:
+        filtered_branch_data = branch_data
         
-        with col1:
-            available_states = list(branch_data['STATECODE'].dropna().unique())
-            # Filter default states to only include available options
-            default_states = [s for s in st.session_state.filter_states if s in available_states]
-            states = st.multiselect("State", available_states, 
-                                  default=default_states, key="states")
-            st.session_state.filter_states = states
-        
-        # Filter branch data based on selected states
-        if states:
-            filtered_branch_data = branch_data[branch_data['STATECODE'].isin(states)]
-        else:
-            filtered_branch_data = branch_data
-            
-        with col2:
-            available_cities = list(filtered_branch_data['CITY'].dropna().unique())
-            # Filter default cities to only include available options
-            default_cities = [c for c in st.session_state.filter_cities if c in available_cities]
-            cities = st.multiselect("City", available_cities, 
-                                  default=default_cities, key="cities")
-            st.session_state.filter_cities = cities
-        
-        # Filter further based on selected cities
-        if cities:
-            filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
-        
-        with col3:
-            available_aus = list(filtered_branch_data['AU'].dropna().unique())
-            # Filter default AUs to only include available options
-            default_aus = [a for a in st.session_state.filter_selected_aus if a in available_aus]
-            selected_aus = st.multiselect("AU", available_aus, 
-                                        default=default_aus, key="selected_aus")
-            st.session_state.filter_selected_aus = selected_aus
+    with col2:
+        available_cities = list(filtered_branch_data['CITY'].dropna().unique())
+        # Filter default cities to only include available options
+        default_cities = [c for c in st.session_state.filter_cities if c in available_cities]
+        cities = st.multiselect("City", available_cities, 
+                              default=default_cities, key="cities")
+        st.session_state.filter_cities = cities
+    
+    # Filter further based on selected cities
+    if cities:
+        filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
+    
+    with col3:
+        available_aus = list(filtered_branch_data['AU'].dropna().unique())
+        # Filter default AUs to only include available options
+        default_aus = [a for a in st.session_state.filter_selected_aus if a in available_aus]
+        selected_aus = st.multiselect("AU", available_aus, 
+                                    default=default_aus, key="selected_aus")
+        st.session_state.filter_selected_aus = selected_aus
     
     # Customer Selection Criteria
-    st.subheader("Customer Selection Criteria")
-    
-    col_expand2, col_clear2 = st.columns([10, 1])
-    with col_expand2:
-        customer_expander = st.expander("Customer Filters", expanded=True)
+    col_header2, col_clear2 = st.columns([9, 1])
+    with col_header2:
+        st.subheader("Customer Selection Criteria")
     with col_clear2:
-        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing
-        if st.button("Clear filters", key="clear_customer_filters", help="Clear customer selection filters"):
+        st.markdown("<br>", unsafe_allow_html=True)  # Add spacing to align with header
+        if st.button("Clear filters", key="clear_customer_filters"):
             # Clear customer filters
             st.session_state.filter_cust_state = []
             st.session_state.filter_role = []
@@ -570,53 +585,53 @@ if page == "Portfolio Assignment":
             st.session_state.portfolio_controls = {}
             st.rerun()
     
-    with customer_expander:
-        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
-        
-        with col1:
-            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            # Filter default customer states to only include available options
-            default_cust_states = [s for s in st.session_state.filter_cust_state if s in cust_state_options]
-            cust_state = st.multiselect("Customer State", cust_state_options, 
-                                      default=default_cust_states, key="cust_state")
-            st.session_state.filter_cust_state = cust_state
-            if not cust_state:
-                cust_state = None
-        
-        with col2:
-            role_options = list(customer_data['TYPE'].dropna().unique())
-            # Filter default roles to only include available options
-            default_roles = [r for r in st.session_state.filter_role if r in role_options]
-            role = st.multiselect("Role", role_options, 
-                                default=default_roles, key="role")
-            st.session_state.filter_role = role
-            if not role:
-                role = None
-        
-        with col2_or:
-            st.markdown("<div style='text-align: center; padding-top: 25px; font-weight: bold;'>OR</div>", unsafe_allow_html=True)
-        
-        with col3:
-            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
-            # Filter default portfolio codes to only include available options
-            default_portfolios = [p for p in st.session_state.filter_cust_portcd if p in portfolio_options]
-            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, 
-                                       default=default_portfolios, key="cust_portcd")
-            st.session_state.filter_cust_portcd = cust_portcd
-            if not cust_portcd:
-                cust_portcd = None
-        
-        col4, col5, col6 = st.columns(3)
-        with col4:
-            max_dist = st.slider("Max Distance (km)", 1, 100, value=st.session_state.filter_max_dist, key="max_distance")
-            st.session_state.filter_max_dist = max_dist
-        with col5:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=st.session_state.filter_min_rev, step=1000, key="min_revenue")
-            st.session_state.filter_min_rev = min_rev
-        with col6:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=st.session_state.filter_min_deposit, step=5000, key="min_deposit")
-            st.session_state.filter_min_deposit = min_deposit
+    # Customer filters without expander
+    col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
+    
+    with col1:
+        cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+        # Filter default customer states to only include available options
+        default_cust_states = [s for s in st.session_state.filter_cust_state if s in cust_state_options]
+        cust_state = st.multiselect("Customer State", cust_state_options, 
+                                  default=default_cust_states, key="cust_state")
+        st.session_state.filter_cust_state = cust_state
+        if not cust_state:
+            cust_state = None
+    
+    with col2:
+        role_options = list(customer_data['TYPE'].dropna().unique())
+        # Filter default roles to only include available options
+        default_roles = [r for r in st.session_state.filter_role if r in role_options]
+        role = st.multiselect("Role", role_options, 
+                            default=default_roles, key="role")
+        st.session_state.filter_role = role
+        if not role:
+            role = None
+    
+    with col2_or:
+        st.markdown("<div style='text-align: center; padding-top: 25px; font-weight: bold;'>OR</div>", unsafe_allow_html=True)
+    
+    with col3:
+        customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+        portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
+        # Filter default portfolio codes to only include available options
+        default_portfolios = [p for p in st.session_state.filter_cust_portcd if p in portfolio_options]
+        cust_portcd = st.multiselect("Portfolio Code", portfolio_options, 
+                                   default=default_portfolios, key="cust_portcd")
+        st.session_state.filter_cust_portcd = cust_portcd
+        if not cust_portcd:
+            cust_portcd = None
+    
+    col4, col5, col6 = st.columns(3)
+    with col4:
+        max_dist = st.slider("Max Distance (km)", 1, 100, value=st.session_state.filter_max_dist, key="max_distance")
+        st.session_state.filter_max_dist = max_dist
+    with col5:
+        min_rev = st.slider("Minimum Revenue", 0, 20000, value=st.session_state.filter_min_rev, step=1000, key="min_revenue")
+        st.session_state.filter_min_rev = min_rev
+    with col6:
+        min_deposit = st.slider("Minimum Deposit", 0, 200000, value=st.session_state.filter_min_deposit, step=5000, key="min_deposit")
+        st.session_state.filter_min_deposit = min_deposit
     
     # Process button
     if st.button("Create Portfolios", key="create_portfolios"):
