@@ -639,10 +639,11 @@ if page == "Portfolio Assignment":
             st.session_state.filter_min_deposit = min_deposit
     
     # Process button
+        # Process button
     if st.button("Create Portfolios", key="create_portfolios", type="primary"):
-            if not selected_aus:
-                st.error("Please select at least one AU")
-            else:
+        if not selected_aus:
+            st.error("Please select at least one AU")
+        else:
                 # Create portfolios for each selected AU
                 portfolios_created = {}
                 portfolio_summaries = {}
