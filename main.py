@@ -342,7 +342,7 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         st.error(f"Error generating smart portfolios: {str(e)}")
 
 def display_smart_portfolio_results(customer_data, branch_data):
-    """Display smart portfolio results in tabs"""
+    """Display smart portfolio results like Portfolio Assignment"""
     
     if 'smart_portfolio_results' not in st.session_state or len(st.session_state.smart_portfolio_results) == 0:
         st.info("Click 'Generate Smart Portfolios' to create optimized customer assignments.")
@@ -350,119 +350,128 @@ def display_smart_portfolio_results(customer_data, branch_data):
     
     results_df = st.session_state.smart_portfolio_results
     
+    # Convert smart portfolio results to Portfolio Assignment format
+    smart_portfolios_created = {}
+    
+    # Group by AU
+    for au in results_df['ASSIGNED_AU'].unique():
+        au_data = results_df[results_df['ASSIGNED_AU'] == au].copy()
+        
+        # Add required columns for Portfolio Assignment format
+        au_data['AU'] = au
+        
+        # Get AU coordinates from branch_data
+        au_branch = branch_data[branch_data['AU'] == au]
+        if not au_branch.empty:
+            au_data['BRANCH_LAT_NUM'] = au_branch.iloc[0]['BRANCH_LAT_NUM']
+            au_data['BRANCH_LON_NUM'] = au_branch.iloc[0]['BRANCH_LON_NUM']
+        
+        # Rename columns to match Portfolio Assignment format
+        au_data = au_data.rename(columns={
+            'ECN': 'CG_ECN',
+            'DISTANCE_TO_AU': 'Distance'
+        })
+        
+        # Add missing columns with default values
+        if 'PORT_CODE' not in au_data.columns:
+            au_data['PORT_CODE'] = 'SMART_PORTFOLIO'
+        if 'BANK_REVENUE' not in au_data.columns:
+            au_data['BANK_REVENUE'] = 0
+        if 'DEPOSIT_BAL' not in au_data.columns:
+            au_data['DEPOSIT_BAL'] = 0
+        
+        smart_portfolios_created[au] = au_data
+    
     st.markdown("----")
     
-    # Create tabs for different views
-    tab1, tab2, tab3 = st.tabs(["📊 Summary", "📋 Portfolio Details", "🗺️ Geographic Map"])
-    
-    with tab1:
-        display_smart_portfolio_summary(results_df)
-    
-    with tab2:
-        display_smart_portfolio_details(results_df, branch_data)
-    
-    with tab3:
-        display_smart_portfolio_map(results_df, branch_data)
-
-def display_smart_portfolio_summary(results_df):
-    """Display summary statistics for smart portfolios"""
-    st.subheader("Smart Portfolio Summary")
-    
-    # Overall metrics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Customers Assigned", len(results_df))
-    
-    with col2:
-        avg_distance = results_df['DISTANCE_TO_AU'].mean()
-        st.metric("Average Distance", f"{avg_distance:.1f} miles")
-    
-    with col3:
-        unique_aus = results_df['ASSIGNED_AU'].nunique()
-        st.metric("AUs Utilized", unique_aus)
-    
-    with col4:
-        max_distance = results_df['DISTANCE_TO_AU'].max()
-        st.metric("Max Distance", f"{max_distance:.1f} miles")
-    
-    # Portfolio type breakdown
-    st.subheader("Portfolio Type Breakdown")
-    
-    type_summary = results_df.groupby('TYPE').agg({
-        'ECN': 'count',
-        'DISTANCE_TO_AU': ['mean', 'max']
-    }).round(2)
-    type_summary.columns = ['Customer Count', 'Avg Distance (miles)', 'Max Distance (miles)']
-    
+    # Display results in the same format as Portfolio Assignment
     col1, col2 = st.columns([1, 1])
     
     with col1:
-        st.dataframe(type_summary, use_container_width=True)
+        st.subheader("Smart Portfolio Summary")
+        display_smart_portfolio_tables(smart_portfolios_created, branch_data)
     
     with col2:
-        # Create pie chart for portfolio types
-        type_counts = results_df['TYPE'].value_counts()
-        st.bar_chart(type_counts)
+        st.subheader("Geographic Distribution")
+        display_smart_geographic_map(smart_portfolios_created, branch_data)
 
-def display_smart_portfolio_details(results_df, branch_data):
-    """Display detailed portfolio information"""
-    st.subheader("AU Portfolio Details")
-    
-    # Group by AU and calculate statistics
-    au_summary = results_df.groupby(['ASSIGNED_AU', 'TYPE']).agg({
-        'ECN': 'count',
-        'DISTANCE_TO_AU': ['mean', 'max', 'min']
-    }).round(2)
-    
-    au_summary.columns = ['Customer Count', 'Avg Distance', 'Max Distance', 'Min Distance']
-    au_summary = au_summary.reset_index()
-    
-    # Add branch information
-    branch_info = branch_data[['AU', 'CITY', 'STATECODE']].rename(columns={'AU': 'ASSIGNED_AU'})
-    au_summary = au_summary.merge(branch_info, on='ASSIGNED_AU', how='left')
-    
-    # Reorder columns
-    display_columns = ['ASSIGNED_AU', 'CITY', 'STATECODE', 'TYPE', 'Customer Count', 
-                      'Avg Distance', 'Max Distance', 'Min Distance']
-    au_summary = au_summary[display_columns]
-    
-    # Sort by AU and Type
-    au_summary = au_summary.sort_values(['ASSIGNED_AU', 'TYPE'])
-    
-    st.dataframe(au_summary, use_container_width=True, hide_index=True)
-    
-    # Show detailed customer list if requested
-    with st.expander("View Detailed Customer Assignments"):
-        # Add filters for the detailed view
-        selected_au = st.selectbox("Filter by AU", ['All'] + sorted(results_df['ASSIGNED_AU'].unique()))
-        selected_type = st.selectbox("Filter by Type", ['All'] + sorted(results_df['TYPE'].unique()))
+def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
+    """Display smart portfolio summary tables like Portfolio Assignment"""
+    if len(smart_portfolios_created) > 1:
+        # Multiple AU case - use tabs
+        au_tabs = st.tabs([f"AU {au_id}" for au_id in smart_portfolios_created.keys()])
         
-        filtered_details = results_df.copy()
-        
-        if selected_au != 'All':
-            filtered_details = filtered_details[filtered_details['ASSIGNED_AU'] == selected_au]
-        
-        if selected_type != 'All':
-            filtered_details = filtered_details[filtered_details['TYPE'] == selected_type]
-        
-        # Display filtered results
-        display_columns = ['ECN', 'BILLINGCITY', 'BILLINGSTATE', 'ASSIGNED_AU', 'TYPE', 'DISTANCE_TO_AU']
-        st.dataframe(filtered_details[display_columns], use_container_width=True, hide_index=True)
-
-def display_smart_portfolio_map(results_df, branch_data):
-    """Display geographic map of smart portfolio assignments"""
-    st.subheader("Geographic Distribution")
-    
-    if len(results_df) > 0:
-        # Create the smart portfolio map
-        smart_map = create_smart_portfolio_map(results_df, branch_data)
-        if smart_map:
-            st.plotly_chart(smart_map, use_container_width=True)
-        else:
-            st.error("Unable to create map visualization")
+        for tab_idx, (au_id, tab) in enumerate(zip(smart_portfolios_created.keys(), au_tabs)):
+            with tab:
+                display_single_smart_au_table(au_id, smart_portfolios_created, branch_data)
     else:
-        st.info("No portfolio data to display on map")
+        # Single AU case
+        au_id = list(smart_portfolios_created.keys())[0]
+        display_single_smart_au_table(au_id, smart_portfolios_created, branch_data)
+
+def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
+    """Display table for a single smart portfolio AU"""
+    if au_id in smart_portfolios_created:
+        au_data = smart_portfolios_created[au_id]
+        
+        # Create portfolio summary similar to Portfolio Assignment
+        portfolio_summary = create_smart_portfolio_summary(au_data, au_id)
+        
+        if portfolio_summary:
+            portfolio_df = pd.DataFrame(portfolio_summary)
+            
+            # Display the portfolio summary table
+            st.dataframe(portfolio_df, use_container_width=True, hide_index=True)
+            
+            # Display summary statistics (same as Portfolio Assignment)
+            display_summary_statistics(au_data)
+
+def create_smart_portfolio_summary(au_data, au_id):
+    """Create portfolio summary for smart portfolios"""
+    portfolio_summary = []
+    
+    # Group by portfolio type (INMARKET/CENTRALIZED)
+    type_groups = au_data.groupby('TYPE')
+    
+    for portfolio_type, group in type_groups:
+        portfolio_summary.append({
+            'AU': au_id,
+            'Portfolio Type': portfolio_type,
+            'Total Customers': len(group),
+            'Average Distance': f"{group['Distance'].mean():.1f} miles",
+            'Max Distance': f"{group['Distance'].max():.1f} miles",
+            'Min Distance': f"{group['Distance'].min():.1f} miles"
+        })
+    
+    # Add overall summary
+    if len(type_groups) > 1:
+        portfolio_summary.append({
+            'AU': au_id,
+            'Portfolio Type': 'TOTAL',
+            'Total Customers': len(au_data),
+            'Average Distance': f"{au_data['Distance'].mean():.1f} miles",
+            'Max Distance': f"{au_data['Distance'].max():.1f} miles",
+            'Min Distance': f"{au_data['Distance'].min():.1f} miles"
+        })
+    
+    return portfolio_summary
+
+def display_smart_geographic_map(smart_portfolios_created, branch_data):
+    """Display the geographic distribution map for smart portfolios"""
+    # Convert to format expected by create_combined_map
+    preview_portfolios = {}
+    
+    for au_id, au_data in smart_portfolios_created.items():
+        if not au_data.empty:
+            preview_portfolios[f"AU_{au_id}_Smart_Portfolio"] = au_data
+    
+    # Display the map with smart portfolios
+    if preview_portfolios:
+        combined_map = create_combined_map(preview_portfolios, branch_data)
+        if combined_map:
+            st.plotly_chart(combined_map, use_container_width=True)
+    else:
+        st.info("No customers selected for map display")
 
 if __name__ == "__main__":
     main()
