@@ -123,34 +123,55 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
         
         selected_customers = []
         
+        # Process each portfolio selection
         for _, row in control_data.iterrows():
             portfolio_id = row['Portfolio ID']
-            select_count = row['Select']
-            include = row.get('Include', True)
+            select_count = int(row['Select'])
+            include = bool(row.get('Include', False))  # Default to False (not included)
             
+            # Skip if not included or select count is 0
             if not include or select_count <= 0:
                 continue
                 
             if portfolio_id == 'UNMANAGED':
+                # Handle unmanaged customers
                 unmanaged_customers = original_data[
                     (original_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
                     (original_data['PORT_CODE'].isna())
                 ].copy()
                 
                 if not unmanaged_customers.empty:
+                    # Sort by distance (closest first) and take the requested count
                     unmanaged_sorted = unmanaged_customers.sort_values('Distance').head(select_count)
                     selected_customers.append(unmanaged_sorted)
+                    
+            elif 'INMARKET' in portfolio_id or 'CENTRALIZED' in portfolio_id:
+                # Handle mapping results (INMARKET_123, CENTRALIZED_123)
+                portfolio_type = portfolio_id.split('_')[0]  # Get INMARKET or CENTRALIZED
+                type_customers = original_data[original_data['TYPE'] == portfolio_type].copy()
+                
+                if not type_customers.empty:
+                    # Sort by distance and take requested count
+                    type_sorted = type_customers.sort_values('Distance').head(select_count)
+                    selected_customers.append(type_sorted)
+                    
             else:
+                # Handle regular portfolios
                 portfolio_customers = original_data[original_data['PORT_CODE'] == portfolio_id].copy()
                 
                 if not portfolio_customers.empty:
+                    # Sort by distance (closest first) and take the requested count
                     portfolio_sorted = portfolio_customers.sort_values('Distance').head(select_count)
                     selected_customers.append(portfolio_sorted)
         
+        # Combine all selected customers for this AU
         if selected_customers:
             au_final_customers = pd.concat(selected_customers, ignore_index=True)
+            # Remove duplicates if any
+            au_final_customers = au_final_customers.drop_duplicates(subset=['CG_ECN'], keep='first')
             updated_portfolios[au_id] = au_final_customers
         else:
+            # No customers selected for this AU - create empty DataFrame
             updated_portfolios[au_id] = pd.DataFrame()
     
     return updated_portfolios
@@ -775,7 +796,9 @@ def display_single_portfolio_table(au_id, portfolio_summaries, portfolios_create
             if page_type == "assignment":
                 apply_assignment_changes(au_id, branch_data)
             else:
-                st.success("✅ Changes applied! (Advanced optimization logic active)")
+                # Import and use mapping changes function
+                from portfolio_mapping import apply_mapping_portfolio_changes
+                apply_mapping_portfolio_changes(au_id, branch_data)
         
         # Display summary statistics
         au_filtered_data = portfolios_created[au_id]
@@ -785,6 +808,9 @@ def apply_assignment_changes(au_id, branch_data):
     """Apply portfolio assignment changes"""
     with st.spinner("Applying selection changes..."):
         if 'portfolios_created' in st.session_state and au_id in st.session_state.portfolios_created:
+            # Get original and control data
+            original_count = len(st.session_state.portfolios_created[au_id])
+            
             updated_portfolios = apply_portfolio_selection_changes(
                 st.session_state.portfolios_created, 
                 st.session_state.portfolio_controls, 
@@ -794,9 +820,22 @@ def apply_assignment_changes(au_id, branch_data):
             
             if au_id in updated_portfolios:
                 st.session_state.portfolios_created[au_id] = updated_portfolios[au_id]
-            
-            st.success("Portfolio selection updated!")
-            st.experimental_rerun()
+                new_count = len(updated_portfolios[au_id])
+                
+                # Show detailed feedback
+                if new_count < original_count:
+                    removed_count = original_count - new_count
+                    st.success(f"✅ Portfolio updated! Removed {removed_count} customers. Now showing {new_count} customers.")
+                elif new_count == original_count:
+                    st.success(f"✅ Portfolio updated! {new_count} customers selected.")
+                else:
+                    st.success(f"✅ Portfolio updated! Now showing {new_count} customers.")
+                
+                st.experimental_rerun()
+            else:
+                st.warning("No customers selected with current settings.")
+        else:
+            st.error("No portfolio data found to update.")
 
 def display_au_summary_statistics(au_filtered_data):
     """Display summary statistics for an AU"""
