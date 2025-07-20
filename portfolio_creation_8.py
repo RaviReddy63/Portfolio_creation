@@ -495,10 +495,7 @@ def create_centralized_clusters_with_radius_and_assign(unassigned_customers_df, 
 def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, branch_df):
     """Enhanced main function with two INMARKET iterations and centralized portfolios"""
     
-    print(f"Starting enhanced assignment with {len(customer_df)} customers and {len(branch_df)} branches")
-    
     # Step 1: Create first INMARKET clusters (20-mile radius)
-    print("Step 1: Creating first INMARKET clusters (20-mile radius)...")
     clustered_customers, cluster_info = constrained_clustering_optimized(
         customer_df, min_size=200, max_size=225, max_radius=20
     )
@@ -507,8 +504,6 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
     unassigned_customer_indices = []
     
     if len(cluster_info) > 0:
-        print(f"Created {len(cluster_info)} first INMARKET clusters")
-        
         cluster_assignments = assign_clusters_to_branches_vectorized(cluster_info, branch_df)
         
         customer_assignments, unassigned = greedy_assign_customers_to_branches(
@@ -539,8 +534,6 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
     unassigned_customer_indices.extend(never_assigned)
     unassigned_customer_indices = list(set(unassigned_customer_indices))
     
-    print(f"Total unassigned customers after first INMARKET: {len(unassigned_customer_indices)}")
-    
     # Step 2: Check proximity of unassigned customers to identified AUs
     proximity_results = []
     unassigned_after_proximity = unassigned_customer_indices.copy()
@@ -553,7 +546,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
                 customer_assignments[au] = []
             
             customer_idx = customer_df[
-                (customer_df['CG_ECN'] == result['CG_ECN']) &
+                (customer_df['CG_ECN'] == result['ECN']) &
                 (customer_df['LAT_NUM'] == result['LAT_NUM']) &
                 (customer_df['LON_NUM'] == result['LON_NUM'])
             ].index[0]
@@ -570,10 +563,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
             proximity_threshold=20, max_portfolio_size=250
         )
     
-    print(f"Total unassigned customers after proximity check: {len(unassigned_after_proximity)}")
-    
     # Step 3: Create second INMARKET clusters (40-mile radius)
-    print("Step 3: Creating second INMARKET clusters (40-mile radius)...")
     second_inmarket_results = []
     unassigned_after_second_inmarket = unassigned_after_proximity.copy()
     
@@ -585,8 +575,6 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         )
         
         if len(cluster_info_2) > 0:
-            print(f"Created {len(cluster_info_2)} second INMARKET clusters")
-            
             cluster_assignments_2 = assign_clusters_to_branches_vectorized(cluster_info_2, branch_df)
             
             customer_assignments_2, unassigned_2 = greedy_assign_customers_to_branches(
@@ -621,7 +609,6 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
     final_unassigned = []
     
     if unassigned_after_second_inmarket:
-        print("Step 4: Creating CENTRALIZED clusters...")
         remaining_unassigned_df = customer_df.loc[unassigned_after_second_inmarket]
         
         centralized_results, final_unassigned = create_centralized_clusters_with_radius_and_assign(
@@ -631,16 +618,5 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
     # Combine all results
     all_results = inmarket_results + proximity_results + second_inmarket_results + centralized_results
     result_df = pd.DataFrame(all_results)
-    
-    # Print summary
-    print(f"\n=== FINAL SUMMARY ===")
-    print(f"Total customers processed: {len(customer_df)}")
-    if len(result_df) > 0:
-        print(f"INMARKET customers assigned: {len(result_df[result_df['TYPE'] == 'INMARKET'])}")
-        print(f"CENTRALIZED customers assigned: {len(result_df[result_df['TYPE'] == 'CENTRALIZED'])}")
-        print(f"Average distance to assigned AU: {result_df['DISTANCE_TO_AU'].mean():.2f} miles")
-        print(f"Number of unique AUs used: {result_df['ASSIGNED_AU'].nunique()}")
-    print(f"Final unassigned customers: {len(final_unassigned)}")
-    print(f"Total assigned customers: {len(result_df)}")
     
     return result_df
