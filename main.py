@@ -250,6 +250,14 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     """Apply customer filters for Portfolio Mapping"""
     filtered_data = customer_data.copy()
     
+    # Debug: Check columns before filtering
+    print("Available columns before filtering:", filtered_data.columns.tolist())
+    
+    # Ensure CG_ECN is preserved
+    if 'CG_ECN' not in filtered_data.columns:
+        print("ERROR: CG_ECN column missing from customer data!")
+        return pd.DataFrame()  # Return empty dataframe to avoid crash
+    
     # Apply Customer State filter
     if cust_state is not None:
         filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
@@ -268,9 +276,8 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
         
         # Check portfolio code condition
         if cust_portcd is not None:
-            # Rename column to match expected format
-            filtered_data_temp = filtered_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            portfolio_condition = filtered_data_temp['PORT_CODE'].isin(cust_portcd)
+            # Use CG_PORTFOLIO_CD instead of renaming to PORT_CODE
+            portfolio_condition = filtered_data['CG_PORTFOLIO_CD'].isin(cust_portcd)
         
         # Apply OR logic: keep rows that match either role OR portfolio code
         combined_condition = role_condition | portfolio_condition
@@ -279,6 +286,10 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     # Apply other filters
     filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
     filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
+    
+    # Debug: Check columns after filtering
+    print("Available columns after filtering:", filtered_data.columns.tolist())
+    print("Number of customers after filtering:", len(filtered_data))
     
     return filtered_data
 
