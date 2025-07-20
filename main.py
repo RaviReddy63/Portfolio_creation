@@ -161,10 +161,6 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
     st.subheader("Smart Portfolio Mapping")
     
-    # Debug: Check what columns are actually in customer_data
-    st.write("**Debug - Customer Data Columns:**", customer_data.columns.tolist())
-    st.write("**Debug - Customer Data Shape:**", customer_data.shape)
-    
     # Create customer filters (reuse from Portfolio Assignment)
     cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
     
@@ -254,13 +250,10 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     """Apply customer filters for Portfolio Mapping"""
     filtered_data = customer_data.copy()
     
-    # Debug: Check columns before filtering
-    print("Available columns before filtering:", filtered_data.columns.tolist())
-    
     # Ensure CG_ECN is preserved
     if 'CG_ECN' not in filtered_data.columns:
-        print("ERROR: CG_ECN column missing from customer data!")
-        return pd.DataFrame()  # Return empty dataframe to avoid crash
+        st.error("CG_ECN column missing from customer data!")
+        return pd.DataFrame()
     
     # Apply Customer State filter
     if cust_state is not None:
@@ -291,38 +284,18 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
     filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
     
-    # Debug: Check columns after filtering
-    print("Available columns after filtering:", filtered_data.columns.tolist())
-    print("Number of customers after filtering:", len(filtered_data))
-    
     return filtered_data
 
 def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Generate smart portfolios using advanced clustering"""
-    
-    # Debug: Check initial customer data
-    st.write("**Debug - Initial customer_data columns:**", customer_data.columns.tolist())
     
     # Apply customer filters
     filtered_customers = apply_customer_filters_for_mapping(
         customer_data, cust_state, role, cust_portcd, min_rev, min_deposit
     )
     
-    # Debug: Check filtered data
-    st.write("**Debug - Filtered customer_data columns:**", filtered_customers.columns.tolist())
-    st.write("**Debug - Filtered customer_data shape:**", filtered_customers.shape)
-    
     if len(filtered_customers) == 0:
         st.error("No customers found with the selected filters. Please adjust your criteria.")
-        return
-    
-    # Check if required columns exist
-    required_columns = ['CG_ECN', 'LAT_NUM', 'LON_NUM', 'BILLINGCITY', 'BILLINGSTATE']
-    missing_columns = [col for col in required_columns if col not in filtered_customers.columns]
-    
-    if missing_columns:
-        st.error(f"Missing required columns: {missing_columns}")
-        st.write("Available columns:", filtered_customers.columns.tolist())
         return
     
     st.info(f"Processing {len(filtered_customers)} customers for smart portfolio generation...")
@@ -335,11 +308,6 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         # Update progress
         progress_bar.progress(10)
         status_text.text("Initializing clustering algorithm...")
-        
-        # Debug: Check data before sending to clustering
-        st.write("**Debug - Data being sent to clustering:**")
-        st.write("Columns:", filtered_customers.columns.tolist())
-        st.write("Sample data:", filtered_customers.head(2))
         
         # Run the enhanced clustering algorithm
         progress_bar.progress(30)
@@ -372,9 +340,6 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         progress_bar.empty()
         status_text.empty()
         st.error(f"Error generating smart portfolios: {str(e)}")
-        # Add more detailed error info
-        import traceback
-        st.code(traceback.format_exc())
 
 def display_smart_portfolio_results(customer_data, branch_data):
     """Display smart portfolio results in tabs"""
