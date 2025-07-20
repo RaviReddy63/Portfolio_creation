@@ -411,7 +411,7 @@ def assign_proximity_customers_to_existing_portfolios(unassigned_customers_df, c
                         current_portfolio_sizes[branch_au] += 1
                         
                         proximity_results.append({
-                            'ECN': customer_data['ECN'],
+                            'ECN': customer_data['CG_ECN'],
                             'BILLINGCITY': customer_data['BILLINGCITY'],
                             'BILLINGSTATE': customer_data['BILLINGSTATE'],
                             'LAT_NUM': customer_data['LAT_NUM'],
@@ -471,7 +471,7 @@ def create_centralized_clusters_with_radius_and_assign(unassigned_customers_df, 
                 
                 centralized_results.append({
                     'customer_idx': idx,
-                    'ECN': original_customer['ECN'],
+                    'ECN': original_customer['CG_ECN'],
                     'BILLINGCITY': original_customer['BILLINGCITY'],
                     'BILLINGSTATE': original_customer['BILLINGSTATE'],
                     'LAT_NUM': original_customer['LAT_NUM'],
@@ -523,7 +523,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
                 distance_value = customer.get('distance', 0)
                 
                 inmarket_results.append({
-                    'ECN': customer_data['ECN'],
+                    'ECN': customer_data['CG_ECN'],
                     'BILLINGCITY': customer_data['BILLINGCITY'],
                     'BILLINGSTATE': customer_data['BILLINGSTATE'],
                     'LAT_NUM': customer_data['LAT_NUM'],
@@ -553,7 +553,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
                 customer_assignments[au] = []
             
             customer_idx = customer_df[
-                (customer_df['ECN'] == result['ECN']) &
+                (customer_df['CG_ECN'] == result['CG_ECN']) &
                 (customer_df['LAT_NUM'] == result['LAT_NUM']) &
                 (customer_df['LON_NUM'] == result['LON_NUM'])
             ].index[0]
@@ -601,7 +601,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
                     distance_value = customer.get('distance', 0)
                     
                     second_inmarket_results.append({
-                        'ECN': customer_data['ECN'],
+                        'ECN': customer_data['CG_ECN'],
                         'BILLINGCITY': customer_data['BILLINGCITY'],
                         'BILLINGSTATE': customer_data['BILLINGSTATE'],
                         'LAT_NUM': customer_data['LAT_NUM'],
