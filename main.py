@@ -427,31 +427,23 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
             display_summary_statistics(au_data)
 
 def create_smart_portfolio_summary(au_data, au_id):
-    """Create portfolio summary for smart portfolios"""
+    """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
     
     # Group by portfolio type (INMARKET/CENTRALIZED)
     type_groups = au_data.groupby('TYPE')
     
     for portfolio_type, group in type_groups:
+        # Create a portfolio ID based on AU and type
+        portfolio_id = f"AU_{au_id}_{portfolio_type}"
+        
         portfolio_summary.append({
-            'AU': au_id,
+            'Include': True,
+            'Portfolio ID': portfolio_id,
             'Portfolio Type': portfolio_type,
             'Total Customers': len(group),
-            'Average Distance': f"{group['Distance'].mean():.1f} miles",
-            'Max Distance': f"{group['Distance'].max():.1f} miles",
-            'Min Distance': f"{group['Distance'].min():.1f} miles"
-        })
-    
-    # Add overall summary
-    if len(type_groups) > 1:
-        portfolio_summary.append({
-            'AU': au_id,
-            'Portfolio Type': 'TOTAL',
-            'Total Customers': len(au_data),
-            'Average Distance': f"{au_data['Distance'].mean():.1f} miles",
-            'Max Distance': f"{au_data['Distance'].max():.1f} miles",
-            'Min Distance': f"{au_data['Distance'].min():.1f} miles"
+            'Available for this portfolio': len(group),
+            'Select': len(group)
         })
     
     return portfolio_summary
