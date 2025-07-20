@@ -300,13 +300,29 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
 def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Generate smart portfolios using advanced clustering"""
     
+    # Debug: Check initial customer data
+    st.write("**Debug - Initial customer_data columns:**", customer_data.columns.tolist())
+    
     # Apply customer filters
     filtered_customers = apply_customer_filters_for_mapping(
         customer_data, cust_state, role, cust_portcd, min_rev, min_deposit
     )
     
+    # Debug: Check filtered data
+    st.write("**Debug - Filtered customer_data columns:**", filtered_customers.columns.tolist())
+    st.write("**Debug - Filtered customer_data shape:**", filtered_customers.shape)
+    
     if len(filtered_customers) == 0:
         st.error("No customers found with the selected filters. Please adjust your criteria.")
+        return
+    
+    # Check if required columns exist
+    required_columns = ['CG_ECN', 'LAT_NUM', 'LON_NUM', 'BILLINGCITY', 'BILLINGSTATE']
+    missing_columns = [col for col in required_columns if col not in filtered_customers.columns]
+    
+    if missing_columns:
+        st.error(f"Missing required columns: {missing_columns}")
+        st.write("Available columns:", filtered_customers.columns.tolist())
         return
     
     st.info(f"Processing {len(filtered_customers)} customers for smart portfolio generation...")
@@ -319,6 +335,11 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         # Update progress
         progress_bar.progress(10)
         status_text.text("Initializing clustering algorithm...")
+        
+        # Debug: Check data before sending to clustering
+        st.write("**Debug - Data being sent to clustering:**")
+        st.write("Columns:", filtered_customers.columns.tolist())
+        st.write("Sample data:", filtered_customers.head(2))
         
         # Run the enhanced clustering algorithm
         progress_bar.progress(30)
@@ -351,6 +372,9 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         progress_bar.empty()
         status_text.empty()
         st.error(f"Error generating smart portfolios: {str(e)}")
+        # Add more detailed error info
+        import traceback
+        st.code(traceback.format_exc())
 
 def display_smart_portfolio_results(customer_data, branch_data):
     """Display smart portfolio results in tabs"""
