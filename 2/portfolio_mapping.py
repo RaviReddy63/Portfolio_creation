@@ -556,7 +556,6 @@ def convert_mapping_results_to_portfolio_format(result_df, branch_df):
         # Add required columns for compatibility
         au_customers['AU'] = au_id
         au_customers['PORT_CODE'] = 'MAPPED_' + str(au_id)
-        au_customers['TYPE'] = au_customers['TYPE']  # Keep INMARKET or CENTRALIZED
         au_customers['Distance'] = au_customers['DISTANCE_TO_AU']
         
         # Get branch coordinates
@@ -573,7 +572,7 @@ def convert_mapping_results_to_portfolio_format(result_df, branch_df):
         
         portfolios_created[au_id] = au_customers
         
-        # Create portfolio summary
+        # Create portfolio summary with separate entries for INMARKET and CENTRALIZED
         inmarket_count = len(au_customers[au_customers['TYPE'] == 'INMARKET'])
         centralized_count = len(au_customers[au_customers['TYPE'] == 'CENTRALIZED'])
         
@@ -602,3 +601,65 @@ def convert_mapping_results_to_portfolio_format(result_df, branch_df):
         portfolio_summaries[au_id] = summary_items
     
     return portfolios_created, portfolio_summaries
+
+def apply_mapping_portfolio_changes(au_id, branch_data):
+    """Apply portfolio mapping changes"""
+    with st.spinner("Applying selection changes..."):
+        if 'mapping_portfolios_created' in st.session_state and au_id in st.session_state.mapping_portfolios_created:
+            # Get original data
+            original_data = st.session_state.mapping_portfolios_created[au_id].copy()
+            control_data = st.session_state.mapping_portfolio_controls[au_id]
+            
+            original_count = len(original_data)
+            selected_customers = []
+            
+            # Process each portfolio type selection
+            for _, row in control_data.iterrows():
+                portfolio_id = row['Portfolio ID']
+                select_count = int(row['Select'])
+                include = bool(row.get('Include', False))
+                
+                if not include or select_count <= 0:
+                    continue
+                
+                # Extract portfolio type (INMARKET or CENTRALIZED)
+                if 'INMARKET' in portfolio_id:
+                    portfolio_type = 'INMARKET'
+                elif 'CENTRALIZED' in portfolio_id:
+                    portfolio_type = 'CENTRALIZED'
+                else:
+                    continue
+                
+                # Get customers of this type
+                type_customers = original_data[original_data['TYPE'] == portfolio_type].copy()
+                
+                if not type_customers.empty:
+                    # Sort by distance and take requested count
+                    type_sorted = type_customers.sort_values('Distance').head(select_count)
+                    selected_customers.append(type_sorted)
+            
+            # Update the portfolio
+            if selected_customers:
+                au_final_customers = pd.concat(selected_customers, ignore_index=True)
+                # Remove duplicates
+                au_final_customers = au_final_customers.drop_duplicates(subset=['CG_ECN'], keep='first')
+                st.session_state.mapping_portfolios_created[au_id] = au_final_customers
+                
+                new_count = len(au_final_customers)
+                
+                # Show detailed feedback
+                if new_count < original_count:
+                    removed_count = original_count - new_count
+                    st.success(f"✅ Mapping updated! Removed {removed_count} customers. Now showing {new_count} customers.")
+                elif new_count == original_count:
+                    st.success(f"✅ Mapping updated! {new_count} customers selected.")
+                else:
+                    st.success(f"✅ Mapping updated! Now showing {new_count} customers.")
+            else:
+                # No customers selected - create empty DataFrame
+                st.session_state.mapping_portfolios_created[au_id] = pd.DataFrame()
+                st.success("✅ All customers removed from this AU portfolio.")
+            
+            st.experimental_rerun()
+        else:
+            st.error("No mapping data found to update.")
