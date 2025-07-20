@@ -161,6 +161,10 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
     st.subheader("Smart Portfolio Mapping")
     
+    # Debug: Check what columns are actually in customer_data
+    st.write("**Debug - Customer Data Columns:**", customer_data.columns.tolist())
+    st.write("**Debug - Customer Data Shape:**", customer_data.shape)
+    
     # Create customer filters (reuse from Portfolio Assignment)
     cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
     
