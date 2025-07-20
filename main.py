@@ -372,28 +372,22 @@ def display_smart_portfolio_results(customer_data, branch_data):
             'DISTANCE_TO_AU': 'Distance'
         })
         
-        # Set PORT_CODE based on customer's original portfolio or create smart portfolio IDs
-        # First, try to get original portfolio codes from customer_data
-        for idx, row in au_data.iterrows():
-            customer_ecn = row['CG_ECN']
-            # Find original customer data
-            original_customer = customer_data[customer_data['CG_ECN'] == customer_ecn]
-            if not original_customer.empty and 'CG_PORTFOLIO_CD' in original_customer.columns:
-                original_port_code = original_customer.iloc[0]['CG_PORTFOLIO_CD']
-                if pd.notna(original_port_code):
-                    au_data.at[idx, 'PORT_CODE'] = original_port_code
-                else:
-                    # If no original portfolio, use TYPE as portfolio identifier
-                    au_data.at[idx, 'PORT_CODE'] = f"SMART_{row['TYPE']}"
-            else:
-                # If customer not found, use TYPE as portfolio identifier
-                au_data.at[idx, 'PORT_CODE'] = f"SMART_{row['TYPE']}"
+        # Merge with original customer_data to get financial information
+        customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
+        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
         
-        # Add missing columns with default values
-        if 'BANK_REVENUE' not in au_data.columns:
-            au_data['BANK_REVENUE'] = 0
-        if 'DEPOSIT_BAL' not in au_data.columns:
-            au_data['DEPOSIT_BAL'] = 0
+        # Use original portfolio code if available, otherwise create smart portfolio IDs
+        au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('SMART_' + au_data['TYPE'])
+        
+        # Use original financial data
+        au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
+        au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
+        
+        # Use original TYPE if different from smart assignment
+        au_data['TYPE'] = au_data['TYPE_orig'].fillna(au_data['TYPE'])
+        
+        # Clean up duplicate columns
+        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig'], axis=1, errors='ignore')
         
         smart_portfolios_created[au] = au_data
     
