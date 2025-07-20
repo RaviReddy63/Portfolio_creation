@@ -372,9 +372,24 @@ def display_smart_portfolio_results(customer_data, branch_data):
             'DISTANCE_TO_AU': 'Distance'
         })
         
+        # Set PORT_CODE based on customer's original portfolio or create smart portfolio IDs
+        # First, try to get original portfolio codes from customer_data
+        for idx, row in au_data.iterrows():
+            customer_ecn = row['CG_ECN']
+            # Find original customer data
+            original_customer = customer_data[customer_data['CG_ECN'] == customer_ecn]
+            if not original_customer.empty and 'CG_PORTFOLIO_CD' in original_customer.columns:
+                original_port_code = original_customer.iloc[0]['CG_PORTFOLIO_CD']
+                if pd.notna(original_port_code):
+                    au_data.at[idx, 'PORT_CODE'] = original_port_code
+                else:
+                    # If no original portfolio, use TYPE as portfolio identifier
+                    au_data.at[idx, 'PORT_CODE'] = f"SMART_{row['TYPE']}"
+            else:
+                # If customer not found, use TYPE as portfolio identifier
+                au_data.at[idx, 'PORT_CODE'] = f"SMART_{row['TYPE']}"
+        
         # Add missing columns with default values
-        if 'PORT_CODE' not in au_data.columns:
-            au_data['PORT_CODE'] = 'SMART_PORTFOLIO'
         if 'BANK_REVENUE' not in au_data.columns:
             au_data['BANK_REVENUE'] = 0
         if 'DEPOSIT_BAL' not in au_data.columns:
@@ -430,20 +445,47 @@ def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
     
-    # Group by portfolio type (INMARKET/CENTRALIZED)
-    type_groups = au_data.groupby('TYPE')
+    # Group by actual portfolio code (like in Portfolio Assignment)
+    grouped = au_data[au_data['PORT_CODE'].notna()].groupby("PORT_CODE")
     
-    for portfolio_type, group in type_groups:
-        # Create a portfolio ID based on AU and type
-        portfolio_id = f"AU_{au_id}_{portfolio_type}"
+    for pid, group in grouped:
+        # Get total customers for this portfolio from original data (similar to Portfolio Assignment logic)
+        total_customer = len(au_data[au_data['PORT_CODE'] == pid])
+        
+        # Determine portfolio type
+        portfolio_type = "Unknown"
+        if not group.empty:
+            # Get the most common type for this portfolio
+            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+            if not types.empty:
+                portfolio_type = types.index[0]
+            else:
+                # If no non-unmanaged types, use the first type
+                portfolio_type = group['TYPE'].iloc[0] if len(group) > 0 else "Unknown"
         
         portfolio_summary.append({
             'Include': True,
-            'Portfolio ID': portfolio_id,
+            'Portfolio ID': pid,
             'Portfolio Type': portfolio_type,
-            'Total Customers': len(group),
+            'Total Customers': total_customer,
             'Available for this portfolio': len(group),
             'Select': len(group)
+        })
+    
+    # Add unmanaged customers (like in Portfolio Assignment)
+    unmanaged_customers = au_data[
+        (au_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+        (au_data['PORT_CODE'].isna())
+    ]
+    
+    if not unmanaged_customers.empty:
+        portfolio_summary.append({
+            'Include': True,
+            'Portfolio ID': 'UNMANAGED',
+            'Portfolio Type': 'Unmanaged',
+            'Total Customers': len(unmanaged_customers),
+            'Available for this portfolio': len(unmanaged_customers),
+            'Select': len(unmanaged_customers)
         })
     
     return portfolio_summary
