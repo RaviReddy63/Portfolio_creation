@@ -466,9 +466,8 @@ def display_global_portfolio_statistics(results_df):
         avg_distance = results_df['DISTANCE_TO_AU'].mean()
         
         # Calculate distinct AUs for each portfolio type
-        inmarket_customers = len(results_df[results_df['TYPE'] == 'INMARKET'])
-        centralized_customers = len(results_df[results_df['TYPE'] == 'CENTRALIZED'])
-        total_portfolios_created = results_df['ASSIGNED_AU'].nunique()
+        inmarket_aus = results_df[results_df['TYPE'] == 'INMARKET']['ASSIGNED_AU'].nunique()
+        centralized_aus = results_df[results_df['TYPE'] == 'CENTRALIZED']['ASSIGNED_AU'].nunique()
         
         # Display metrics in horizontal format (same as AU Summary Statistics)
         st.subheader("Global Summary Statistics")
@@ -481,10 +480,10 @@ def display_global_portfolio_statistics(results_df):
             st.metric("Average Distance (Miles)", f"{avg_distance:.1f}")
         
         with col_c:
-            st.metric("Total AUs", total_portfolios_created)
+            st.metric("In-Market Portfolios", inmarket_aus)
         
         with col_d:
-            st.metric("Customer Types", f"IM: {inmarket_customers}, CZ: {centralized_customers}")
+            st.metric("Centralized Portfolios", centralized_aus)
         
     else:
         # Show empty state
@@ -498,10 +497,10 @@ def display_global_portfolio_statistics(results_df):
             st.metric("Average Distance (Miles)", "0.0")
         
         with col_c:
-            st.metric("Total AUs", "0")
+            st.metric("In-Market Portfolios", "0")
         
         with col_d:
-            st.metric("Customer Types", "IM: 0, CZ: 0")
+            st.metric("Centralized Portfolios", "0")
 
 def generate_global_portfolio_summary(results_df, customer_data):
     """Generate global portfolio summary across all AUs"""
