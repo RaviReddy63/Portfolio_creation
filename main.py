@@ -565,7 +565,7 @@ def apply_global_smart_changes(edited_summary, original_summary, customer_data, 
             
             # Apply portfolio-level filters based on global controls
             final_filtered_customers = apply_portfolio_level_filters(
-                filtered_customers, edited_summary, original_summary
+                filtered_customers, edited_summary, original_summary, branch_data
             )
             
             if len(final_filtered_customers) == 0:
@@ -588,12 +588,19 @@ def apply_global_smart_changes(edited_summary, original_summary, customer_data, 
         except Exception as e:
             st.error(f"Error applying global changes: {str(e)}")
 
-def apply_portfolio_level_filters(filtered_customers, edited_summary, original_summary):
+def apply_portfolio_level_filters(filtered_customers, edited_summary, original_summary, branch_data):
     """Apply portfolio-level include/select filters"""
     
     from utils import haversine_distance
     
     final_customers = []
+    
+    # Get the AUs that were used in the current smart portfolio results
+    current_results = st.session_state.get('smart_portfolio_results', pd.DataFrame())
+    if not current_results.empty:
+        identified_aus = current_results['ASSIGNED_AU'].unique().tolist()
+    else:
+        identified_aus = []
     
     # Process each portfolio
     for _, edited_row in edited_summary.iterrows():
@@ -620,11 +627,10 @@ def apply_portfolio_level_filters(filtered_customers, edited_summary, original_s
         if len(portfolio_customers) == 0:
             continue
         
-        # Apply select count filter by keeping closest customers to any selected AU
+        # Apply select count filter by keeping closest customers to any identified AU
         if select_count < len(portfolio_customers):
             portfolio_customers = select_closest_customers_to_any_au(
-                portfolio_customers, select_count, st.session_state.get('selected_aus_for_mapping', []), 
-                branch_data
+                portfolio_customers, select_count, identified_aus, branch_data
             )
         elif select_count > len(portfolio_customers):
             # Can't select more than available
@@ -644,7 +650,7 @@ def select_closest_customers_to_any_au(portfolio_customers, select_count, select
     from utils import haversine_distance
     
     if not selected_aus or len(selected_aus) == 0:
-        # If no specific AUs, just return first N customers
+        # If no specific AUs, just return first N customers sorted by a consistent criteria
         return portfolio_customers.head(select_count)
     
     # Calculate minimum distance to any AU for each customer
