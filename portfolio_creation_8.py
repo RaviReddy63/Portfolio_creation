@@ -158,8 +158,8 @@ def constrained_clustering_optimized(customer_df, min_size=200, max_size=225, ma
             coords_array = np.array(current_coords, dtype=np.float64)
             
             if len(current_cluster) > 0 and min_size > 0:
-                if len(current_cluster) // min_size < 3:
-                    n_splits = np.maximum(1, len(current_cluster) // min_size)
+                if len(current_cluster) // 180 < 3:
+                    n_splits = np.maximum(1, len(current_cluster) // 180)
                 else:
                     n_splits = 3
             else:
@@ -173,7 +173,7 @@ def constrained_clustering_optimized(customer_df, min_size=200, max_size=225, ma
                     sub_mask = subcluster_labels == sub_id
                     sub_indices = [current_cluster[i] for i in range(len(current_cluster)) if sub_mask[i]]
                     
-                    if len(sub_indices) >= min_size and len(sub_indices) <= max_size:
+                    if len(sub_indices) >= 180 and len(sub_indices) <= max_size:
                         sub_coords = coords_array[sub_mask]
                         sub_radius = calculate_cluster_radius_vectorized(sub_coords)
                         
