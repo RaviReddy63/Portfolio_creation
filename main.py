@@ -3,7 +3,7 @@ import pandas as pd
 
 # Import custom modules
 from ui_components import (
-    setup_page_config, add_logo, create_header, initialize_session_state,
+    add_logo, create_header, initialize_session_state,
     create_au_filters, create_customer_filters, create_portfolio_button,
     display_summary_statistics, create_portfolio_editor, create_apply_changes_button
 )
@@ -12,6 +12,10 @@ from portfolio_creation import process_portfolio_creation, apply_portfolio_chang
 from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
 from portfolio_summary_sidebar import render_portfolio_summary_sidebar
+
+def setup_page_config():
+    """Configure the Streamlit page with right sidebar"""
+    st.set_page_config("Portfolio Creation tool", layout="wide", initial_sidebar_state="expanded")
 
 def main():
     """Main application function"""
