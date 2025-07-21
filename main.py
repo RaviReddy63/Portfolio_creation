@@ -409,7 +409,7 @@ def display_smart_portfolio_results(customer_data, branch_data):
         display_global_portfolio_control_table(results_df, customer_data, branch_data)
         
         # Add Portfolio Statistics under Global Portfolio Control
-        st.markdown("### 📊 Portfolio Statistics")
+        st.subheader("Portfolio Statistics")
         display_smart_portfolio_statistics(results_df)
     
     # Geographic Distribution below with full width
@@ -430,8 +430,8 @@ def display_global_portfolio_control_table(results_df, customer_data, branch_dat
         # Store in session state
         st.session_state.global_portfolio_controls = edited_summary
         
-        # Apply Changes button
-        if st.button("🔄 Apply Global Changes", key="apply_global_smart_changes", type="primary"):
+        # Apply Changes button with same style as AU Apply Changes
+        if st.button("Apply Global Changes", key="apply_global_smart_changes", type="primary"):
             apply_global_smart_changes(edited_summary, global_summary, customer_data, branch_data)
 
 def generate_global_portfolio_summary(results_df, customer_data):
@@ -528,13 +528,13 @@ def create_global_control_editor(global_summary):
         )
     }
     
-    # Display editable table
+    # Display editable table with increased height to match AU tables
     edited_df = st.data_editor(
         df,
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
-        height=300,
+        height=350,  # Increased height to match AU tables
         key="global_smart_control_editor"
     )
     
@@ -695,12 +695,11 @@ def display_smart_portfolio_statistics(results_df):
         # Calculate metrics
         total_customers = len(results_df)
         avg_distance = results_df['DISTANCE_TO_AU'].mean()
-        portfolios_created = results_df['ASSIGNED_AU'].nunique()  # Number of AUs with portfolios
         
-        # Portfolio type counts
-        type_counts = results_df['TYPE'].value_counts()
-        inmarket_count = type_counts.get('INMARKET', 0)
-        centralized_count = type_counts.get('CENTRALIZED', 0)
+        # Calculate distinct AUs for each portfolio type
+        inmarket_aus = results_df[results_df['TYPE'] == 'INMARKET']['ASSIGNED_AU'].nunique()
+        centralized_aus = results_df[results_df['TYPE'] == 'CENTRALIZED']['ASSIGNED_AU'].nunique()
+        total_portfolios_created = results_df['ASSIGNED_AU'].nunique()
         
         # Display metrics in horizontal format (same as AU Summary Statistics)
         col_a, col_b, col_c, col_d = st.columns(4)
@@ -712,10 +711,10 @@ def display_smart_portfolio_statistics(results_df):
             st.metric("Average Distance (Miles)", f"{avg_distance:.1f}")
         
         with col_c:
-            st.metric("Portfolios Created", portfolios_created)
+            st.metric("Portfolios Created", total_portfolios_created)
         
         with col_d:
-            st.metric("Portfolio Types", f"IM: {inmarket_count}, CZ: {centralized_count}")
+            st.metric("Portfolio Types", f"IM: {inmarket_aus}, CZ: {centralized_aus}")
         
     else:
         # Show empty state
