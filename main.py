@@ -675,21 +675,22 @@ def generate_global_portfolio_summary(results_df, customer_data):
     for _, row in results_df.iterrows():
         ecn = row['ECN']
         
-        # Find original portfolio code
+        # Find original portfolio code and TYPE
         original_customer = customer_data[customer_data['CG_ECN'] == ecn]
         if not original_customer.empty:
             portfolio_code = original_customer.iloc[0].get('CG_PORTFOLIO_CD', 'N/A')
             if pd.isna(portfolio_code):
                 portfolio_code = 'N/A'
+            # Use original customer TYPE, not algorithm TYPE
+            original_type = original_customer.iloc[0].get('TYPE', 'Unknown')
         else:
             portfolio_code = 'N/A'
-        
-        portfolio_type = row['TYPE']
+            original_type = 'Unknown'
         
         if portfolio_code not in portfolio_aggregates:
             portfolio_aggregates[portfolio_code] = {
                 'Portfolio ID': portfolio_code,
-                'Portfolio Type': portfolio_type,
+                'Portfolio Type': original_type,  # Use original TYPE
                 'customers': [],
                 'total_available': 0
             }
@@ -709,7 +710,7 @@ def generate_global_portfolio_summary(results_df, customer_data):
         summary_list.append({
             'Include': True,
             'Portfolio ID': portfolio_id,
-            'Portfolio Type': data['Portfolio Type'],
+            'Portfolio Type': data['Portfolio Type'],  # This is now original TYPE
             'Total Customers': total_customers,
             'Available': data['total_available'],
             'Select': data['total_available']
