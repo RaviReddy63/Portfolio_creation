@@ -689,27 +689,49 @@ def select_closest_customers_to_any_au(portfolio_customers, select_count, select
     return portfolio_customers.loc[selected_indices]
 
 def display_smart_portfolio_statistics(results_df):
-    """Display summary statistics for smart portfolios"""
+    """Display summary statistics for smart portfolios in horizontal format"""
     
     if len(results_df) > 0:
-        # Overall metrics
+        # Calculate metrics
         total_customers = len(results_df)
         avg_distance = results_df['DISTANCE_TO_AU'].mean()
-        unique_aus = results_df['ASSIGNED_AU'].nunique()
-        max_distance = results_df['DISTANCE_TO_AU'].max()
+        portfolios_created = results_df['ASSIGNED_AU'].nunique()  # Number of AUs with portfolios
         
-        st.metric("Total Customers", total_customers)
-        st.metric("Average Distance", f"{avg_distance:.1f} miles")
-        st.metric("AUs Utilized", unique_aus)
-        st.metric("Max Distance", f"{max_distance:.1f} miles")
-        
-        # Portfolio type breakdown
-        st.markdown("**Portfolio Types:**")
+        # Portfolio type counts
         type_counts = results_df['TYPE'].value_counts()
-        for portfolio_type, count in type_counts.items():
-            st.write(f"• {portfolio_type}: {count}")
+        inmarket_count = type_counts.get('INMARKET', 0)
+        centralized_count = type_counts.get('CENTRALIZED', 0)
+        
+        # Display metrics in horizontal format (same as AU Summary Statistics)
+        col_a, col_b, col_c, col_d = st.columns(4)
+        
+        with col_a:
+            st.metric("Total Customers", f"{total_customers:,}")
+        
+        with col_b:
+            st.metric("Average Distance (Miles)", f"{avg_distance:.1f}")
+        
+        with col_c:
+            st.metric("Portfolios Created", portfolios_created)
+        
+        with col_d:
+            st.metric("Portfolio Types", f"IM: {inmarket_count}, CZ: {centralized_count}")
+        
     else:
-        st.info("No portfolio data available")
+        # Show empty state
+        col_a, col_b, col_c, col_d = st.columns(4)
+        
+        with col_a:
+            st.metric("Total Customers", "0")
+        
+        with col_b:
+            st.metric("Average Distance (Miles)", "0.0")
+        
+        with col_c:
+            st.metric("Portfolios Created", "0")
+        
+        with col_d:
+            st.metric("Portfolio Types", "IM: 0, CZ: 0")
 
 def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
     """Display smart portfolio summary tables like Portfolio Assignment"""
