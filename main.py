@@ -380,8 +380,8 @@ def display_smart_portfolio_results(customer_data, branch_data):
         customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
         au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
         
-        # Use original portfolio code if available, otherwise create smart portfolio IDs
-        au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('SMART_' + au_data['TYPE'])
+        # Use original portfolio code if available, otherwise use N/A
+        au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('N/A')
         
         # Use original financial data
         au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
@@ -397,16 +397,313 @@ def display_smart_portfolio_results(customer_data, branch_data):
     
     st.markdown("----")
     
-    # Display results in the same format as Portfolio Assignment
-    col1, col2 = st.columns([1, 1])
+    # Display results in three sections
+    col1, col2, col3 = st.columns([1, 1, 1])
     
     with col1:
         st.subheader("Smart Portfolio Summary")
         display_smart_portfolio_tables(smart_portfolios_created, branch_data)
     
     with col2:
-        st.subheader("Geographic Distribution")
-        display_smart_geographic_map(smart_portfolios_created, branch_data)
+        st.subheader("Global Portfolio Control")
+        display_global_portfolio_control_table(results_df, customer_data, branch_data)
+    
+    with col3:
+        st.subheader("Portfolio Statistics")
+        display_smart_portfolio_statistics(results_df)
+    
+    # Geographic Distribution below with full width
+    st.markdown("----")
+    st.subheader("Geographic Distribution")
+    display_smart_geographic_map(smart_portfolios_created, branch_data)
+
+def display_global_portfolio_control_table(results_df, customer_data, branch_data):
+    """Display global portfolio control table for all portfolios"""
+    
+    # Generate global portfolio summary
+    global_summary = generate_global_portfolio_summary(results_df, customer_data)
+    
+    if global_summary:
+        # Display editable table
+        edited_summary = create_global_control_editor(global_summary)
+        
+        # Store in session state
+        st.session_state.global_portfolio_controls = edited_summary
+        
+        # Apply Changes button
+        if st.button("🔄 Apply Global Changes", key="apply_global_smart_changes", type="primary"):
+            apply_global_smart_changes(edited_summary, global_summary, customer_data, branch_data)
+
+def generate_global_portfolio_summary(results_df, customer_data):
+    """Generate global portfolio summary across all AUs"""
+    
+    # Group by Portfolio ID across all AUs
+    portfolio_aggregates = {}
+    
+    # Get all unique portfolio IDs from results
+    for _, row in results_df.iterrows():
+        ecn = row['ECN']
+        
+        # Find original portfolio code
+        original_customer = customer_data[customer_data['CG_ECN'] == ecn]
+        if not original_customer.empty:
+            portfolio_code = original_customer.iloc[0].get('CG_PORTFOLIO_CD', 'N/A')
+            if pd.isna(portfolio_code):
+                portfolio_code = 'N/A'
+        else:
+            portfolio_code = 'N/A'
+        
+        portfolio_type = row['TYPE']
+        
+        if portfolio_code not in portfolio_aggregates:
+            portfolio_aggregates[portfolio_code] = {
+                'Portfolio ID': portfolio_code,
+                'Portfolio Type': portfolio_type,
+                'customers': [],
+                'total_available': 0
+            }
+        
+        portfolio_aggregates[portfolio_code]['customers'].append(row)
+        portfolio_aggregates[portfolio_code]['total_available'] += 1
+    
+    # Convert to summary list
+    summary_list = []
+    for portfolio_id, data in portfolio_aggregates.items():
+        # Get total customers for this portfolio from original data
+        if portfolio_id == 'N/A':
+            total_customers = len([c for c in data['customers']])
+        else:
+            total_customers = len(customer_data[customer_data['CG_PORTFOLIO_CD'] == portfolio_id])
+        
+        summary_list.append({
+            'Include': True,
+            'Portfolio ID': portfolio_id,
+            'Portfolio Type': data['Portfolio Type'],
+            'Total Customers': total_customers,
+            'Available': data['total_available'],
+            'Select': data['total_available']
+        })
+    
+    # Sort by Portfolio ID
+    summary_list.sort(key=lambda x: x['Portfolio ID'])
+    
+    return summary_list
+
+def create_global_control_editor(global_summary):
+    """Create editable global control table"""
+    
+    df = pd.DataFrame(global_summary)
+    
+    # Create column configuration
+    column_config = {
+        "Include": st.column_config.CheckboxColumn(
+            "Include",
+            help="Include portfolio in all AUs (affects all portfolios)"
+        ),
+        "Portfolio ID": st.column_config.TextColumn(
+            "Portfolio ID",
+            help="Unique portfolio identifier",
+            disabled=True
+        ),
+        "Portfolio Type": st.column_config.TextColumn(
+            "Portfolio Type",
+            help="Type of portfolio",
+            disabled=True
+        ),
+        "Total Customers": st.column_config.NumberColumn(
+            "Total Customers",
+            help="Total customers in this portfolio in original data",
+            disabled=True
+        ),
+        "Available": st.column_config.NumberColumn(
+            "Available",
+            help="Total customers from this portfolio across all AUs",
+            disabled=True
+        ),
+        "Select": st.column_config.NumberColumn(
+            "Select",
+            help="Number of customers to select (will keep closest)",
+            min_value=0,
+            step=1
+        )
+    }
+    
+    # Display editable table
+    edited_df = st.data_editor(
+        df,
+        column_config=column_config,
+        hide_index=True,
+        use_container_width=True,
+        height=300,
+        key="global_smart_control_editor"
+    )
+    
+    return edited_df
+
+def apply_global_smart_changes(edited_summary, original_summary, customer_data, branch_data):
+    """Apply global changes and regenerate smart portfolios"""
+    
+    with st.spinner("Applying global changes and regenerating portfolios..."):
+        try:
+            # Get current filters from session state
+            cust_state = st.session_state.get('mapping_filter_cust_state', [])
+            role = st.session_state.get('mapping_filter_role', [])
+            cust_portcd = st.session_state.get('mapping_filter_cust_portcd', [])
+            min_rev = st.session_state.get('mapping_filter_min_rev', 5000)
+            min_deposit = st.session_state.get('mapping_filter_min_deposit', 100000)
+            
+            # Apply customer filters to get base filtered customers
+            filtered_customers = apply_customer_filters_for_mapping(
+                customer_data, cust_state if cust_state else None, 
+                role if role else None, cust_portcd if cust_portcd else None, 
+                min_rev, min_deposit
+            )
+            
+            if len(filtered_customers) == 0:
+                st.error("No customers found with current filters.")
+                return
+            
+            # Apply portfolio-level filters based on global controls
+            final_filtered_customers = apply_portfolio_level_filters(
+                filtered_customers, edited_summary, original_summary
+            )
+            
+            if len(final_filtered_customers) == 0:
+                st.error("No customers remaining after portfolio filters.")
+                return
+            
+            # Regenerate smart portfolios with filtered customers
+            st.info(f"Regenerating portfolios with {len(final_filtered_customers)} customers...")
+            
+            smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+                final_filtered_customers, branch_data
+            )
+            
+            # Update session state
+            st.session_state.smart_portfolio_results = smart_portfolio_results
+            
+            st.success(f"Successfully regenerated portfolios with {len(smart_portfolio_results)} customers!")
+            st.experimental_rerun()
+            
+        except Exception as e:
+            st.error(f"Error applying global changes: {str(e)}")
+
+def apply_portfolio_level_filters(filtered_customers, edited_summary, original_summary):
+    """Apply portfolio-level include/select filters"""
+    
+    from utils import haversine_distance
+    
+    final_customers = []
+    
+    # Process each portfolio
+    for _, edited_row in edited_summary.iterrows():
+        portfolio_id = edited_row['Portfolio ID']
+        include = edited_row['Include']
+        select_count = edited_row['Select']
+        
+        # Skip if not included
+        if not include:
+            continue
+        
+        # Get customers for this portfolio
+        if portfolio_id == 'N/A':
+            # Customers without original portfolio
+            portfolio_customers = filtered_customers[
+                filtered_customers['CG_PORTFOLIO_CD'].isna()
+            ].copy()
+        else:
+            # Customers with specific portfolio code
+            portfolio_customers = filtered_customers[
+                filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id
+            ].copy()
+        
+        if len(portfolio_customers) == 0:
+            continue
+        
+        # Apply select count filter by keeping closest customers to any selected AU
+        if select_count < len(portfolio_customers):
+            portfolio_customers = select_closest_customers_to_any_au(
+                portfolio_customers, select_count, st.session_state.get('selected_aus_for_mapping', []), 
+                branch_data
+            )
+        elif select_count > len(portfolio_customers):
+            # Can't select more than available
+            select_count = len(portfolio_customers)
+        
+        final_customers.append(portfolio_customers)
+    
+    # Combine all selected customers
+    if final_customers:
+        return pd.concat(final_customers, ignore_index=True)
+    else:
+        return pd.DataFrame()
+
+def select_closest_customers_to_any_au(portfolio_customers, select_count, selected_aus, branch_data):
+    """Select closest customers to any of the AUs that would be created"""
+    
+    from utils import haversine_distance
+    
+    if not selected_aus or len(selected_aus) == 0:
+        # If no specific AUs, just return first N customers
+        return portfolio_customers.head(select_count)
+    
+    # Calculate minimum distance to any AU for each customer
+    customers_with_distance = []
+    
+    for idx, customer in portfolio_customers.iterrows():
+        min_distance = float('inf')
+        
+        for au_id in selected_aus:
+            # Get AU coordinates
+            au_row = branch_data[branch_data['AU'] == au_id]
+            if au_row.empty:
+                continue
+                
+            au_lat = au_row.iloc[0]['BRANCH_LAT_NUM']
+            au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
+            
+            # Calculate distance
+            distance = haversine_distance(
+                customer['LAT_NUM'], customer['LON_NUM'], au_lat, au_lon
+            )
+            
+            if distance < min_distance:
+                min_distance = distance
+        
+        customers_with_distance.append({
+            'customer': customer,
+            'min_distance': min_distance,
+            'index': idx
+        })
+    
+    # Sort by distance and select closest
+    customers_with_distance.sort(key=lambda x: x['min_distance'])
+    selected_indices = [item['index'] for item in customers_with_distance[:select_count]]
+    
+    return portfolio_customers.loc[selected_indices]
+
+def display_smart_portfolio_statistics(results_df):
+    """Display summary statistics for smart portfolios"""
+    
+    if len(results_df) > 0:
+        # Overall metrics
+        total_customers = len(results_df)
+        avg_distance = results_df['DISTANCE_TO_AU'].mean()
+        unique_aus = results_df['ASSIGNED_AU'].nunique()
+        max_distance = results_df['DISTANCE_TO_AU'].max()
+        
+        st.metric("Total Customers", total_customers)
+        st.metric("Average Distance", f"{avg_distance:.1f} miles")
+        st.metric("AUs Utilized", unique_aus)
+        st.metric("Max Distance", f"{max_distance:.1f} miles")
+        
+        # Portfolio type breakdown
+        st.markdown("**Portfolio Types:**")
+        type_counts = results_df['TYPE'].value_counts()
+        for portfolio_type, count in type_counts.items():
+            st.write(f"• {portfolio_type}: {count}")
+    else:
+        st.info("No portfolio data available")
 
 def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
     """Display smart portfolio summary tables like Portfolio Assignment"""
