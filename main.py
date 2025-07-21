@@ -97,23 +97,15 @@ def display_portfolio_results(branch_data):
         # Show message when no portfolios exist
         if st.session_state.get('portfolios_created') is not None:
             st.warning("No customers found for the selected AUs with current filters.")
-    
-    # Show recommendation reassignment table if it exists
-    display_reassignment_recommendations()
 
 def display_portfolio_tables(portfolios_created, portfolio_summaries, branch_data):
-    """Display portfolio summary tables"""
-    if len(portfolios_created) > 1:
-        # Multiple AU case - use tabs
-        au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_created.keys()])
-        
-        for tab_idx, (au_id, tab) in enumerate(zip(portfolios_created.keys(), au_tabs)):
-            with tab:
-                display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, True)
-    else:
-        # Single AU case
-        au_id = list(portfolios_created.keys())[0]
-        display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, False)
+    """Display portfolio summary tables - Always use tabs"""
+    # Always use tabs regardless of number of AUs (removed conditional logic)
+    au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_created.keys()])
+    
+    for tab_idx, (au_id, tab) in enumerate(zip(portfolios_created.keys(), au_tabs)):
+        with tab:
+            display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, True)
 
 def display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, is_multi_au):
     """Display table for a single AU"""
@@ -152,14 +144,7 @@ def display_geographic_map(portfolios_created, branch_data):
     else:
         st.info("No customers selected for map display")
 
-def display_reassignment_recommendations():
-    """Display recommendation reassignment table if it exists"""
-    if ('recommend_reassignment' in st.session_state and 
-        isinstance(st.session_state.recommend_reassignment, pd.DataFrame) and 
-        not st.session_state.recommend_reassignment.empty):
-        st.markdown("----")
-        st.subheader("Recommended Reassignments")
-        st.dataframe(st.session_state.recommend_reassignment, use_container_width=True)
+
 
 def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
@@ -397,7 +382,7 @@ def display_smart_portfolio_results(customer_data, branch_data):
     
     st.markdown("----")
     
-    # Display results in two sections
+    # Display results in two sections with equal column width
     col1, col2 = st.columns([1, 1])
     
     with col1:
@@ -406,33 +391,117 @@ def display_smart_portfolio_results(customer_data, branch_data):
     
     with col2:
         st.subheader("Global Portfolio Control")
-        display_global_portfolio_control_table(results_df, customer_data, branch_data)
-        
-        # Add Portfolio Statistics under Global Portfolio Control
-        st.subheader("Portfolio Statistics")
-        display_smart_portfolio_statistics(results_df)
+        display_global_portfolio_control_component(results_df, customer_data, branch_data)
     
     # Geographic Distribution below with full width
     st.markdown("----")
     st.subheader("Geographic Distribution")
     display_smart_geographic_map(smart_portfolios_created, branch_data)
 
-def display_global_portfolio_control_table(results_df, customer_data, branch_data):
-    """Display global portfolio control table for all portfolios"""
+def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
+    """Display smart portfolio summary tables - Always use tabs"""
+    # Always use tabs regardless of number of AUs (removed conditional logic)
+    au_tabs = st.tabs([f"AU {au_id}" for au_id in smart_portfolios_created.keys()])
     
-    # Generate global portfolio summary
+    for tab_idx, (au_id, tab) in enumerate(zip(smart_portfolios_created.keys(), au_tabs)):
+        with tab:
+            display_single_smart_au_table(au_id, smart_portfolios_created, branch_data)
+
+def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
+    """Display table for a single smart portfolio AU"""
+    if au_id in smart_portfolios_created:
+        au_data = smart_portfolios_created[au_id]
+        
+        # Create portfolio summary similar to Portfolio Assignment
+        portfolio_summary = create_smart_portfolio_summary(au_data, au_id)
+        
+        if portfolio_summary:
+            portfolio_df = pd.DataFrame(portfolio_summary)
+            
+            # Create editable dataframe (same as Portfolio Assignment)
+            edited_df = create_smart_portfolio_editor(portfolio_df, au_id)
+            
+            # Store the edited data in session state
+            if 'smart_portfolio_controls' not in st.session_state:
+                st.session_state.smart_portfolio_controls = {}
+            st.session_state.smart_portfolio_controls[au_id] = edited_df
+            
+            # Add Apply Changes button (same as Portfolio Assignment)
+            if create_smart_apply_changes_button(au_id):
+                apply_smart_portfolio_changes(au_id, smart_portfolios_created, branch_data)
+            
+            # Display summary statistics (same as Portfolio Assignment)
+            display_summary_statistics(au_data)
+
+def display_global_portfolio_control_component(results_df, customer_data, branch_data):
+    """Display unified global portfolio control component with table, button and statistics"""
+    
+    # Generate global portfolio summary (same as before)
     global_summary = generate_global_portfolio_summary(results_df, customer_data)
     
     if global_summary:
-        # Display editable table
-        edited_summary = create_global_control_editor(global_summary)
+        # Create Global Portfolio tab (to match the AU tabs structure)
+        global_tab = st.tabs(["Global Control"])
         
-        # Store in session state
-        st.session_state.global_portfolio_controls = edited_summary
+        with global_tab[0]:
+            # Display editable table
+            edited_summary = create_global_control_editor(global_summary)
+            
+            # Store in session state
+            st.session_state.global_portfolio_controls = edited_summary
+            
+            # Apply Changes button with same style as AU Apply Changes
+            if st.button("Apply Global Changes", key="apply_global_smart_changes", type="primary"):
+                apply_global_smart_changes(edited_summary, global_summary, customer_data, branch_data)
+            
+            # Display global statistics (similar to AU summary statistics)
+            display_global_portfolio_statistics(results_df)
+
+def display_global_portfolio_statistics(results_df):
+    """Display summary statistics for global portfolios in horizontal format"""
+    
+    if len(results_df) > 0:
+        # Calculate metrics
+        total_customers = len(results_df)
+        avg_distance = results_df['DISTANCE_TO_AU'].mean()
         
-        # Apply Changes button with same style as AU Apply Changes
-        if st.button("Apply Global Changes", key="apply_global_smart_changes", type="primary"):
-            apply_global_smart_changes(edited_summary, global_summary, customer_data, branch_data)
+        # Calculate distinct AUs for each portfolio type
+        inmarket_customers = len(results_df[results_df['TYPE'] == 'INMARKET'])
+        centralized_customers = len(results_df[results_df['TYPE'] == 'CENTRALIZED'])
+        total_portfolios_created = results_df['ASSIGNED_AU'].nunique()
+        
+        # Display metrics in horizontal format (same as AU Summary Statistics)
+        st.subheader("Global Summary Statistics")
+        col_a, col_b, col_c, col_d = st.columns(4)
+        
+        with col_a:
+            st.metric("Total Customers", f"{total_customers:,}")
+        
+        with col_b:
+            st.metric("Average Distance (Miles)", f"{avg_distance:.1f}")
+        
+        with col_c:
+            st.metric("Total AUs", total_portfolios_created)
+        
+        with col_d:
+            st.metric("Customer Types", f"IM: {inmarket_customers}, CZ: {centralized_customers}")
+        
+    else:
+        # Show empty state
+        st.subheader("Global Summary Statistics")
+        col_a, col_b, col_c, col_d = st.columns(4)
+        
+        with col_a:
+            st.metric("Total Customers", "0")
+        
+        with col_b:
+            st.metric("Average Distance (Miles)", "0.0")
+        
+        with col_c:
+            st.metric("Total AUs", "0")
+        
+        with col_d:
+            st.metric("Customer Types", "IM: 0, CZ: 0")
 
 def generate_global_portfolio_summary(results_df, customer_data):
     """Generate global portfolio summary across all AUs"""
@@ -688,90 +757,6 @@ def select_closest_customers_to_any_au(portfolio_customers, select_count, select
     
     return portfolio_customers.loc[selected_indices]
 
-def display_smart_portfolio_statistics(results_df):
-    """Display summary statistics for smart portfolios in horizontal format"""
-    
-    if len(results_df) > 0:
-        # Calculate metrics
-        total_customers = len(results_df)
-        avg_distance = results_df['DISTANCE_TO_AU'].mean()
-        
-        # Calculate distinct AUs for each portfolio type
-        inmarket_aus = results_df[results_df['TYPE'] == 'INMARKET']['ASSIGNED_AU'].nunique()
-        centralized_aus = results_df[results_df['TYPE'] == 'CENTRALIZED']['ASSIGNED_AU'].nunique()
-        total_portfolios_created = results_df['ASSIGNED_AU'].nunique()
-        
-        # Display metrics in horizontal format (same as AU Summary Statistics)
-        col_a, col_b, col_c, col_d = st.columns(4)
-        
-        with col_a:
-            st.metric("Total Customers", f"{total_customers:,}")
-        
-        with col_b:
-            st.metric("Average Distance (Miles)", f"{avg_distance:.1f}")
-        
-        with col_c:
-            st.metric("Portfolios Created", total_portfolios_created)
-        
-        with col_d:
-            st.metric("Portfolio Types", f"IM: {inmarket_aus}, CZ: {centralized_aus}")
-        
-    else:
-        # Show empty state
-        col_a, col_b, col_c, col_d = st.columns(4)
-        
-        with col_a:
-            st.metric("Total Customers", "0")
-        
-        with col_b:
-            st.metric("Average Distance (Miles)", "0.0")
-        
-        with col_c:
-            st.metric("Portfolios Created", "0")
-        
-        with col_d:
-            st.metric("Portfolio Types", "IM: 0, CZ: 0")
-
-def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
-    """Display smart portfolio summary tables like Portfolio Assignment"""
-    if len(smart_portfolios_created) > 1:
-        # Multiple AU case - use tabs
-        au_tabs = st.tabs([f"AU {au_id}" for au_id in smart_portfolios_created.keys()])
-        
-        for tab_idx, (au_id, tab) in enumerate(zip(smart_portfolios_created.keys(), au_tabs)):
-            with tab:
-                display_single_smart_au_table(au_id, smart_portfolios_created, branch_data)
-    else:
-        # Single AU case
-        au_id = list(smart_portfolios_created.keys())[0]
-        display_single_smart_au_table(au_id, smart_portfolios_created, branch_data)
-
-def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
-    """Display table for a single smart portfolio AU"""
-    if au_id in smart_portfolios_created:
-        au_data = smart_portfolios_created[au_id]
-        
-        # Create portfolio summary similar to Portfolio Assignment
-        portfolio_summary = create_smart_portfolio_summary(au_data, au_id)
-        
-        if portfolio_summary:
-            portfolio_df = pd.DataFrame(portfolio_summary)
-            
-            # Create editable dataframe (same as Portfolio Assignment)
-            edited_df = create_smart_portfolio_editor(portfolio_df, au_id)
-            
-            # Store the edited data in session state
-            if 'smart_portfolio_controls' not in st.session_state:
-                st.session_state.smart_portfolio_controls = {}
-            st.session_state.smart_portfolio_controls[au_id] = edited_df
-            
-            # Add Apply Changes button (same as Portfolio Assignment)
-            if create_smart_apply_changes_button(au_id):
-                apply_smart_portfolio_changes(au_id, smart_portfolios_created, branch_data)
-            
-            # Display summary statistics (same as Portfolio Assignment)
-            display_summary_statistics(au_data)
-
 def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
@@ -842,6 +827,7 @@ def create_smart_portfolio_editor(portfolio_df, au_id):
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
+        height=350,  # Match height with other tables
         key=f"smart_portfolio_editor_{au_id}_{len(portfolio_df)}"
     )
 
