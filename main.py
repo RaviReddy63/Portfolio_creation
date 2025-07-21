@@ -397,8 +397,8 @@ def display_smart_portfolio_results(customer_data, branch_data):
     
     st.markdown("----")
     
-    # Display results in three sections
-    col1, col2, col3 = st.columns([1, 1, 1])
+    # Display results in two sections
+    col1, col2 = st.columns([1, 1])
     
     with col1:
         st.subheader("Smart Portfolio Summary")
@@ -407,9 +407,9 @@ def display_smart_portfolio_results(customer_data, branch_data):
     with col2:
         st.subheader("Global Portfolio Control")
         display_global_portfolio_control_table(results_df, customer_data, branch_data)
-    
-    with col3:
-        st.subheader("Portfolio Statistics")
+        
+        # Add Portfolio Statistics under Global Portfolio Control
+        st.markdown("### 📊 Portfolio Statistics")
         display_smart_portfolio_statistics(results_df)
     
     # Geographic Distribution below with full width
