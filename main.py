@@ -262,19 +262,30 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
         
         # Check portfolio code condition
         if cust_portcd is not None:
-            # Use CG_PORTFOLIO_CD instead of renaming to PORT_CODE
             portfolio_condition = filtered_data['CG_PORTFOLIO_CD'].isin(cust_portcd)
         
         # Apply OR logic: keep rows that match either role OR portfolio code
         combined_condition = role_condition | portfolio_condition
         filtered_data = filtered_data[combined_condition]
     
+    # Simple exclusivity check: if filtering for low priority roles, exclude high priority customers
+    if role is not None:
+        role_clean = [r.strip().lower() for r in role]
+        if any(r in ['unassigned', 'unmanaged'] for r in role_clean):
+            # Exclude customers who have INMARKET or CENTRALIZED assignments anywhere in the dataset
+            priority_customers = customer_data[
+                customer_data['TYPE'].str.lower().str.strip().isin(['inmarket', 'centralized'])
+            ]['CG_ECN'].unique()
+            
+            if len(priority_customers) > 0:
+                filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(priority_customers)]
+    
     # Apply other filters
     filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
     filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
     
-    # Clean up data quality issues
-    filtered_data = clean_portfolio_data(filtered_data)
+    # Remove duplicates
+    filtered_data = filtered_data.drop_duplicates(subset=['CG_ECN'], keep='first')
     
     return filtered_data
 
@@ -394,10 +405,6 @@ def display_smart_portfolio_results(customer_data, branch_data):
     
     results_df = st.session_state.smart_portfolio_results
     
-    # Clean the smart portfolio results before processing
-    results_df = clean_smart_portfolio_results(results_df)
-    st.session_state.smart_portfolio_results = results_df  # Update cleaned results
-    
     # Convert smart portfolio results to Portfolio Assignment format
     smart_portfolios_created = {}
     
@@ -413,6 +420,49 @@ def display_smart_portfolio_results(customer_data, branch_data):
         if not au_branch.empty:
             au_data['BRANCH_LAT_NUM'] = au_branch.iloc[0]['BRANCH_LAT_NUM']
             au_data['BRANCH_LON_NUM'] = au_branch.iloc[0]['BRANCH_LON_NUM']
+        
+        # Rename columns to match Portfolio Assignment format
+        au_data = au_data.rename(columns={
+            'ECN': 'CG_ECN',
+            'DISTANCE_TO_AU': 'Distance'
+        })
+        
+        # Merge with original customer_data to get financial information
+        customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
+        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
+        
+        # Use original portfolio code if available, otherwise use N/A
+        au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('N/A')
+        
+        # Use original financial data
+        au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
+        au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
+        
+        # Use original TYPE if different from smart assignment
+        au_data['TYPE'] = au_data['TYPE_orig'].fillna(au_data['TYPE'])
+        
+        # Clean up duplicate columns
+        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig'], axis=1, errors='ignore')
+        
+        smart_portfolios_created[au] = au_data
+    
+    st.markdown("----")
+    
+    # Display results in two sections with equal column width
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("Smart Portfolio Summary")
+        display_smart_portfolio_tables(smart_portfolios_created, branch_data)
+    
+    with col2:
+        st.subheader("Global Portfolio Control")
+        display_global_portfolio_control_component(results_df, customer_data, branch_data)
+    
+    # Geographic Distribution below with full width
+    st.markdown("----")
+    st.subheader("Geographic Distribution")
+    display_smart_geographic_map(smart_portfolios_created, branch_data)[0]['BRANCH_LON_NUM']
         
         # Rename columns to match Portfolio Assignment format
         au_data = au_data.rename(columns={
@@ -903,6 +953,7 @@ def create_smart_portfolio_summary(au_data, au_id):
     # Add unmanaged customers (like in Portfolio Assignment)
     unmanaged_customers = au_data[
         (au_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+        (au_data['TYPE'].str.lower().str.strip() == 'unassigned') |
         (au_data['PORT_CODE'].isna())
     ]
     
