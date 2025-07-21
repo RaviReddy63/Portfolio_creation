@@ -372,13 +372,23 @@ def display_smart_portfolio_results(customer_data, branch_data):
         au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
         au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
         
-        # IMPORTANT: Preserve original TYPE for filtering purposes, keep smart TYPE for algorithm info
-        au_data['TYPE_ORIGINAL'] = au_data['TYPE_orig']  # Store original type (Unassigned/Unmanaged)
-        au_data['TYPE'] = au_data['TYPE_orig']  # Use original type for portfolio summary
-        au_data['TYPE_SMART'] = au_data['TYPE_smart']  # Keep smart algorithm type for reference
+        # CRITICAL FIX: Ensure we always use original TYPE, never smart TYPE for display
+        au_data['TYPE_SMART_ALGORITHM'] = au_data['TYPE_smart']  # Keep smart algorithm type for reference
+        
+        # Force use of original TYPE - handle nulls properly
+        au_data['TYPE'] = au_data['TYPE_orig'].fillna('Unknown')
+        
+        # If TYPE_orig is null but we filtered by role, use the filter criteria
+        if hasattr(st.session_state, 'mapping_filter_role'):
+            selected_roles = st.session_state.get('mapping_filter_role', [])
+            if selected_roles:
+                # For customers where TYPE_orig is null, use the first selected role
+                mask_null_type = au_data['TYPE_orig'].isna() | (au_data['TYPE_orig'] == '')
+                if mask_null_type.any():
+                    au_data.loc[mask_null_type, 'TYPE'] = selected_roles[0]
         
         # Clean up duplicate columns
-        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig'], axis=1, errors='ignore')
+        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig', 'TYPE_smart'], axis=1, errors='ignore')
         
         smart_portfolios_created[au] = au_data
     
@@ -762,6 +772,14 @@ def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
     
+    # Debug: Let's see what types we actually have
+    if 'TYPE' in au_data.columns:
+        unique_types = au_data['TYPE'].value_counts()
+        print(f"DEBUG AU {au_id}: Types found: {unique_types.to_dict()}")
+    
+    # Get the filter context to understand what was originally selected
+    original_filter_roles = st.session_state.get('mapping_filter_role', [])
+    
     # Group by actual portfolio code (showing individual portfolio IDs)
     grouped = au_data[au_data['PORT_CODE'].notna()].groupby("PORT_CODE")
     
@@ -769,15 +787,30 @@ def create_smart_portfolio_summary(au_data, au_id):
         # Get total customers for this portfolio from original data
         total_customer = len(au_data[au_data['PORT_CODE'] == pid])
         
-        # Determine portfolio type using ORIGINAL TYPE (not smart algorithm type)
+        # Determine portfolio type - prioritize original filter intent
         portfolio_type = "Unknown"
         if not group.empty:
-            # Use original customer TYPE (preserves Unassigned/Unmanaged from filtering)
-            original_types = group['TYPE'].value_counts()
-            if not original_types.empty:
-                portfolio_type = original_types.index[0]
+            # If we filtered by specific roles (Unassigned/Unmanaged), use those
+            if original_filter_roles:
+                # Check if any of the filter roles match our data
+                group_types_lower = group['TYPE'].str.lower().str.strip()
+                filter_roles_lower = [r.lower().strip() for r in original_filter_roles]
+                
+                matching_types = []
+                for filter_role in filter_roles_lower:
+                    if any(group_types_lower == filter_role):
+                        matching_types.append(filter_role.title())  # Capitalize first letter
+                
+                if matching_types:
+                    portfolio_type = matching_types[0]  # Use first matching filter
+                else:
+                    # Fall back to most common type in group
+                    original_types = group['TYPE'].value_counts()
+                    portfolio_type = original_types.index[0] if not original_types.empty else "Unknown"
             else:
-                portfolio_type = "Unknown"
+                # No specific role filter, use most common type
+                original_types = group['TYPE'].value_counts()
+                portfolio_type = original_types.index[0] if not original_types.empty else "Unknown"
         
         portfolio_summary.append({
             'Include': True,
@@ -788,7 +821,7 @@ def create_smart_portfolio_summary(au_data, au_id):
             'Select': len(group)
         })
     
-    # Add unmanaged customers (using original TYPE)
+    # Add unmanaged customers (using original TYPE or filter intent)
     unmanaged_customers = au_data[
         (au_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
         (au_data['TYPE'].str.lower().str.strip() == 'unassigned') |
@@ -796,9 +829,14 @@ def create_smart_portfolio_summary(au_data, au_id):
     ]
     
     if not unmanaged_customers.empty:
-        # Use the most common original TYPE for these customers
-        original_types = unmanaged_customers['TYPE'].value_counts()
-        portfolio_type = original_types.index[0] if not original_types.empty else 'Unmanaged'
+        # Use filter intent if available, otherwise use most common type
+        if original_filter_roles:
+            # Use the first filter role as the portfolio type
+            portfolio_type = original_filter_roles[0]
+        else:
+            # Use the most common original TYPE for these customers
+            original_types = unmanaged_customers['TYPE'].value_counts()
+            portfolio_type = original_types.index[0] if not original_types.empty else 'Unmanaged'
         
         portfolio_summary.append({
             'Include': True,
