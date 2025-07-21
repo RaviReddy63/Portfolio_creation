@@ -274,7 +274,7 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
         if any(r in ['unassigned', 'unmanaged'] for r in role_clean):
             # Exclude customers who have INMARKET or CENTRALIZED assignments anywhere in the dataset
             priority_customers = customer_data[
-                customer_data['TYPE'].str.lower().str.strip().isin(['inmarket', 'centralized'])
+                customer_data['TYPE'].str.lower().str.strip().isin(['in-market', 'inmarket', 'centralized'])
             ]['CG_ECN'].unique()
             
             if len(priority_customers) > 0:
