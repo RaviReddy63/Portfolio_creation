@@ -363,7 +363,7 @@ def display_smart_portfolio_results(customer_data, branch_data):
         
         # Merge with original customer_data to get financial information
         customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
-        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
+        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('_smart', '_orig'))
         
         # Use original portfolio code if available, otherwise use N/A
         au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('N/A')
@@ -372,8 +372,10 @@ def display_smart_portfolio_results(customer_data, branch_data):
         au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
         au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
         
-        # Use original TYPE if different from smart assignment
-        au_data['TYPE'] = au_data['TYPE_orig'].fillna(au_data['TYPE'])
+        # IMPORTANT: Preserve original TYPE for filtering purposes, keep smart TYPE for algorithm info
+        au_data['TYPE_ORIGINAL'] = au_data['TYPE_orig']  # Store original type (Unassigned/Unmanaged)
+        au_data['TYPE'] = au_data['TYPE_orig']  # Use original type for portfolio summary
+        au_data['TYPE_SMART'] = au_data['TYPE_smart']  # Keep smart algorithm type for reference
         
         # Clean up duplicate columns
         au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig'], axis=1, errors='ignore')
@@ -760,23 +762,22 @@ def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
     
-    # Group by actual portfolio code (like in Portfolio Assignment)
+    # Group by actual portfolio code (showing individual portfolio IDs)
     grouped = au_data[au_data['PORT_CODE'].notna()].groupby("PORT_CODE")
     
     for pid, group in grouped:
-        # Get total customers for this portfolio from original data (similar to Portfolio Assignment logic)
+        # Get total customers for this portfolio from original data
         total_customer = len(au_data[au_data['PORT_CODE'] == pid])
         
-        # Determine portfolio type
+        # Determine portfolio type using ORIGINAL TYPE (not smart algorithm type)
         portfolio_type = "Unknown"
         if not group.empty:
-            # Get the most common type for this portfolio
-            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
-            if not types.empty:
-                portfolio_type = types.index[0]
+            # Use original customer TYPE (preserves Unassigned/Unmanaged from filtering)
+            original_types = group['TYPE'].value_counts()
+            if not original_types.empty:
+                portfolio_type = original_types.index[0]
             else:
-                # If no non-unmanaged types, use the first type
-                portfolio_type = group['TYPE'].iloc[0] if len(group) > 0 else "Unknown"
+                portfolio_type = "Unknown"
         
         portfolio_summary.append({
             'Include': True,
@@ -787,17 +788,22 @@ def create_smart_portfolio_summary(au_data, au_id):
             'Select': len(group)
         })
     
-    # Add unmanaged customers (like in Portfolio Assignment)
+    # Add unmanaged customers (using original TYPE)
     unmanaged_customers = au_data[
         (au_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+        (au_data['TYPE'].str.lower().str.strip() == 'unassigned') |
         (au_data['PORT_CODE'].isna())
     ]
     
     if not unmanaged_customers.empty:
+        # Use the most common original TYPE for these customers
+        original_types = unmanaged_customers['TYPE'].value_counts()
+        portfolio_type = original_types.index[0] if not original_types.empty else 'Unmanaged'
+        
         portfolio_summary.append({
             'Include': True,
             'Portfolio ID': 'UNMANAGED',
-            'Portfolio Type': 'Unmanaged',
+            'Portfolio Type': portfolio_type,
             'Total Customers': len(unmanaged_customers),
             'Available for this portfolio': len(unmanaged_customers),
             'Select': len(unmanaged_customers)
