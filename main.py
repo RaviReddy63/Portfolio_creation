@@ -196,18 +196,14 @@ def create_customer_filters_for_mapping(customer_data):
         
         with col1:
             cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            default_cust_states = st.session_state.get('mapping_filter_cust_state', [])
-            default_cust_states = [s for s in default_cust_states if s in cust_state_options]
-            cust_state = st.multiselect("Customer State", cust_state_options, default=default_cust_states, key="mapping_cust_state")
+            cust_state = st.multiselect("Customer State", cust_state_options, key="mapping_cust_state")
             st.session_state.mapping_filter_cust_state = cust_state
             if not cust_state:
                 cust_state = None
         
         with col2:
             role_options = list(customer_data['TYPE'].dropna().unique())
-            default_roles = st.session_state.get('mapping_filter_role', [])
-            default_roles = [r for r in default_roles if r in role_options]
-            role = st.multiselect("Role", role_options, default=default_roles, key="mapping_role")
+            role = st.multiselect("Role", role_options, key="mapping_role")
             st.session_state.mapping_filter_role = role
             if not role:
                 role = None
@@ -218,9 +214,7 @@ def create_customer_filters_for_mapping(customer_data):
         with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
             portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
-            default_portfolios = st.session_state.get('mapping_filter_cust_portcd', [])
-            default_portfolios = [p for p in default_portfolios if p in portfolio_options]
-            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, default=default_portfolios, key="mapping_cust_portcd")
+            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="mapping_cust_portcd")
             st.session_state.mapping_filter_cust_portcd = cust_portcd
             if not cust_portcd:
                 cust_portcd = None
@@ -268,24 +262,9 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
         combined_condition = role_condition | portfolio_condition
         filtered_data = filtered_data[combined_condition]
     
-    # Simple exclusivity check: if filtering for low priority roles, exclude high priority customers
-    if role is not None:
-        role_clean = [r.strip().lower() for r in role]
-        if any(r in ['unassigned', 'unmanaged'] for r in role_clean):
-            # Exclude customers who have INMARKET or CENTRALIZED assignments anywhere in the dataset
-            priority_customers = customer_data[
-                customer_data['TYPE'].str.lower().str.strip().isin(['in-market', 'inmarket', 'centralized'])
-            ]['CG_ECN'].unique()
-            
-            if len(priority_customers) > 0:
-                filtered_data = filtered_data[~filtered_data['CG_ECN'].isin(priority_customers)]
-    
     # Apply other filters
     filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
     filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
-    
-    # Remove duplicates
-    filtered_data = filtered_data.drop_duplicates(subset=['CG_ECN'], keep='first')
     
     return filtered_data
 
