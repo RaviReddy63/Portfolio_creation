@@ -158,8 +158,8 @@ def constrained_clustering_optimized(customer_df, min_size=200, max_size=225, ma
             coords_array = np.array(current_coords, dtype=np.float64)
             
             if len(current_cluster) > 0 and min_size > 0:
-                if len(current_cluster) // 180 < 3:
-                    n_splits = np.maximum(1, len(current_cluster) // 180)
+                if len(current_cluster) // min_size < 3:
+                    n_splits = np.maximum(1, len(current_cluster) // min_size)
                 else:
                     n_splits = 3
             else:
@@ -173,7 +173,7 @@ def constrained_clustering_optimized(customer_df, min_size=200, max_size=225, ma
                     sub_mask = subcluster_labels == sub_id
                     sub_indices = [current_cluster[i] for i in range(len(current_cluster)) if sub_mask[i]]
                     
-                    if len(sub_indices) >= 180 and len(sub_indices) <= max_size:
+                    if len(sub_indices) >= min_size and len(sub_indices) <= max_size:
                         sub_coords = coords_array[sub_mask]
                         sub_radius = calculate_cluster_radius_vectorized(sub_coords)
                         
@@ -360,7 +360,7 @@ def greedy_assign_customers_to_branches(clustered_customers, cluster_assignments
     
     return customer_assignments, unassigned_customers
 
-def assign_proximity_customers_to_existing_portfolios(unassigned_customers_df, customer_assignments, branch_df, proximity_threshold=20, max_portfolio_size=225):
+def assign_proximity_customers_to_existing_portfolios(unassigned_customers_df, customer_assignments, branch_df, proximity_threshold=20, max_portfolio_size=250):
     """Check if unassigned customers are within proximity of identified AUs"""
     if len(unassigned_customers_df) == 0 or not customer_assignments:
         return [], list(unassigned_customers_df.index), customer_assignments
@@ -493,11 +493,11 @@ def create_centralized_clusters_with_radius_and_assign(unassigned_customers_df, 
     return centralized_results, final_unassigned
 
 def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, branch_df):
-    """Enhanced main function with two INMARKET iterations and centralized portfolios - UPDATED PARAMETERS"""
+    """Enhanced main function with two INMARKET iterations and centralized portfolios"""
     
-    # Step 1: Create first INMARKET clusters (20-mile radius) - UPDATED: 200-210 customers
+    # Step 1: Create first INMARKET clusters (20-mile radius)
     clustered_customers, cluster_info = constrained_clustering_optimized(
-        customer_df, min_size=200, max_size=210, max_radius=20
+        customer_df, min_size=200, max_size=225, max_radius=20
     )
     
     inmarket_results = []
@@ -534,7 +534,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
     unassigned_customer_indices.extend(never_assigned)
     unassigned_customer_indices = list(set(unassigned_customer_indices))
     
-    # Step 2: Check proximity of unassigned customers to identified AUs - UPDATED: max 225
+    # Step 2: Check proximity of unassigned customers to identified AUs
     proximity_results = []
     unassigned_after_proximity = unassigned_customer_indices.copy()
     
@@ -560,10 +560,10 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         
         proximity_results, unassigned_after_proximity, updated_customer_assignments = assign_proximity_customers_to_existing_portfolios(
             unassigned_customers_df, customer_assignments, branch_df, 
-            proximity_threshold=20, max_portfolio_size=225
+            proximity_threshold=20, max_portfolio_size=250
         )
     
-    # Step 3: Create second INMARKET clusters (40-mile radius) - UPDATED: 225 customers max
+    # Step 3: Create second INMARKET clusters (40-mile radius)
     second_inmarket_results = []
     unassigned_after_second_inmarket = unassigned_after_proximity.copy()
     
@@ -604,7 +604,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         else:
             unassigned_after_second_inmarket = unassigned_after_proximity.copy()
     
-    # Step 4: Create CENTRALIZED clusters - PARAMETERS UNCHANGED: 200-240 customers, 100-mile radius
+    # Step 4: Create CENTRALIZED clusters
     centralized_results = []
     final_unassigned = []
     
