@@ -149,28 +149,31 @@ def display_editable_aggregated_portfolio_table(aggregated_summary):
     }
     
     # Apply color coding based on portfolio type
-    def style_portfolio_rows(row):
-        portfolio_type = row['Portfolio Type'].lower()
+    def get_color_for_type(portfolio_type):
+        portfolio_type = portfolio_type.lower()
         
         if 'inmarket' in portfolio_type:
-            return ['background-color: #e8f5e8'] * len(row)  # Light green
+            return '#e8f5e8'  # Light green
         elif 'centralized' in portfolio_type:
-            return ['background-color: #e8f0ff'] * len(row)  # Light blue  
+            return '#e8f0ff'  # Light blue  
         elif 'unmanaged' in portfolio_type:
-            return ['background-color: #fff8e1'] * len(row)  # Light yellow
+            return '#fff8e1'  # Light yellow
         elif 'unassigned' in portfolio_type:
-            return ['background-color: #fce4ec'] * len(row)  # Light pink
+            return '#fce4ec'  # Light pink
         else:
-            return ['background-color: #f5f5f5'] * len(row)  # Light gray for others
+            return '#f5f5f5'  # Light gray for others
     
-    # Remove Portfolio Type column from display but keep for styling
-    df_styled = df_display.drop('Portfolio Type', axis=1)
+    # Create a styled dataframe
+    df_styled = df_display.drop('Portfolio Type', axis=1).copy()
     
-    # Apply styling
-    styled_df = df_display.drop('Portfolio Type', axis=1).style.apply(
-        lambda row: style_portfolio_rows(df_display.iloc[row.name]), 
-        axis=1
-    )
+    # Display the editable table with custom CSS for row coloring
+    st.markdown("""
+    <style>
+    .portfolio-table {
+        background-color: transparent;
+    }
+    </style>
+    """, unsafe_allow_html=True)
     
     # Display the editable table
     edited_df = st.data_editor(
@@ -227,6 +230,9 @@ def apply_global_portfolio_changes(edited_summary, original_summary):
                         portfolios_created, portfolio_controls, selected_aus
                     )
             
+            # Update the actual customer data in portfolios_created
+            update_portfolios_created_data(portfolios_created, portfolio_controls, selected_aus)
+            
             # Update session state
             st.session_state.portfolios_created = portfolios_created
             st.session_state.portfolio_controls = portfolio_controls
@@ -254,6 +260,32 @@ def apply_portfolio_change_across_aus(portfolio_id, new_include, new_select, por
     # Handle select number reduction using distance-based logic
     if new_select > 0:
         apply_distance_based_selection(portfolio_id, new_select, portfolios_created, portfolio_controls, selected_aus)
+
+def update_portfolios_created_data(portfolios_created, portfolio_controls, selected_aus):
+    """Update the actual customer data in portfolios_created based on controls"""
+    
+    # Import the portfolio logic function
+    from portfolio_logic import apply_portfolio_selection_changes
+    from data_loader import get_merged_data
+    
+    # Get branch data
+    _, _, branch_data, _ = get_merged_data()
+    
+    # Apply the selection changes to update the actual customer data
+    updated_portfolios = apply_portfolio_selection_changes(
+        portfolios_created, 
+        portfolio_controls, 
+        selected_aus, 
+        branch_data
+    )
+    
+    # Update portfolios_created with the filtered data
+    for au_id in selected_aus:
+        if au_id in updated_portfolios:
+            portfolios_created[au_id] = updated_portfolios[au_id]
+        else:
+            # If no customers selected for this AU, create empty dataframe
+            portfolios_created[au_id] = portfolios_created[au_id].iloc[0:0]  # Empty with same structure
 
 def apply_distance_based_selection(portfolio_id, target_select, portfolios_created, portfolio_controls, selected_aus):
     """Apply distance-based customer selection across all AUs"""
@@ -285,7 +317,8 @@ def apply_distance_based_selection(portfolio_id, target_select, portfolios_creat
                 'customer_data': customer,
                 'current_au': au_id,
                 'lat': customer['LAT_NUM'],
-                'lon': customer['LON_NUM']
+                'lon': customer['LON_NUM'],
+                'ecn': customer.get('CG_ECN', customer.get('ECN', ''))
             })
     
     if not all_portfolio_customers:
@@ -343,6 +376,16 @@ def apply_distance_based_selection(portfolio_id, target_select, portfolios_creat
             if row['Portfolio ID'] == portfolio_id:
                 control_data.at[idx, 'Include'] = True
                 control_data.at[idx, 'Select'] = len(customers_for_this_au)
+                
+                # Update available count to match the customers assigned to this AU
+                available_count = len(customers_for_this_au)
+                
+                # Check if we have the 'Available for this portfolio' column
+                if 'Available for this portfolio' in control_data.columns:
+                    control_data.at[idx, 'Available for this portfolio'] = available_count
+                elif 'Available' in control_data.columns:
+                    control_data.at[idx, 'Available'] = available_count
+                
                 break
 
 def display_portfolio_summary_metrics(aggregated_summary):
@@ -367,14 +410,29 @@ def display_portfolio_summary_metrics(aggregated_summary):
             st.metric("Available Customers", total_available)
             st.metric("Selected Customers", total_selected)
         
-        # Portfolio type breakdown
+        # Portfolio type breakdown with color indicators
         if 'Portfolio Type' in df.columns:
             st.markdown("### 📈 Portfolio Types")
             type_counts = df['Portfolio Type'].value_counts()
             
             for portfolio_type, count in type_counts.items():
                 selected_in_type = df[df['Portfolio Type'] == portfolio_type]['Select'].sum()
-                st.write(f"**{portfolio_type}**: {count} portfolios, {selected_in_type:,} customers selected")
+                
+                # Add color indicator
+                color_indicator = ""
+                portfolio_type_lower = portfolio_type.lower()
+                if 'inmarket' in portfolio_type_lower:
+                    color_indicator = "🟢"
+                elif 'centralized' in portfolio_type_lower:
+                    color_indicator = "🔵"
+                elif 'unmanaged' in portfolio_type_lower:
+                    color_indicator = "🟡"
+                elif 'unassigned' in portfolio_type_lower:
+                    color_indicator = "🩷"
+                else:
+                    color_indicator = "⚪"
+                
+                st.write(f"{color_indicator} **{portfolio_type}**: {count} portfolios, {selected_in_type:,} customers selected")
 
 # Main function to call from main.py
 def render_portfolio_summary_sidebar():
