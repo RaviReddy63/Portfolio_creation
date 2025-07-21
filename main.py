@@ -273,7 +273,62 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
     filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
     
+    # Clean up data quality issues
+    filtered_data = clean_portfolio_data(filtered_data)
+    
     return filtered_data
+
+def clean_portfolio_data(data):
+    """Clean portfolio data by removing duplicates and handling priority conflicts"""
+    if data.empty:
+        return data
+    
+    # Step 1: Remove exact duplicates (same ECN with identical records)
+    data_cleaned = data.drop_duplicates(subset=['CG_ECN'], keep='first')
+    
+    # Step 2: Handle portfolio type priority conflicts
+    # Priority: INMARKET/CENTRALIZED > Unassigned/Unmanaged
+    
+    # Group by ECN to find customers with multiple portfolio assignments
+    ecn_groups = data.groupby('CG_ECN')
+    
+    final_records = []
+    priority_removed_count = 0
+    duplicate_removed_count = len(data) - len(data_cleaned)
+    
+    for ecn, group in ecn_groups:
+        if len(group) == 1:
+            # Single record, keep as is
+            final_records.append(group.iloc[0])
+        else:
+            # Multiple records for same ECN - apply priority logic
+            group_types = group['TYPE'].str.lower().str.strip()
+            
+            # Check if we have both high priority (INMARKET/CENTRALIZED) and low priority (Unassigned/Unmanaged)
+            high_priority_mask = group_types.isin(['inmarket', 'centralized'])
+            low_priority_mask = group_types.isin(['unassigned', 'unmanaged'])
+            
+            if high_priority_mask.any() and low_priority_mask.any():
+                # Conflict detected - keep only high priority records
+                high_priority_records = group[high_priority_mask]
+                final_records.append(high_priority_records.iloc[0])  # Take first high priority record
+                priority_removed_count += len(group) - 1
+            else:
+                # No conflict, just keep the first record (already handled by drop_duplicates)
+                final_records.append(group.iloc[0])
+    
+    # Convert back to DataFrame
+    if final_records:
+        result_df = pd.DataFrame(final_records).reset_index(drop=True)
+    else:
+        result_df = pd.DataFrame()
+    
+    # Log cleaning results if any changes were made
+    if duplicate_removed_count > 0 or priority_removed_count > 0:
+        import streamlit as st
+        st.info(f"Data cleaned: Removed {duplicate_removed_count} duplicates and {priority_removed_count} lower priority records. Final records: {len(result_df)}")
+    
+    return result_df
 
 def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Generate smart portfolios using advanced clustering"""
@@ -339,6 +394,10 @@ def display_smart_portfolio_results(customer_data, branch_data):
     
     results_df = st.session_state.smart_portfolio_results
     
+    # Clean the smart portfolio results before processing
+    results_df = clean_smart_portfolio_results(results_df)
+    st.session_state.smart_portfolio_results = results_df  # Update cleaned results
+    
     # Convert smart portfolio results to Portfolio Assignment format
     smart_portfolios_created = {}
     
@@ -363,7 +422,7 @@ def display_smart_portfolio_results(customer_data, branch_data):
         
         # Merge with original customer_data to get financial information
         customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
-        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('_smart', '_orig'))
+        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
         
         # Use original portfolio code if available, otherwise use N/A
         au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('N/A')
@@ -372,23 +431,11 @@ def display_smart_portfolio_results(customer_data, branch_data):
         au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
         au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
         
-        # CRITICAL FIX: Ensure we always use original TYPE, never smart TYPE for display
-        au_data['TYPE_SMART_ALGORITHM'] = au_data['TYPE_smart']  # Keep smart algorithm type for reference
-        
-        # Force use of original TYPE - handle nulls properly
-        au_data['TYPE'] = au_data['TYPE_orig'].fillna('Unknown')
-        
-        # If TYPE_orig is null but we filtered by role, use the filter criteria
-        if hasattr(st.session_state, 'mapping_filter_role'):
-            selected_roles = st.session_state.get('mapping_filter_role', [])
-            if selected_roles:
-                # For customers where TYPE_orig is null, use the first selected role
-                mask_null_type = au_data['TYPE_orig'].isna() | (au_data['TYPE_orig'] == '')
-                if mask_null_type.any():
-                    au_data.loc[mask_null_type, 'TYPE'] = selected_roles[0]
+        # Use original TYPE if different from smart assignment
+        au_data['TYPE'] = au_data['TYPE_orig'].fillna(au_data['TYPE'])
         
         # Clean up duplicate columns
-        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig', 'TYPE_smart'], axis=1, errors='ignore')
+        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig'], axis=1, errors='ignore')
         
         smart_portfolios_created[au] = au_data
     
@@ -409,6 +456,60 @@ def display_smart_portfolio_results(customer_data, branch_data):
     st.markdown("----")
     st.subheader("Geographic Distribution")
     display_smart_geographic_map(smart_portfolios_created, branch_data)
+
+def clean_smart_portfolio_results(results_df):
+    """Clean smart portfolio results by removing duplicates and handling conflicts"""
+    if results_df.empty:
+        return results_df
+    
+    original_count = len(results_df)
+    
+    # Step 1: Remove exact duplicates based on ECN
+    cleaned_df = results_df.drop_duplicates(subset=['ECN'], keep='first')
+    duplicate_removed = original_count - len(cleaned_df)
+    
+    # Step 2: Handle TYPE priority conflicts for same ECN
+    # Priority: INMARKET/CENTRALIZED > any other types
+    
+    ecn_groups = results_df.groupby('ECN')
+    final_records = []
+    priority_conflicts_resolved = 0
+    
+    for ecn, group in ecn_groups:
+        if len(group) == 1:
+            # Single record, keep as is
+            final_records.append(group.iloc[0])
+        else:
+            # Multiple records for same ECN
+            group_types = group['TYPE'].str.upper().str.strip()
+            
+            # Priority order: INMARKET > CENTRALIZED > others
+            if 'INMARKET' in group_types.values:
+                # Keep INMARKET record
+                inmarket_record = group[group_types == 'INMARKET'].iloc[0]
+                final_records.append(inmarket_record)
+                priority_conflicts_resolved += len(group) - 1
+            elif 'CENTRALIZED' in group_types.values:
+                # Keep CENTRALIZED record
+                centralized_record = group[group_types == 'CENTRALIZED'].iloc[0]
+                final_records.append(centralized_record)
+                priority_conflicts_resolved += len(group) - 1
+            else:
+                # No priority conflicts, keep first record
+                final_records.append(group.iloc[0])
+    
+    # Convert back to DataFrame
+    if final_records:
+        result_df = pd.DataFrame(final_records).reset_index(drop=True)
+    else:
+        result_df = pd.DataFrame()
+    
+    # Log cleaning results
+    total_removed = original_count - len(result_df)
+    if total_removed > 0:
+        st.info(f"Smart portfolio data cleaned: Removed {duplicate_removed} duplicates and resolved {priority_conflicts_resolved} priority conflicts. Final records: {len(result_df)}")
+    
+    return result_df
 
 def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
     """Display smart portfolio summary tables - Always use tabs"""
@@ -772,45 +873,23 @@ def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
     
-    # Debug: Let's see what types we actually have
-    if 'TYPE' in au_data.columns:
-        unique_types = au_data['TYPE'].value_counts()
-        print(f"DEBUG AU {au_id}: Types found: {unique_types.to_dict()}")
-    
-    # Get the filter context to understand what was originally selected
-    original_filter_roles = st.session_state.get('mapping_filter_role', [])
-    
-    # Group by actual portfolio code (showing individual portfolio IDs)
+    # Group by actual portfolio code (like in Portfolio Assignment)
     grouped = au_data[au_data['PORT_CODE'].notna()].groupby("PORT_CODE")
     
     for pid, group in grouped:
-        # Get total customers for this portfolio from original data
+        # Get total customers for this portfolio from original data (similar to Portfolio Assignment logic)
         total_customer = len(au_data[au_data['PORT_CODE'] == pid])
         
-        # Determine portfolio type - prioritize original filter intent
+        # Determine portfolio type
         portfolio_type = "Unknown"
         if not group.empty:
-            # If we filtered by specific roles (Unassigned/Unmanaged), use those
-            if original_filter_roles:
-                # Check if any of the filter roles match our data
-                group_types_lower = group['TYPE'].str.lower().str.strip()
-                filter_roles_lower = [r.lower().strip() for r in original_filter_roles]
-                
-                matching_types = []
-                for filter_role in filter_roles_lower:
-                    if any(group_types_lower == filter_role):
-                        matching_types.append(filter_role.title())  # Capitalize first letter
-                
-                if matching_types:
-                    portfolio_type = matching_types[0]  # Use first matching filter
-                else:
-                    # Fall back to most common type in group
-                    original_types = group['TYPE'].value_counts()
-                    portfolio_type = original_types.index[0] if not original_types.empty else "Unknown"
+            # Get the most common type for this portfolio
+            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+            if not types.empty:
+                portfolio_type = types.index[0]
             else:
-                # No specific role filter, use most common type
-                original_types = group['TYPE'].value_counts()
-                portfolio_type = original_types.index[0] if not original_types.empty else "Unknown"
+                # If no non-unmanaged types, use the first type
+                portfolio_type = group['TYPE'].iloc[0] if len(group) > 0 else "Unknown"
         
         portfolio_summary.append({
             'Include': True,
@@ -821,27 +900,17 @@ def create_smart_portfolio_summary(au_data, au_id):
             'Select': len(group)
         })
     
-    # Add unmanaged customers (using original TYPE or filter intent)
+    # Add unmanaged customers (like in Portfolio Assignment)
     unmanaged_customers = au_data[
         (au_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-        (au_data['TYPE'].str.lower().str.strip() == 'unassigned') |
         (au_data['PORT_CODE'].isna())
     ]
     
     if not unmanaged_customers.empty:
-        # Use filter intent if available, otherwise use most common type
-        if original_filter_roles:
-            # Use the first filter role as the portfolio type
-            portfolio_type = original_filter_roles[0]
-        else:
-            # Use the most common original TYPE for these customers
-            original_types = unmanaged_customers['TYPE'].value_counts()
-            portfolio_type = original_types.index[0] if not original_types.empty else 'Unmanaged'
-        
         portfolio_summary.append({
             'Include': True,
             'Portfolio ID': 'UNMANAGED',
-            'Portfolio Type': portfolio_type,
+            'Portfolio Type': 'Unmanaged',
             'Total Customers': len(unmanaged_customers),
             'Available for this portfolio': len(unmanaged_customers),
             'Select': len(unmanaged_customers)
