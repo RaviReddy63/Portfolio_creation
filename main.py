@@ -3,7 +3,7 @@ import pandas as pd
 
 # Import custom modules
 from ui_components import (
-    setup_page_config, add_logo, create_header, initialize_session_state,
+    add_logo, create_header, initialize_session_state,
     create_au_filters, create_customer_filters, create_portfolio_button,
     display_summary_statistics, create_portfolio_editor, create_apply_changes_button
 )
@@ -12,6 +12,10 @@ from portfolio_creation import process_portfolio_creation, apply_portfolio_chang
 from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
 from portfolio_summary_sidebar import render_portfolio_summary_sidebar
+
+def setup_page_config():
+    """Configure the Streamlit page with right sidebar"""
+    st.set_page_config("Portfolio Creation tool", layout="wide", initial_sidebar_state="expanded")
 
 def main():
     """Main application function"""
@@ -448,6 +452,55 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
             # Display summary statistics (same as Portfolio Assignment)
             display_summary_statistics(au_data)
 
+def create_smart_portfolio_summary(au_data, au_id):
+    """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
+    portfolio_summary = []
+    
+    # Group by actual portfolio code (like in Portfolio Assignment)
+    grouped = au_data[au_data['PORT_CODE'].notna()].groupby("PORT_CODE")
+    
+    for pid, group in grouped:
+        # Get total customers for this portfolio from original data (similar to Portfolio Assignment logic)
+        total_customer = len(au_data[au_data['PORT_CODE'] == pid])
+        
+        # Determine portfolio type
+        portfolio_type = "Unknown"
+        if not group.empty:
+            # Get the most common type for this portfolio
+            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
+            if not types.empty:
+                portfolio_type = types.index[0]
+            else:
+                # If no non-unmanaged types, use the first type
+                portfolio_type = group['TYPE'].iloc[0] if len(group) > 0 else "Unknown"
+        
+        portfolio_summary.append({
+            'Include': True,
+            'Portfolio ID': pid,
+            'Portfolio Type': portfolio_type,
+            'Total Customers': total_customer,
+            'Available for this portfolio': len(group),
+            'Select': len(group)
+        })
+    
+    # Add unmanaged customers (like in Portfolio Assignment)
+    unmanaged_customers = au_data[
+        (au_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
+        (au_data['PORT_CODE'].isna())
+    ]
+    
+    if not unmanaged_customers.empty:
+        portfolio_summary.append({
+            'Include': True,
+            'Portfolio ID': 'UNMANAGED',
+            'Portfolio Type': 'Unmanaged',
+            'Total Customers': len(unmanaged_customers),
+            'Available for this portfolio': len(unmanaged_customers),
+            'Select': len(unmanaged_customers)
+        })
+    
+    return portfolio_summary
+
 def create_smart_portfolio_editor(portfolio_df, au_id):
     """Create an editable portfolio dataframe for smart portfolios"""
     column_config = {
@@ -559,55 +612,6 @@ def apply_smart_selection_changes(original_data, control_data):
     else:
         # No customers selected for this AU
         return pd.DataFrame()
-
-def create_smart_portfolio_summary(au_data, au_id):
-    """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
-    portfolio_summary = []
-    
-    # Group by actual portfolio code (like in Portfolio Assignment)
-    grouped = au_data[au_data['PORT_CODE'].notna()].groupby("PORT_CODE")
-    
-    for pid, group in grouped:
-        # Get total customers for this portfolio from original data (similar to Portfolio Assignment logic)
-        total_customer = len(au_data[au_data['PORT_CODE'] == pid])
-        
-        # Determine portfolio type
-        portfolio_type = "Unknown"
-        if not group.empty:
-            # Get the most common type for this portfolio
-            types = group[group['TYPE'] != 'Unmanaged']['TYPE'].value_counts()
-            if not types.empty:
-                portfolio_type = types.index[0]
-            else:
-                # If no non-unmanaged types, use the first type
-                portfolio_type = group['TYPE'].iloc[0] if len(group) > 0 else "Unknown"
-        
-        portfolio_summary.append({
-            'Include': True,
-            'Portfolio ID': pid,
-            'Portfolio Type': portfolio_type,
-            'Total Customers': total_customer,
-            'Available for this portfolio': len(group),
-            'Select': len(group)
-        })
-    
-    # Add unmanaged customers (like in Portfolio Assignment)
-    unmanaged_customers = au_data[
-        (au_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-        (au_data['PORT_CODE'].isna())
-    ]
-    
-    if not unmanaged_customers.empty:
-        portfolio_summary.append({
-            'Include': True,
-            'Portfolio ID': 'UNMANAGED',
-            'Portfolio Type': 'Unmanaged',
-            'Total Customers': len(unmanaged_customers),
-            'Available for this portfolio': len(unmanaged_customers),
-            'Select': len(unmanaged_customers)
-        })
-    
-    return portfolio_summary
 
 def display_smart_geographic_map(smart_portfolios_created, branch_data):
     """Display the geographic distribution map for smart portfolios"""
