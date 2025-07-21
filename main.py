@@ -7,14 +7,59 @@ from ui_components import (
     create_au_filters, create_customer_filters, create_portfolio_button,
     display_summary_statistics, create_portfolio_editor, create_apply_changes_button
 )
-from data_loader import get_merged_data
+from data_loader import load_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
 from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
+from utils import merge_dfs
 
 def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
+
+def get_merged_data():
+    """Load and merge all data with initial cleanup"""
+    customer_data, banker_data, branch_data = load_data()
+    
+    # Initial data cleanup - remove conflicting portfolio assignments
+    customer_data = clean_initial_data(customer_data)
+    
+    data = merge_dfs(customer_data, banker_data, branch_data)
+    return customer_data, banker_data, branch_data, data
+
+def clean_initial_data(customer_data):
+    """Clean initial data by removing Unassigned/Unmanaged rows for customers who also have In-Market/Centralized assignments"""
+    
+    if customer_data.empty:
+        return customer_data
+    
+    original_count = len(customer_data)
+    
+    # Step 1: Priority Conflict Resolution
+    # Find customers (ECNs) who have In-Market/Centralized assignments
+    priority_customers = customer_data[
+        customer_data['TYPE'].str.lower().str.strip().isin(['in-market', 'inmarket', 'centralized'])
+    ]['CG_ECN'].unique()
+    
+    # Remove Unassigned/Unmanaged rows for these priority customers
+    mask_to_remove = (
+        customer_data['CG_ECN'].isin(priority_customers) & 
+        customer_data['TYPE'].str.lower().str.strip().isin(['unassigned', 'unmanaged'])
+    )
+    
+    cleaned_data = customer_data[~mask_to_remove].copy()
+    priority_removed = original_count - len(cleaned_data)
+    
+    # Step 2: Remove duplicate ECNs (keep only first occurrence)
+    final_data = cleaned_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+    duplicate_removed = len(cleaned_data) - len(final_data)
+    
+    # Log cleanup results
+    total_removed = original_count - len(final_data)
+    if total_removed > 0:
+        print(f"Data cleanup: Removed {priority_removed} priority conflicts and {duplicate_removed} duplicate ECNs. Total removed: {total_removed}")
+    
+    return final_data
 
 def main():
     """Main application function"""
@@ -144,8 +189,6 @@ def display_geographic_map(portfolios_created, branch_data):
     else:
         st.info("No customers selected for map display")
 
-
-
 def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
     st.subheader("Smart Portfolio Mapping")
@@ -268,58 +311,6 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     
     return filtered_data
 
-def clean_portfolio_data(data):
-    """Clean portfolio data by removing duplicates and handling priority conflicts"""
-    if data.empty:
-        return data
-    
-    # Step 1: Remove exact duplicates (same ECN with identical records)
-    data_cleaned = data.drop_duplicates(subset=['CG_ECN'], keep='first')
-    
-    # Step 2: Handle portfolio type priority conflicts
-    # Priority: INMARKET/CENTRALIZED > Unassigned/Unmanaged
-    
-    # Group by ECN to find customers with multiple portfolio assignments
-    ecn_groups = data.groupby('CG_ECN')
-    
-    final_records = []
-    priority_removed_count = 0
-    duplicate_removed_count = len(data) - len(data_cleaned)
-    
-    for ecn, group in ecn_groups:
-        if len(group) == 1:
-            # Single record, keep as is
-            final_records.append(group.iloc[0])
-        else:
-            # Multiple records for same ECN - apply priority logic
-            group_types = group['TYPE'].str.lower().str.strip()
-            
-            # Check if we have both high priority (INMARKET/CENTRALIZED) and low priority (Unassigned/Unmanaged)
-            high_priority_mask = group_types.isin(['inmarket', 'centralized'])
-            low_priority_mask = group_types.isin(['unassigned', 'unmanaged'])
-            
-            if high_priority_mask.any() and low_priority_mask.any():
-                # Conflict detected - keep only high priority records
-                high_priority_records = group[high_priority_mask]
-                final_records.append(high_priority_records.iloc[0])  # Take first high priority record
-                priority_removed_count += len(group) - 1
-            else:
-                # No conflict, just keep the first record (already handled by drop_duplicates)
-                final_records.append(group.iloc[0])
-    
-    # Convert back to DataFrame
-    if final_records:
-        result_df = pd.DataFrame(final_records).reset_index(drop=True)
-    else:
-        result_df = pd.DataFrame()
-    
-    # Log cleaning results if any changes were made
-    if duplicate_removed_count > 0 or priority_removed_count > 0:
-        import streamlit as st
-        st.info(f"Data cleaned: Removed {duplicate_removed_count} duplicates and {priority_removed_count} lower priority records. Final records: {len(result_df)}")
-    
-    return result_df
-
 def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Generate smart portfolios using advanced clustering"""
     
@@ -441,104 +432,7 @@ def display_smart_portfolio_results(customer_data, branch_data):
     # Geographic Distribution below with full width
     st.markdown("----")
     st.subheader("Geographic Distribution")
-    display_smart_geographic_map(smart_portfolios_created, branch_data)[0]['BRANCH_LON_NUM']
-        
-        # Rename columns to match Portfolio Assignment format
-        au_data = au_data.rename(columns={
-            'ECN': 'CG_ECN',
-            'DISTANCE_TO_AU': 'Distance'
-        })
-        
-        # Merge with original customer_data to get financial information
-        customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
-        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
-        
-        # Use original portfolio code if available, otherwise use N/A
-        au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('N/A')
-        
-        # Use original financial data
-        au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
-        au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
-        
-        # Use original TYPE if different from smart assignment
-        au_data['TYPE'] = au_data['TYPE_orig'].fillna(au_data['TYPE'])
-        
-        # Clean up duplicate columns
-        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig'], axis=1, errors='ignore')
-        
-        smart_portfolios_created[au] = au_data
-    
-    st.markdown("----")
-    
-    # Display results in two sections with equal column width
-    col1, col2 = st.columns([1, 1])
-    
-    with col1:
-        st.subheader("Smart Portfolio Summary")
-        display_smart_portfolio_tables(smart_portfolios_created, branch_data)
-    
-    with col2:
-        st.subheader("Global Portfolio Control")
-        display_global_portfolio_control_component(results_df, customer_data, branch_data)
-    
-    # Geographic Distribution below with full width
-    st.markdown("----")
-    st.subheader("Geographic Distribution")
     display_smart_geographic_map(smart_portfolios_created, branch_data)
-
-def clean_smart_portfolio_results(results_df):
-    """Clean smart portfolio results by removing duplicates and handling conflicts"""
-    if results_df.empty:
-        return results_df
-    
-    original_count = len(results_df)
-    
-    # Step 1: Remove exact duplicates based on ECN
-    cleaned_df = results_df.drop_duplicates(subset=['ECN'], keep='first')
-    duplicate_removed = original_count - len(cleaned_df)
-    
-    # Step 2: Handle TYPE priority conflicts for same ECN
-    # Priority: INMARKET/CENTRALIZED > any other types
-    
-    ecn_groups = results_df.groupby('ECN')
-    final_records = []
-    priority_conflicts_resolved = 0
-    
-    for ecn, group in ecn_groups:
-        if len(group) == 1:
-            # Single record, keep as is
-            final_records.append(group.iloc[0])
-        else:
-            # Multiple records for same ECN
-            group_types = group['TYPE'].str.upper().str.strip()
-            
-            # Priority order: INMARKET > CENTRALIZED > others
-            if 'INMARKET' in group_types.values:
-                # Keep INMARKET record
-                inmarket_record = group[group_types == 'INMARKET'].iloc[0]
-                final_records.append(inmarket_record)
-                priority_conflicts_resolved += len(group) - 1
-            elif 'CENTRALIZED' in group_types.values:
-                # Keep CENTRALIZED record
-                centralized_record = group[group_types == 'CENTRALIZED'].iloc[0]
-                final_records.append(centralized_record)
-                priority_conflicts_resolved += len(group) - 1
-            else:
-                # No priority conflicts, keep first record
-                final_records.append(group.iloc[0])
-    
-    # Convert back to DataFrame
-    if final_records:
-        result_df = pd.DataFrame(final_records).reset_index(drop=True)
-    else:
-        result_df = pd.DataFrame()
-    
-    # Log cleaning results
-    total_removed = original_count - len(result_df)
-    if total_removed > 0:
-        st.info(f"Smart portfolio data cleaned: Removed {duplicate_removed} duplicates and resolved {priority_conflicts_resolved} priority conflicts. Final records: {len(result_df)}")
-    
-    return result_df
 
 def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
     """Display smart portfolio summary tables - Always use tabs"""
