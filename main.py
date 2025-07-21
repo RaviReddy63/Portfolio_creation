@@ -11,11 +11,10 @@ from data_loader import get_merged_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
 from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
-from portfolio_summary_sidebar import render_portfolio_summary_sidebar
 
 def setup_page_config():
-    """Configure the Streamlit page with right sidebar"""
-    st.set_page_config("Portfolio Creation tool", layout="wide", initial_sidebar_state="expanded")
+    """Configure the Streamlit page"""
+    st.set_page_config("Portfolio Creation tool", layout="wide")
 
 def main():
     """Main application function"""
@@ -76,9 +75,6 @@ def portfolio_assignment_page(customer_data, banker_data, branch_data):
     
     # Display results
     display_portfolio_results(branch_data)
-    
-    # Add Portfolio Summary Sidebar
-    render_portfolio_summary_sidebar()
 
 def display_portfolio_results(branch_data):
     """Display portfolio results if they exist"""
