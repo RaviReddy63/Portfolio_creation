@@ -112,6 +112,13 @@ def display_editable_aggregated_portfolio_table(aggregated_summary):
     
     df = pd.DataFrame(aggregated_summary)
     
+    # Remove the unwanted columns
+    display_columns = ['Include', 'Portfolio ID', 'Total Customers', 'Total Customers After Transfer', 'Select']
+    df_display = df[display_columns].copy()
+    
+    # Add portfolio type for color coding (hidden from display)
+    df_display['Portfolio Type'] = df['Portfolio Type']
+    
     # Create column configuration
     column_config = {
         "Include": st.column_config.CheckboxColumn(
@@ -123,19 +130,9 @@ def display_editable_aggregated_portfolio_table(aggregated_summary):
             help="Unique portfolio identifier",
             disabled=True
         ),
-        "Portfolio Type": st.column_config.TextColumn(
-            "Portfolio Type",
-            help="Type of portfolio",
-            disabled=True
-        ),
         "Total Customers": st.column_config.NumberColumn(
             "Total Customers",
             help="Total customers in this portfolio across all data",
-            disabled=True
-        ),
-        "Available Customers": st.column_config.NumberColumn(
-            "Available Customers",
-            help="Customers available for assignment across all AUs",
             disabled=True
         ),
         "Total Customers After Transfer": st.column_config.NumberColumn(
@@ -148,23 +145,47 @@ def display_editable_aggregated_portfolio_table(aggregated_summary):
             help="Total customers to select (will keep nearest to selected AUs)",
             min_value=0,
             step=1
-        ),
-        "AUs Count": st.column_config.NumberColumn(
-            "AUs",
-            help="Number of AUs this portfolio appears in",
-            disabled=True
         )
     }
     
+    # Apply color coding based on portfolio type
+    def style_portfolio_rows(row):
+        portfolio_type = row['Portfolio Type'].lower()
+        
+        if 'inmarket' in portfolio_type:
+            return ['background-color: #e8f5e8'] * len(row)  # Light green
+        elif 'centralized' in portfolio_type:
+            return ['background-color: #e8f0ff'] * len(row)  # Light blue  
+        elif 'unmanaged' in portfolio_type:
+            return ['background-color: #fff8e1'] * len(row)  # Light yellow
+        elif 'unassigned' in portfolio_type:
+            return ['background-color: #fce4ec'] * len(row)  # Light pink
+        else:
+            return ['background-color: #f5f5f5'] * len(row)  # Light gray for others
+    
+    # Remove Portfolio Type column from display but keep for styling
+    df_styled = df_display.drop('Portfolio Type', axis=1)
+    
+    # Apply styling
+    styled_df = df_display.drop('Portfolio Type', axis=1).style.apply(
+        lambda row: style_portfolio_rows(df_display.iloc[row.name]), 
+        axis=1
+    )
+    
     # Display the editable table
     edited_df = st.data_editor(
-        df,
+        df_styled,
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
         height=400,
         key="global_portfolio_editor"
     )
+    
+    # Add the Portfolio Type back for processing
+    edited_df['Portfolio Type'] = df['Portfolio Type'].values
+    edited_df['Available Customers'] = df['Available Customers'].values
+    edited_df['AUs Count'] = df['AUs Count'].values
     
     return edited_df
 
