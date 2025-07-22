@@ -241,6 +241,22 @@ def create_apply_changes_button(au_id, is_single_au=False):
     key_suffix = "_single" if is_single_au else ""
     return st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}{key_suffix}")
 
+def create_save_buttons(au_id, is_single_au=False):
+    """Create Save buttons for an AU"""
+    col1, col2, col3 = st.columns([2, 1, 1])
+    
+    with col1:
+        st.write("")  # Empty space
+    
+    with col2:
+        key_suffix = "_single" if is_single_au else ""
+        save_au = st.button(f"Save AU {au_id}", key=f"save_au_{au_id}{key_suffix}", type="secondary")
+    
+    with col3:
+        save_all = st.button("Save All", key=f"save_all_{au_id}{key_suffix}", type="secondary")
+    
+    return save_au, save_all
+
 def create_customer_filters_for_mapping(customer_data):
     """Create customer selection criteria filters for Portfolio Mapping"""
     col_header2, col_clear2 = st.columns([9, 1])
