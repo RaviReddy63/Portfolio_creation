@@ -197,11 +197,7 @@ def display_summary_statistics(au_filtered_data):
             st.metric("Average Deposits", f"{avg_deposit_mm:.1f}MM")
 
 def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
-    """Create an editable portfolio dataframe with better selection controls"""
-    
-    # Create a display-only version of the dataframe (without Select column for editing)
-    display_df = portfolio_df.drop('Select', axis=1).copy()
-    
+    """Create an editable portfolio dataframe"""
     if is_multi_au:
         column_config = {
             "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
@@ -209,7 +205,13 @@ def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
             "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
             "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
             "Available for all new portfolios": st.column_config.NumberColumn("Available for all new portfolios", disabled=True),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True)
+            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
+            "Select": st.column_config.NumberColumn(
+                "Select",
+                help="Number of customers to select from this portfolio",
+                min_value=0,
+                step=1
+            )
         }
     else:
         column_config = {
@@ -217,70 +219,22 @@ def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
             "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
             "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
             "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True)
+            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
+            "Select": st.column_config.NumberColumn(
+                "Select",
+                help="Number of customers to select from this portfolio",
+                min_value=0,
+                step=1
+            )
         }
     
-    # Display the main table (without Select column)
-    table_key = f"portfolio_table_{au_id}_{len(portfolio_df)}"
-    edited_df = st.data_editor(
-        display_df,
+    return st.data_editor(
+        portfolio_df,
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
-        height=200,  # Reduced height since we'll have controls below
-        key=table_key
+        key=f"portfolio_editor_{au_id}_{len(portfolio_df)}"
     )
-    
-    # Add Select controls section
-    st.write("**Selection Controls:**")
-    
-    # Create columns for the selection controls
-    num_portfolios = len(portfolio_df)
-    if num_portfolios <= 2:
-        cols = st.columns(num_portfolios)
-    else:
-        cols = st.columns(2)  # Max 2 columns for AU tables
-    
-    select_values = {}
-    
-    # Create selection controls for each portfolio
-    for idx, (_, row) in enumerate(portfolio_df.iterrows()):
-        portfolio_id = row['Portfolio ID']
-        if is_multi_au:
-            available = row['Available for this portfolio']
-        else:
-            available = row['Available for this portfolio']
-        current_select = row['Select']
-        
-        # Use modulo to cycle through columns
-        col_idx = idx % len(cols)
-        
-        with cols[col_idx]:
-            # Create a more user-friendly label
-            label = f"{portfolio_id}"
-            if len(label) > 15:  # Truncate long portfolio IDs
-                label = f"{label[:12]}..."
-            
-            help_text = f"Available: {available} customers\nType: {row['Portfolio Type']}"
-            
-            # Use number input with clear bounds
-            select_value = st.number_input(
-                label,
-                min_value=0,
-                max_value=available,
-                value=min(current_select, available),  # Ensure value doesn't exceed available
-                step=1,
-                help=help_text,
-                key=f"portfolio_{au_id}_select_{portfolio_id}_{len(portfolio_df)}"
-            )
-            
-            select_values[portfolio_id] = select_value
-    
-    # Combine the edited main table with the select values
-    final_df = edited_df.copy()
-    final_df['Select'] = [select_values.get(row['Portfolio ID'], 0) for _, row in final_df.iterrows()]
-    
-    return final_df
 
 def create_apply_changes_button(au_id, is_single_au=False):
     """Create Apply Changes button for an AU"""
