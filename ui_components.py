@@ -53,30 +53,16 @@ def create_header():
     return page
 
 def initialize_session_state():
-    """Initialize all session state variables"""
+    """Initialize all session state variables - avoid conflicting with widget keys"""
     session_vars = {
         # Portfolio Assignment variables
         'all_portfolios': {},
         'portfolio_controls': {},
         'recommend_reassignment': {},
         'should_create_portfolios': False,
-        'filter_states': [],
-        'filter_cities': [],
-        'filter_selected_aus': [],
-        'filter_cust_state': [],
-        'filter_role': [],
-        'filter_cust_portcd': [],
-        'filter_max_dist': 20,
-        'filter_min_rev': 5000,
-        'filter_min_deposit': 100000,
         
         # Portfolio Mapping variables
         'should_generate_smart_portfolios': False,
-        'mapping_filter_cust_state': [],
-        'mapping_filter_role': [],
-        'mapping_filter_cust_portcd': [],
-        'mapping_filter_min_rev': 5000,
-        'mapping_filter_min_deposit': 100000,
         'smart_portfolio_controls': {}
     }
     
@@ -92,17 +78,16 @@ def create_au_filters(branch_data):
     with col_clear1:
         st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
         if st.button("Clear filters", key="clear_au_filters", help="Clear AU selection filters", type="secondary"):
-            # Clear AU filters
-            st.session_state.filter_states = []
-            st.session_state.filter_cities = []
-            st.session_state.filter_selected_aus = []
+            # Clear AU filters by clearing the widget keys
+            for key in ["states", "cities", "selected_aus"]:
+                if key in st.session_state:
+                    del st.session_state[key]
             # Clear created portfolios
             if 'portfolios_created' in st.session_state:
                 del st.session_state.portfolios_created
             if 'portfolio_summaries' in st.session_state:
                 del st.session_state.portfolio_summaries
             st.session_state.portfolio_controls = {}
-            st.experimental_rerun()
     
     # Multi-select for AUs with expander
     with st.expander("Select AUs", expanded=True):
@@ -110,9 +95,7 @@ def create_au_filters(branch_data):
         
         with col1:
             available_states = list(branch_data['STATECODE'].dropna().unique())
-            default_states = [s for s in st.session_state.filter_states if s in available_states]
-            states = st.multiselect("State", available_states, default=default_states, key="states")
-            st.session_state.filter_states = states
+            states = st.multiselect("State", available_states, key="states")
         
         # Filter branch data based on selected states
         if states:
@@ -122,9 +105,7 @@ def create_au_filters(branch_data):
             
         with col2:
             available_cities = list(filtered_branch_data['CITY'].dropna().unique())
-            default_cities = [c for c in st.session_state.filter_cities if c in available_cities]
-            cities = st.multiselect("City", available_cities, default=default_cities, key="cities")
-            st.session_state.filter_cities = cities
+            cities = st.multiselect("City", available_cities, key="cities")
         
         # Filter further based on selected cities
         if cities:
@@ -132,9 +113,7 @@ def create_au_filters(branch_data):
         
         with col3:
             available_aus = list(filtered_branch_data['AU'].dropna().unique())
-            default_aus = [a for a in st.session_state.filter_selected_aus if a in available_aus]
-            selected_aus = st.multiselect("AU", available_aus, default=default_aus, key="selected_aus")
-            st.session_state.filter_selected_aus = selected_aus
+            selected_aus = st.multiselect("AU", available_aus, key="selected_aus")
     
     return selected_aus
 
@@ -146,37 +125,30 @@ def create_customer_filters(customer_data):
     with col_clear2:
         st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
         if st.button("Clear filters", key="clear_customer_filters", help="Clear customer selection filters", type="secondary"):
-            # Clear customer filters
-            st.session_state.filter_cust_state = []
-            st.session_state.filter_role = []
-            st.session_state.filter_cust_portcd = []
-            st.session_state.filter_max_dist = 20
-            st.session_state.filter_min_rev = 5000
-            st.session_state.filter_min_deposit = 100000
+            # Clear customer filters by clearing widget keys
+            filter_keys = ["cust_state", "role", "cust_portcd", "max_distance", "min_revenue", "min_deposit"]
+            for key in filter_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
             # Clear created portfolios
             if 'portfolios_created' in st.session_state:
                 del st.session_state.portfolios_created
             if 'portfolio_summaries' in st.session_state:
                 del st.session_state.portfolio_summaries
             st.session_state.portfolio_controls = {}
-            st.experimental_rerun()
     
     with st.expander("Customer Filters", expanded=True):
         col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
         
         with col1:
             cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            default_cust_states = [s for s in st.session_state.filter_cust_state if s in cust_state_options]
-            cust_state = st.multiselect("Customer State", cust_state_options, default=default_cust_states, key="cust_state")
-            st.session_state.filter_cust_state = cust_state
+            cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
             if not cust_state:
                 cust_state = None
         
         with col2:
             role_options = list(customer_data['TYPE'].dropna().unique())
-            default_roles = [r for r in st.session_state.filter_role if r in role_options]
-            role = st.multiselect("Role", role_options, default=default_roles, key="role")
-            st.session_state.filter_role = role
+            role = st.multiselect("Role", role_options, key="role")
             if not role:
                 role = None
         
@@ -186,22 +158,17 @@ def create_customer_filters(customer_data):
         with col3:
             customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
             portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
-            default_portfolios = [p for p in st.session_state.filter_cust_portcd if p in portfolio_options]
-            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, default=default_portfolios, key="cust_portcd")
-            st.session_state.filter_cust_portcd = cust_portcd
+            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="cust_portcd")
             if not cust_portcd:
                 cust_portcd = None
         
         col4, col5, col6 = st.columns(3)
         with col4:
-            max_dist = st.slider("Max Distance (miles)", 1, 100, value=st.session_state.filter_max_dist, key="max_distance")
-            st.session_state.filter_max_dist = max_dist
+            max_dist = st.slider("Max Distance (miles)", 1, 100, value=20, key="max_distance")
         with col5:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=st.session_state.filter_min_rev, step=1000, key="min_revenue")
-            st.session_state.filter_min_rev = min_rev
+            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="min_revenue")
         with col6:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=st.session_state.filter_min_deposit, step=5000, key="min_deposit")
-            st.session_state.filter_min_deposit = min_deposit
+            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="min_deposit")
     
     return cust_state, role, cust_portcd, max_dist, min_rev, min_deposit
 
@@ -273,3 +240,53 @@ def create_apply_changes_button(au_id, is_single_au=False):
     """Create Apply Changes button for an AU"""
     key_suffix = "_single" if is_single_au else ""
     return st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}{key_suffix}")
+
+def create_customer_filters_for_mapping(customer_data):
+    """Create customer selection criteria filters for Portfolio Mapping"""
+    col_header2, col_clear2 = st.columns([9, 1])
+    with col_header2:
+        st.subheader("Customer Selection Criteria")
+    with col_clear2:
+        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
+        if st.button("Clear filters", key="clear_mapping_filters", help="Clear customer selection filters", type="secondary"):
+            # Clear customer filters for mapping by clearing widget keys
+            mapping_filter_keys = ["mapping_cust_state", "mapping_role", "mapping_cust_portcd", "mapping_min_revenue", "mapping_min_deposit"]
+            for key in mapping_filter_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+            # Clear smart portfolio results
+            if 'smart_portfolio_results' in st.session_state:
+                del st.session_state.smart_portfolio_results
+    
+    with st.expander("Customer Filters", expanded=True):
+        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
+        
+        with col1:
+            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+            cust_state = st.multiselect("Customer State", cust_state_options, key="mapping_cust_state")
+            if not cust_state:
+                cust_state = None
+        
+        with col2:
+            role_options = list(customer_data['TYPE'].dropna().unique())
+            role = st.multiselect("Role", role_options, key="mapping_role")
+            if not role:
+                role = None
+        
+        with col2_or:
+            st.markdown("<div style='text-align: center; padding-top: 8px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
+        
+        with col3:
+            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
+            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="mapping_cust_portcd")
+            if not cust_portcd:
+                cust_portcd = None
+        
+        col4, col5 = st.columns(2)
+        with col4:
+            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="mapping_min_revenue")
+        with col5:
+            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="mapping_min_deposit")
+    
+    return cust_state, role, cust_portcd, None, min_rev, min_deposit
