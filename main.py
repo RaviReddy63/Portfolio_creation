@@ -5,7 +5,8 @@ import pandas as pd
 from ui_components import (
     add_logo, create_header, initialize_session_state,
     create_au_filters, create_customer_filters, create_portfolio_button,
-    display_summary_statistics, create_portfolio_editor, create_apply_changes_button
+    display_summary_statistics, create_portfolio_editor, create_apply_changes_button,
+    create_customer_filters_for_mapping
 )
 from data_loader import load_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
@@ -214,63 +215,6 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     
     # Display results if they exist
     display_smart_portfolio_results(customer_data, branch_data)
-
-def create_customer_filters_for_mapping(customer_data):
-    """Create customer selection criteria filters for Portfolio Mapping"""
-    col_header2, col_clear2 = st.columns([9, 1])
-    with col_header2:
-        st.subheader("Customer Selection Criteria")
-    with col_clear2:
-        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
-        if st.button("Clear filters", key="clear_mapping_filters", help="Clear customer selection filters", type="secondary"):
-            # Clear customer filters for mapping
-            st.session_state.mapping_filter_cust_state = []
-            st.session_state.mapping_filter_role = []
-            st.session_state.mapping_filter_cust_portcd = []
-            st.session_state.mapping_filter_min_rev = 5000
-            st.session_state.mapping_filter_min_deposit = 100000
-            # Clear smart portfolio results
-            if 'smart_portfolio_results' in st.session_state:
-                del st.session_state.smart_portfolio_results
-            st.experimental_rerun()
-    
-    with st.expander("Customer Filters", expanded=True):
-        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
-        
-        with col1:
-            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="mapping_cust_state")
-            st.session_state.mapping_filter_cust_state = cust_state
-            if not cust_state:
-                cust_state = None
-        
-        with col2:
-            role_options = list(customer_data['TYPE'].dropna().unique())
-            role = st.multiselect("Role", role_options, key="mapping_role")
-            st.session_state.mapping_filter_role = role
-            if not role:
-                role = None
-        
-        with col2_or:
-            st.markdown("<div style='text-align: center; padding-top: 8px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
-        
-        with col3:
-            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
-            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="mapping_cust_portcd")
-            st.session_state.mapping_filter_cust_portcd = cust_portcd
-            if not cust_portcd:
-                cust_portcd = None
-        
-        col4, col5 = st.columns(2)
-        with col4:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=st.session_state.get('mapping_filter_min_rev', 5000), step=1000, key="mapping_min_revenue")
-            st.session_state.mapping_filter_min_rev = min_rev
-        with col5:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=st.session_state.get('mapping_filter_min_deposit', 100000), step=5000, key="mapping_min_deposit")
-            st.session_state.mapping_filter_min_deposit = min_deposit
-    
-    return cust_state, role, cust_portcd, None, min_rev, min_deposit
 
 def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Apply customer filters for Portfolio Mapping"""
@@ -651,11 +595,11 @@ def apply_global_smart_changes(edited_summary, original_summary, customer_data, 
     with st.spinner("Applying global changes and regenerating portfolios..."):
         try:
             # Get current filters from session state
-            cust_state = st.session_state.get('mapping_filter_cust_state', [])
-            role = st.session_state.get('mapping_filter_role', [])
-            cust_portcd = st.session_state.get('mapping_filter_cust_portcd', [])
-            min_rev = st.session_state.get('mapping_filter_min_rev', 5000)
-            min_deposit = st.session_state.get('mapping_filter_min_deposit', 100000)
+            cust_state = st.session_state.get('mapping_cust_state', [])
+            role = st.session_state.get('mapping_role', [])
+            cust_portcd = st.session_state.get('mapping_cust_portcd', [])
+            min_rev = st.session_state.get('mapping_min_revenue', 5000)
+            min_deposit = st.session_state.get('mapping_min_deposit', 100000)
             
             # Apply customer filters to get base filtered customers
             filtered_customers = apply_customer_filters_for_mapping(
@@ -688,7 +632,6 @@ def apply_global_smart_changes(edited_summary, original_summary, customer_data, 
             st.session_state.smart_portfolio_results = smart_portfolio_results
             
             st.success(f"Successfully regenerated portfolios with {len(smart_portfolio_results)} customers!")
-            st.experimental_rerun()
             
         except Exception as e:
             st.error(f"Error applying global changes: {str(e)}")
@@ -909,7 +852,6 @@ def apply_smart_portfolio_changes(au_id, smart_portfolios_created, branch_data):
                 smart_portfolios_created[au_id] = updated_au_data
             
             st.success("Portfolio selection updated!")
-            st.experimental_rerun()
 
 def apply_smart_selection_changes(original_data, control_data):
     """Apply the selection changes from portfolio controls to filter customers"""
