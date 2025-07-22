@@ -172,4 +172,34 @@ def process_portfolio_creation(selected_aus, customer_data, banker_data, branch_
     
     if portfolios_created:
         # Apply nearest AU reassignment
-        with
+        with st.spinner("Reassigning customers to nearest AUs..."):
+            portfolios_created, reassignment_summary = reassign_to_nearest_au(
+                portfolios_created, selected_aus, branch_data
+            )
+        
+        st.success(f"Portfolios created for {len(portfolios_created)} AUs")
+        
+        # Recalculate portfolio summaries after reassignment
+        portfolio_summaries = recalculate_portfolio_summaries(portfolios_created, customer_data)
+        
+        return portfolios_created, portfolio_summaries
+    else:
+        st.warning("No customers found for the selected AUs with current filters.")
+        return None, None
+
+def apply_portfolio_changes(au_id, branch_data):
+    """Apply portfolio selection changes for a specific AU"""
+    with st.spinner("Applying selection changes..."):
+        if 'portfolios_created' in st.session_state and au_id in st.session_state.portfolios_created:
+            updated_portfolios = apply_portfolio_selection_changes(
+                st.session_state.portfolios_created, 
+                st.session_state.portfolio_controls, 
+                [au_id], 
+                branch_data
+            )
+            
+            # Update only this AU's portfolio
+            if au_id in updated_portfolios:
+                st.session_state.portfolios_created[au_id] = updated_portfolios[au_id]
+            
+            st.success("Portfolio selection updated!")
