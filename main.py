@@ -294,6 +294,14 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         st.session_state.smart_portfolio_results = smart_portfolio_results
         st.session_state.filtered_customers_count = len(filtered_customers)
         
+        # Clear any existing global portfolio controls to force refresh
+        if 'global_portfolio_controls' in st.session_state:
+            del st.session_state.global_portfolio_controls
+        
+        # Clear any existing smart portfolio controls to force refresh
+        if 'smart_portfolio_controls' in st.session_state:
+            st.session_state.smart_portfolio_controls = {}
+        
         progress_bar.progress(100)
         status_text.text("Smart portfolios generated successfully!")
         
@@ -416,7 +424,7 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
 def display_global_portfolio_control_component(results_df, customer_data, branch_data):
     """Display unified global portfolio control component with table, button and statistics"""
     
-    # Generate global portfolio summary (same as before)
+    # Generate global portfolio summary - always regenerate to reflect current results
     global_summary = generate_global_portfolio_summary(results_df, customer_data)
     
     if global_summary:
@@ -424,8 +432,21 @@ def display_global_portfolio_control_component(results_df, customer_data, branch
         global_tab = st.tabs(["Global Control"])
         
         with global_tab[0]:
-            # Display editable table
-            edited_summary = create_global_control_editor(global_summary)
+            # Check if we have existing global controls and if they match current portfolios
+            if 'global_portfolio_controls' not in st.session_state:
+                # First time or after regeneration - use fresh summary
+                edited_summary = create_global_control_editor(global_summary)
+            else:
+                # Check if existing controls match current portfolios
+                existing_portfolios = set(row['Portfolio ID'] for _, row in st.session_state.global_portfolio_controls.iterrows())
+                current_portfolios = set(item['Portfolio ID'] for item in global_summary)
+                
+                if existing_portfolios == current_portfolios:
+                    # Portfolios match, use existing controls
+                    edited_summary = create_global_control_editor(st.session_state.global_portfolio_controls.to_dict('records'))
+                else:
+                    # Portfolios changed, use fresh summary
+                    edited_summary = create_global_control_editor(global_summary)
             
             # Store in session state
             st.session_state.global_portfolio_controls = edited_summary
@@ -539,11 +560,18 @@ def generate_global_portfolio_summary(results_df, customer_data):
     return summary_list
 
 def create_global_control_editor(global_summary):
-    """Create editable global control table"""
+    """Create editable global control table with separate controls for Select values"""
     
-    df = pd.DataFrame(global_summary)
+    # Handle both list of dicts and DataFrame input
+    if isinstance(global_summary, list):
+        df = pd.DataFrame(global_summary)
+    else:
+        df = global_summary.copy()
     
-    # Create column configuration
+    # Create a display-only version of the dataframe (without Select column for editing)
+    display_df = df.drop('Select', axis=1).copy()
+    
+    # Create column configuration for display table
     column_config = {
         "Include": st.column_config.CheckboxColumn(
             "Include",
@@ -568,26 +596,72 @@ def create_global_control_editor(global_summary):
             "Available",
             help="Total customers from this portfolio across all AUs",
             disabled=True
-        ),
-        "Select": st.column_config.NumberColumn(
-            "Select",
-            help="Number of customers to select (will keep closest)",
-            min_value=0,
-            step=1
         )
     }
     
-    # Display editable table with increased height to match AU tables
+    # Generate a unique key based on the portfolios to force refresh when portfolios change
+    portfolio_ids = sorted(df['Portfolio ID'].tolist())
+    table_key = f"global_smart_control_table_{hash(tuple(portfolio_ids))}"
+    
+    # Display the main table (without Select column)
     edited_df = st.data_editor(
-        df,
+        display_df,
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
-        height=350,  # Increased height to match AU tables
-        key="global_smart_control_editor"
+        height=250,  # Reduced height since we'll have controls below
+        key=table_key
     )
     
-    return edited_df
+    # Add Select controls section
+    st.subheader("Selection Controls")
+    st.write("Use the controls below to specify how many customers to select from each portfolio:")
+    
+    # Create columns for the selection controls
+    num_portfolios = len(df)
+    if num_portfolios <= 3:
+        cols = st.columns(num_portfolios)
+    else:
+        # For more portfolios, use 3 columns and wrap
+        cols = st.columns(3)
+    
+    select_values = {}
+    
+    # Create selection controls for each portfolio
+    for idx, (_, row) in enumerate(df.iterrows()):
+        portfolio_id = row['Portfolio ID']
+        available = row['Available']
+        current_select = row['Select']
+        
+        # Use modulo to cycle through columns if more than 3 portfolios
+        col_idx = idx % len(cols)
+        
+        with cols[col_idx]:
+            # Create a more user-friendly label
+            label = f"{portfolio_id}"
+            if len(label) > 15:  # Truncate long portfolio IDs
+                label = f"{label[:12]}..."
+            
+            help_text = f"Available: {available} customers\nType: {row['Portfolio Type']}"
+            
+            # Use number input with clear bounds
+            select_value = st.number_input(
+                label,
+                min_value=0,
+                max_value=available,
+                value=min(current_select, available),  # Ensure value doesn't exceed available
+                step=1,
+                help=help_text,
+                key=f"select_{portfolio_id}_{hash(tuple(portfolio_ids))}"  # Unique key per portfolio
+            )
+            
+            select_values[portfolio_id] = select_value
+    
+    # Combine the edited main table with the select values
+    final_df = edited_df.copy()
+    final_df['Select'] = [select_values.get(row['Portfolio ID'], 0) for _, row in final_df.iterrows()]
+    
+    return final_df
 
 def apply_global_smart_changes(edited_summary, original_summary, customer_data, branch_data):
     """Apply global changes and regenerate smart portfolios"""
@@ -787,29 +861,77 @@ def create_smart_portfolio_summary(au_data, au_id):
     return portfolio_summary
 
 def create_smart_portfolio_editor(portfolio_df, au_id):
-    """Create an editable portfolio dataframe for smart portfolios"""
+    """Create an editable portfolio dataframe for smart portfolios with better selection controls"""
+    
+    # Create a display-only version of the dataframe (without Select column for editing)
+    display_df = portfolio_df.drop('Select', axis=1).copy()
+    
     column_config = {
         "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
         "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
         "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
         "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-        "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
-        "Select": st.column_config.NumberColumn(
-            "Select",
-            help="Number of customers to select from this portfolio",
-            min_value=0,
-            step=1
-        )
+        "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True)
     }
     
-    return st.data_editor(
-        portfolio_df,
+    # Display the main table (without Select column)
+    table_key = f"smart_portfolio_table_{au_id}_{len(portfolio_df)}"
+    edited_df = st.data_editor(
+        display_df,
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
-        height=350,  # Match height with other tables
-        key=f"smart_portfolio_editor_{au_id}_{len(portfolio_df)}"
+        height=200,  # Reduced height since we'll have controls below
+        key=table_key
     )
+    
+    # Add Select controls section
+    st.write("**Selection Controls:**")
+    
+    # Create columns for the selection controls
+    num_portfolios = len(portfolio_df)
+    if num_portfolios <= 2:
+        cols = st.columns(num_portfolios)
+    else:
+        cols = st.columns(2)  # Max 2 columns for AU tables
+    
+    select_values = {}
+    
+    # Create selection controls for each portfolio
+    for idx, (_, row) in enumerate(portfolio_df.iterrows()):
+        portfolio_id = row['Portfolio ID']
+        available = row['Available for this portfolio']
+        current_select = row['Select']
+        
+        # Use modulo to cycle through columns
+        col_idx = idx % len(cols)
+        
+        with cols[col_idx]:
+            # Create a more user-friendly label
+            label = f"{portfolio_id}"
+            if len(label) > 15:  # Truncate long portfolio IDs
+                label = f"{label[:12]}..."
+            
+            help_text = f"Available: {available} customers\nType: {row['Portfolio Type']}"
+            
+            # Use number input with clear bounds
+            select_value = st.number_input(
+                label,
+                min_value=0,
+                max_value=available,
+                value=min(current_select, available),  # Ensure value doesn't exceed available
+                step=1,
+                help=help_text,
+                key=f"au_{au_id}_select_{portfolio_id}_{len(portfolio_df)}"
+            )
+            
+            select_values[portfolio_id] = select_value
+    
+    # Combine the edited main table with the select values
+    final_df = edited_df.copy()
+    final_df['Select'] = [select_values.get(row['Portfolio ID'], 0) for _, row in final_df.iterrows()]
+    
+    return final_df
 
 def create_smart_apply_changes_button(au_id):
     """Create Apply Changes button for smart portfolio AU"""
