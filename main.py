@@ -6,7 +6,7 @@ from ui_components import (
     add_logo, create_header, initialize_session_state,
     create_au_filters, create_customer_filters, create_portfolio_button,
     display_summary_statistics, create_portfolio_editor, create_apply_changes_button,
-    create_customer_filters_for_mapping
+    create_customer_filters_for_mapping, create_save_buttons
 )
 from data_loader import load_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
@@ -77,6 +77,9 @@ def main():
     # Load data
     customer_data, banker_data, branch_data, data = get_merged_data()
     
+    # Store branch_data in session state for save functions
+    st.session_state.branch_data = branch_data
+    
     if page == "Portfolio Assignment":
         portfolio_assignment_page(customer_data, banker_data, branch_data)
     elif page == "Portfolio Mapping":
@@ -84,6 +87,9 @@ def main():
 
 def portfolio_assignment_page(customer_data, banker_data, branch_data):
     """Portfolio Assignment page logic"""
+    
+    # Store customer_data in session state for save functions
+    st.session_state.customer_data = customer_data
     
     # Create AU filters
     selected_aus = create_au_filters(branch_data)
@@ -165,9 +171,30 @@ def display_single_au_table(au_id, portfolio_summaries, portfolios_created, bran
         # Store the edited data
         st.session_state.portfolio_controls[au_id] = edited_df
         
-        # Add Apply Changes button
-        if create_apply_changes_button(au_id, not is_multi_au):
+        # Create button row with Apply Changes and Save buttons
+        col1, col2, col3, col4 = st.columns([3, 1, 1, 1])
+        
+        with col1:
+            st.write("")  # Empty space
+        
+        with col2:
+            apply_clicked = create_apply_changes_button(au_id, not is_multi_au)
+        
+        with col3:
+            save_au_clicked = st.button(f"Save AU {au_id}", key=f"save_au_{au_id}", type="secondary")
+        
+        with col4:
+            save_all_clicked = st.button("Save All", key=f"save_all_from_au_{au_id}", type="secondary")
+        
+        # Handle button clicks
+        if apply_clicked:
             apply_portfolio_changes(au_id, branch_data)
+        
+        if save_au_clicked:
+            save_single_au_portfolio(au_id, portfolios_created, st.session_state.get('customer_data'))
+        
+        if save_all_clicked:
+            save_all_portfolios(portfolios_created, st.session_state.get('customer_data'))
         
         # Display summary statistics
         au_filtered_data = st.session_state.portfolios_created[au_id]
@@ -321,6 +348,9 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
 def display_smart_portfolio_results(customer_data, branch_data):
     """Display smart portfolio results like Portfolio Assignment"""
     
+    # Store customer_data in session state for save functions
+    st.session_state.customer_data = customer_data
+    
     if 'smart_portfolio_results' not in st.session_state or len(st.session_state.smart_portfolio_results) == 0:
         st.info("Click 'Generate Smart Portfolios' to create optimized customer assignments.")
         return
@@ -414,9 +444,24 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
                 st.session_state.smart_portfolio_controls = {}
             st.session_state.smart_portfolio_controls[au_id] = edited_df
             
-            # Add Apply Changes button (same as Portfolio Assignment)
-            if create_smart_apply_changes_button(au_id):
+            # Create button row with Apply Changes and Save All buttons
+            col1, col2, col3 = st.columns([4, 1, 1])
+            
+            with col1:
+                st.write("")  # Empty space
+            
+            with col2:
+                apply_clicked = create_smart_apply_changes_button(au_id)
+            
+            with col3:
+                save_all_clicked = st.button("Save All Portfolios", key=f"save_all_smart_{au_id}", type="secondary")
+            
+            # Handle button clicks
+            if apply_clicked:
                 apply_smart_portfolio_changes(au_id, smart_portfolios_created, branch_data)
+            
+            if save_all_clicked:
+                save_all_smart_portfolios(smart_portfolios_created, st.session_state.get('customer_data'))
             
             # Display summary statistics (same as Portfolio Assignment)
             display_summary_statistics(au_data)
@@ -943,6 +988,198 @@ def display_smart_geographic_map(smart_portfolios_created, branch_data):
             st.plotly_chart(combined_map, use_container_width=True)
     else:
         st.info("No customers selected for map display")
+
+def prepare_portfolio_for_export(au_data, customer_data, branch_data):
+    """Prepare portfolio data in the required export format"""
+    from utils import haversine_distance
+    
+    if au_data.empty or customer_data.empty:
+        return pd.DataFrame()
+    
+    # Merge with customer_data to get all required fields
+    export_data = au_data.merge(
+        customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'TYPE', 'LAT_NUM', 'LON_NUM', 
+                      'BILLINGCITY', 'BILLINGSTATE', 'BANK_REVENUE', 'CG_GROSS_SALES', 
+                      'DEPOSIT_BAL', 'BANKER_FIRSTNAME', 'BANKER_LASTNAME', 'NAME', 
+                      'STREET', 'CITY']],
+        on='CG_ECN',
+        how='left',
+        suffixes=('', '_orig')
+    )
+    
+    # Get AU information from branch_data
+    au_id = au_data['AU'].iloc[0]
+    au_info = branch_data[branch_data['AU'] == au_id]
+    
+    if not au_info.empty:
+        branch_lat = au_info.iloc[0]['BRANCH_LAT_NUM']
+        branch_lon = au_info.iloc[0]['BRANCH_LON_NUM']
+    else:
+        branch_lat = au_data['BRANCH_LAT_NUM'].iloc[0] if 'BRANCH_LAT_NUM' in au_data.columns else 0
+        branch_lon = au_data['BRANCH_LON_NUM'].iloc[0] if 'BRANCH_LON_NUM' in au_data.columns else 0
+    
+    # Calculate distance from customer to new AU
+    export_data['DISTANCE'] = export_data.apply(
+        lambda row: haversine_distance(
+            row['LAT_NUM'], row['LON_NUM'], 
+            branch_lat, branch_lon
+        ), axis=1
+    )
+    
+    # Prepare final export format
+    final_export = pd.DataFrame({
+        'CG_ECN': export_data['CG_ECN'],
+        'CG_PORTFOLIO_CD': export_data['CG_PORTFOLIO_CD'],
+        'TYPE': export_data['TYPE'],
+        'LAT_NUM': export_data['LAT_NUM'],
+        'LON_NUM': export_data['LON_NUM'],
+        'BILLINGCITY': export_data['BILLINGCITY'],
+        'BILLINGSTATE': export_data['BILLINGSTATE'],
+        'DISTANCE': export_data['DISTANCE'],
+        'AU_NBR': au_id,
+        'BRANCH_LAT_NUM': branch_lat,
+        'BRANCH_LON_NUM': branch_lon,
+        'BANK_REVENUE': export_data['BANK_REVENUE'],
+        'CG_GROSS_SALES': export_data['CG_GROSS_SALES'],
+        'DEPOSIT_BAL': export_data['DEPOSIT_BAL'],
+        'CURRENT_BANKER_FIRSTNAME': export_data['BANKER_FIRSTNAME'],
+        'CURRENT_BANKER_LASTNAME': export_data['BANKER_LASTNAME'],
+        'NAME': export_data['NAME'],
+        'STREET': export_data['STREET'],
+        'CITY': export_data['CITY']
+    })
+    
+    return final_export
+
+def save_single_au_portfolio(au_id, portfolios_created, customer_data):
+    """Save a single AU portfolio to CSV"""
+    if au_id not in portfolios_created or customer_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        # Get branch_data from session state or reload
+        branch_data = st.session_state.get('branch_data')
+        if branch_data is None:
+            from data_loader import load_data
+            _, _, branch_data = load_data()
+        
+        # Prepare data for export
+        au_data = portfolios_created[au_id]
+        export_data = prepare_portfolio_for_export(au_data, customer_data, branch_data)
+        
+        if export_data.empty:
+            st.error("No data to export")
+            return
+        
+        # Convert to CSV
+        csv_data = export_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label=f"Download AU {au_id} Portfolio CSV",
+            data=csv_data,
+            file_name=f"portfolio_au_{au_id}.csv",
+            mime="text/csv",
+            key=f"download_au_{au_id}"
+        )
+        
+        st.success(f"Portfolio for AU {au_id} prepared for download ({len(export_data)} customers)")
+        
+    except Exception as e:
+        st.error(f"Error saving portfolio: {str(e)}")
+
+def save_all_portfolios(portfolios_created, customer_data):
+    """Save all portfolios to a single CSV"""
+    if not portfolios_created or customer_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        # Get branch_data from session state or reload
+        branch_data = st.session_state.get('branch_data')
+        if branch_data is None:
+            from data_loader import load_data
+            _, _, branch_data = load_data()
+        
+        all_portfolio_data = []
+        
+        # Process each AU portfolio
+        for au_id, au_data in portfolios_created.items():
+            if not au_data.empty:
+                export_data = prepare_portfolio_for_export(au_data, customer_data, branch_data)
+                if not export_data.empty:
+                    all_portfolio_data.append(export_data)
+        
+        if not all_portfolio_data:
+            st.error("No data to export")
+            return
+        
+        # Combine all portfolios
+        combined_data = pd.concat(all_portfolio_data, ignore_index=True)
+        
+        # Convert to CSV
+        csv_data = combined_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label="Download All Portfolios CSV",
+            data=csv_data,
+            file_name="all_portfolios.csv",
+            mime="text/csv",
+            key="download_all_portfolios"
+        )
+        
+        st.success(f"All portfolios prepared for download ({len(combined_data)} customers across {len(portfolios_created)} AUs)")
+        
+    except Exception as e:
+        st.error(f"Error saving all portfolios: {str(e)}")
+
+def save_all_smart_portfolios(smart_portfolios_created, customer_data):
+    """Save all smart portfolios to a single CSV"""
+    if not smart_portfolios_created or customer_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        # Get branch_data from session state or reload
+        branch_data = st.session_state.get('branch_data')
+        if branch_data is None:
+            from data_loader import load_data
+            _, _, branch_data = load_data()
+        
+        all_portfolio_data = []
+        
+        # Process each AU portfolio
+        for au_id, au_data in smart_portfolios_created.items():
+            if not au_data.empty:
+                export_data = prepare_portfolio_for_export(au_data, customer_data, branch_data)
+                if not export_data.empty:
+                    all_portfolio_data.append(export_data)
+        
+        if not all_portfolio_data:
+            st.error("No data to export")
+            return
+        
+        # Combine all portfolios
+        combined_data = pd.concat(all_portfolio_data, ignore_index=True)
+        
+        # Convert to CSV
+        csv_data = combined_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label="Download All Smart Portfolios CSV",
+            data=csv_data,
+            file_name="all_smart_portfolios.csv",
+            mime="text/csv",
+            key="download_all_smart_portfolios"
+        )
+        
+        st.success(f"All smart portfolios prepared for download ({len(combined_data)} customers across {len(smart_portfolios_created)} AUs)")
+        
+    except Exception as e:
+        st.error(f"Error saving all smart portfolios: {str(e)}")
 
 if __name__ == "__main__":
     main()
