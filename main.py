@@ -1000,8 +1000,8 @@ def prepare_portfolio_for_export(au_data, customer_data, branch_data):
     export_data = au_data.merge(
         customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'TYPE', 'LAT_NUM', 'LON_NUM', 
                       'BILLINGCITY', 'BILLINGSTATE', 'BANK_REVENUE', 'CG_GROSS_SALES', 
-                      'DEPOSIT_BAL', 'BANKER_FIRSTNAME', 'BANKER_LASTNAME', 'NAME', 
-                      'STREET', 'CITY']],
+                      'DEPOSIT_BAL', 'BANKER_FIRSTNAME', 'BANKER_LASTNAME', 
+                      'BILLINGSTREET', 'CG_NAME']],
         on='CG_ECN',
         how='left',
         suffixes=('', '_orig')
@@ -1044,9 +1044,9 @@ def prepare_portfolio_for_export(au_data, customer_data, branch_data):
         'DEPOSIT_BAL': export_data['DEPOSIT_BAL'],
         'CURRENT_BANKER_FIRSTNAME': export_data['BANKER_FIRSTNAME'],
         'CURRENT_BANKER_LASTNAME': export_data['BANKER_LASTNAME'],
-        'NAME': export_data['NAME'],
-        'STREET': export_data['STREET'],
-        'CITY': export_data['CITY']
+        'NAME': export_data['CG_NAME'],
+        'BILLINGSTREET': export_data['BILLINGSTREET'],
+        'BILLINGCITY': export_data['BILLINGCITY']
     })
     
     return final_export
