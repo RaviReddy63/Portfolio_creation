@@ -503,7 +503,9 @@ def display_global_portfolio_control_component(results_df, customer_data, branch
             if st.button("Apply Global Changes", key="apply_global", type="primary"):
                 apply_global_changes_final(edited_df, customer_data, branch_data)
             
-            display_global_portfolio_statistics(results_df)
+            # Use updated results from session state, not the original parameter
+            current_results = st.session_state.get('smart_portfolio_results', results_df)
+            display_global_portfolio_statistics(current_results)
 
 def display_global_portfolio_statistics(results_df):
     """Display summary statistics for global portfolios in horizontal format"""
