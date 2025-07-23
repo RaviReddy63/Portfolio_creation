@@ -615,10 +615,9 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
     with st.spinner("Applying changes..."):
         try:
             # Get CURRENT filters from UI widgets (not cached session state)
-            # These need to be retrieved fresh from the current UI state
             current_filters = get_current_mapping_filters()
             
-            # Apply customer filters to get the SAME base customer set as current UI selection
+            # Apply customer filters to get ALL customers that match current UI selection
             all_filtered_customers = apply_customer_filters_for_mapping(
                 customer_data, 
                 current_filters['cust_state'], 
@@ -632,8 +631,13 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
             current_results = st.session_state.get('smart_portfolio_results', pd.DataFrame())
             identified_aus = current_results['ASSIGNED_AU'].unique().tolist() if not current_results.empty else []
             
-            # Apply portfolio selections from edited_df with distance-based selection
+            # Start with ALL filtered customers, then apply Global Control selections
             final_customers = []
+            
+            # Track which customers have been selected through portfolio controls
+            selected_customer_ecns = set()
+            
+            # Apply portfolio selections from edited_df for specific portfolios
             for _, row in edited_df.iterrows():
                 if not row['Include'] or row['Select'] <= 0:
                     continue
@@ -643,9 +647,13 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 
                 # Get customers for this portfolio from the FULL filtered customer set
                 if portfolio_id == 'N/A':
-                    portfolio_customers = all_filtered_customers[all_filtered_customers['CG_PORTFOLIO_CD'].isna()]
+                    portfolio_customers = all_filtered_customers[
+                        all_filtered_customers['CG_PORTFOLIO_CD'].isna()
+                    ]
                 else:
-                    portfolio_customers = all_filtered_customers[all_filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id]
+                    portfolio_customers = all_filtered_customers[
+                        all_filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id
+                    ]
                 
                 if len(portfolio_customers) > 0:
                     # Select closest customers to nearest AUs
@@ -653,6 +661,18 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                         portfolio_customers, select_count, identified_aus, branch_data
                     )
                     final_customers.append(selected)
+                    
+                    # Track selected customers
+                    selected_customer_ecns.update(selected['CG_ECN'].tolist())
+            
+            # Add any remaining Unassigned/Unmanaged customers that weren't explicitly controlled
+            unassigned_unmanaged = all_filtered_customers[
+                (all_filtered_customers['TYPE'].str.lower().str.strip().isin(['unassigned', 'unmanaged'])) &
+                (~all_filtered_customers['CG_ECN'].isin(selected_customer_ecns))
+            ]
+            
+            if not unassigned_unmanaged.empty:
+                final_customers.append(unassigned_unmanaged)
             
             if final_customers:
                 combined_customers = pd.concat(final_customers, ignore_index=True)
