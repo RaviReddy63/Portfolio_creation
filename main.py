@@ -614,16 +614,18 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
     
     with st.spinner("Applying changes..."):
         try:
-            # Get the SAME filters that were used in Generate Smart Portfolios
-            cust_state = st.session_state.get('mapping_cust_state')
-            role = st.session_state.get('mapping_role')  
-            cust_portcd = st.session_state.get('mapping_cust_portcd')
-            min_rev = st.session_state.get('mapping_min_revenue', 5000)
-            min_deposit = st.session_state.get('mapping_min_deposit', 100000)
+            # Get CURRENT filters from UI widgets (not cached session state)
+            # These need to be retrieved fresh from the current UI state
+            current_filters = get_current_mapping_filters()
             
-            # Apply customer filters to get the SAME base customer set as Generate Smart Portfolios
+            # Apply customer filters to get the SAME base customer set as current UI selection
             all_filtered_customers = apply_customer_filters_for_mapping(
-                customer_data, cust_state, role, cust_portcd, min_rev, min_deposit
+                customer_data, 
+                current_filters['cust_state'], 
+                current_filters['role'], 
+                current_filters['cust_portcd'], 
+                current_filters['min_rev'], 
+                current_filters['min_deposit']
             )
             
             # Get current AU assignments to calculate distances
@@ -676,6 +678,16 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 
         except Exception as e:
             st.error(f"Error: {str(e)}")
+
+def get_current_mapping_filters():
+    """Get current filter values from UI widgets"""
+    return {
+        'cust_state': st.session_state.get('mapping_cust_state'),
+        'role': st.session_state.get('mapping_role'),
+        'cust_portcd': st.session_state.get('mapping_cust_portcd'),
+        'min_rev': st.session_state.get('mapping_min_revenue', 5000),
+        'min_deposit': st.session_state.get('mapping_min_deposit', 100000)
+    }
 
 def select_closest_customers_to_aus(portfolio_customers, select_count, identified_aus, branch_data):
     """Select customers closest to any of the identified AUs"""
