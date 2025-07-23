@@ -482,7 +482,7 @@ def display_global_portfolio_control_component(results_df, customer_data, branch
         # Display editor if data exists
         if 'global_portfolio_df' in st.session_state:
             
-            # Simple data editor - user edits persist automatically in session state
+            # Simple data editor - do NOT update session state automatically
             edited_df = st.data_editor(
                 st.session_state.global_portfolio_df,
                 column_config={
@@ -498,9 +498,6 @@ def display_global_portfolio_control_component(results_df, customer_data, branch
                 height=350,
                 key="global_editor"
             )
-            
-            # Update session state with edits
-            st.session_state.global_portfolio_df = edited_df
             
             # Apply button - only regenerates data when clicked
             if st.button("Apply Global Changes", key="apply_global", type="primary"):
