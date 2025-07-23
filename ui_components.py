@@ -233,7 +233,7 @@ def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
-        key=f"portfolio_editor_{au_id}_{len(portfolio_df)}"
+        key=f"portfolio_editor_{au_id}"
     )
 
 def create_apply_changes_button(au_id, is_single_au=False):
