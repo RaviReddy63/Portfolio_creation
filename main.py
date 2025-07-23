@@ -614,15 +614,15 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
     
     with st.spinner("Applying changes..."):
         try:
-            # Get filters
+            # Get the SAME filters that were used in Generate Smart Portfolios
             cust_state = st.session_state.get('mapping_cust_state')
             role = st.session_state.get('mapping_role')  
             cust_portcd = st.session_state.get('mapping_cust_portcd')
             min_rev = st.session_state.get('mapping_min_revenue', 5000)
             min_deposit = st.session_state.get('mapping_min_deposit', 100000)
             
-            # Apply customer filters
-            filtered_customers = apply_customer_filters_for_mapping(
+            # Apply customer filters to get the SAME base customer set as Generate Smart Portfolios
+            all_filtered_customers = apply_customer_filters_for_mapping(
                 customer_data, cust_state, role, cust_portcd, min_rev, min_deposit
             )
             
@@ -639,10 +639,11 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 portfolio_id = row['Portfolio ID']
                 select_count = int(row['Select'])
                 
+                # Get customers for this portfolio from the FULL filtered customer set
                 if portfolio_id == 'N/A':
-                    portfolio_customers = filtered_customers[filtered_customers['CG_PORTFOLIO_CD'].isna()]
+                    portfolio_customers = all_filtered_customers[all_filtered_customers['CG_PORTFOLIO_CD'].isna()]
                 else:
-                    portfolio_customers = filtered_customers[filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id]
+                    portfolio_customers = all_filtered_customers[all_filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id]
                 
                 if len(portfolio_customers) > 0:
                     # Select closest customers to nearest AUs
@@ -661,11 +662,15 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 
                 st.session_state.smart_portfolio_results = smart_results
                 
-                # Clear global data to regenerate next time
+                # Clear cached data to force updates
                 if 'global_portfolio_df' in st.session_state:
                     del st.session_state.global_portfolio_df
                 
-                st.success(f"Applied changes with {len(smart_results)} customers!")
+                # Clear Smart Portfolio Summary controls to force refresh
+                if 'smart_portfolio_controls' in st.session_state:
+                    st.session_state.smart_portfolio_controls = {}
+                
+                st.success(f"Applied changes with {len(smart_results)} customers (from {len(all_filtered_customers)} total filtered)!")
             else:
                 st.error("No customers selected")
                 
