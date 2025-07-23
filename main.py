@@ -626,7 +626,11 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 customer_data, cust_state, role, cust_portcd, min_rev, min_deposit
             )
             
-            # Apply portfolio selections from edited_df
+            # Get current AU assignments to calculate distances
+            current_results = st.session_state.get('smart_portfolio_results', pd.DataFrame())
+            identified_aus = current_results['ASSIGNED_AU'].unique().tolist() if not current_results.empty else []
+            
+            # Apply portfolio selections from edited_df with distance-based selection
             final_customers = []
             for _, row in edited_df.iterrows():
                 if not row['Include'] or row['Select'] <= 0:
@@ -641,7 +645,10 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                     portfolio_customers = filtered_customers[filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id]
                 
                 if len(portfolio_customers) > 0:
-                    selected = portfolio_customers.head(select_count)
+                    # Select closest customers to nearest AUs
+                    selected = select_closest_customers_to_aus(
+                        portfolio_customers, select_count, identified_aus, branch_data
+                    )
                     final_customers.append(selected)
             
             if final_customers:
@@ -664,6 +671,50 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 
         except Exception as e:
             st.error(f"Error: {str(e)}")
+
+def select_closest_customers_to_aus(portfolio_customers, select_count, identified_aus, branch_data):
+    """Select customers closest to any of the identified AUs"""
+    from utils import haversine_distance
+    
+    if len(portfolio_customers) <= select_count:
+        return portfolio_customers
+    
+    if not identified_aus:
+        # If no AUs identified, return first N customers
+        return portfolio_customers.head(select_count)
+    
+    # Calculate minimum distance to any AU for each customer
+    customers_with_min_distance = []
+    
+    for idx, customer in portfolio_customers.iterrows():
+        min_distance = float('inf')
+        
+        # Find distance to closest AU
+        for au_id in identified_aus:
+            au_row = branch_data[branch_data['AU'] == au_id]
+            if au_row.empty:
+                continue
+                
+            au_lat = au_row.iloc[0]['BRANCH_LAT_NUM']
+            au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
+            
+            distance = haversine_distance(
+                customer['LAT_NUM'], customer['LON_NUM'], au_lat, au_lon
+            )
+            
+            if distance < min_distance:
+                min_distance = distance
+        
+        customers_with_min_distance.append({
+            'index': idx,
+            'min_distance': min_distance
+        })
+    
+    # Sort by minimum distance and select closest N customers
+    customers_with_min_distance.sort(key=lambda x: x['min_distance'])
+    selected_indices = [item['index'] for item in customers_with_min_distance[:select_count]]
+    
+    return portfolio_customers.loc[selected_indices]copy()
 
 def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
