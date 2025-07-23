@@ -647,18 +647,14 @@ def create_global_control_editor(global_summary):
         )
     }
     
-    # Generate a unique key based on the portfolios to force refresh when portfolios change
-    portfolio_ids = sorted(df['Portfolio ID'].tolist())
-    table_key = f"global_smart_control_editor_{hash(tuple(portfolio_ids))}"
-    
-    # Display editable table with increased height to match AU tables
+    # Use a static key to avoid recreation issues
     edited_df = st.data_editor(
         df,
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
-        height=350,  # Increased height to match AU tables
-        key=table_key  # Dynamic key based on portfolio content
+        height=350,
+        key="global_smart_control_editor"
     )
     
     return edited_df
@@ -881,8 +877,8 @@ def create_smart_portfolio_editor(portfolio_df, au_id):
         column_config=column_config,
         hide_index=True,
         use_container_width=True,
-        height=350,  # Match height with other tables
-        key=f"smart_portfolio_editor_{au_id}_{len(portfolio_df)}"
+        height=350,
+        key=f"smart_portfolio_editor_{au_id}"
     )
 
 def create_smart_apply_changes_button(au_id):
