@@ -355,9 +355,10 @@ def display_smart_portfolio_results(customer_data, branch_data):
         st.info("Click 'Generate Smart Portfolios' to create optimized customer assignments.")
         return
     
+    # Always use the current results from session state
     results_df = st.session_state.smart_portfolio_results
     
-    # Convert smart portfolio results to Portfolio Assignment format
+    # Convert smart portfolio results to Portfolio Assignment format - regenerate every time
     smart_portfolios_created = {}
     
     # Group by AU
