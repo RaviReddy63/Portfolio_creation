@@ -469,83 +469,48 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
 def display_global_portfolio_control_component(results_df, customer_data, branch_data):
     """Display unified global portfolio control component with table, button and statistics"""
     
-    # Create Global Portfolio tab (to match the AU tabs structure)
+    # Create Global Portfolio tab
     global_tab = st.tabs(["Global Control"])
     
     with global_tab[0]:
-        # Initialize global portfolio controls if not exists or if portfolios changed
-        if 'global_portfolio_controls' not in st.session_state:
-            # Generate initial global portfolio summary
+        # Only generate data if it doesn't exist in session state
+        if 'global_portfolio_data' not in st.session_state:
             global_summary = generate_global_portfolio_summary(results_df, customer_data)
             if global_summary:
-                st.session_state.global_portfolio_controls = pd.DataFrame(global_summary)
-        else:
-            # Check if portfolios have changed by comparing current vs stored
-            current_global_summary = generate_global_portfolio_summary(results_df, customer_data)
-            if current_global_summary:
-                current_portfolio_ids = set(item['Portfolio ID'] for item in current_global_summary)
-                existing_portfolio_ids = set(st.session_state.global_portfolio_controls['Portfolio ID'].tolist())
-                
-                if current_portfolio_ids != existing_portfolio_ids:
-                    # Portfolios changed, regenerate
-                    st.session_state.global_portfolio_controls = pd.DataFrame(current_global_summary)
+                st.session_state.global_portfolio_data = pd.DataFrame(global_summary)
         
-        # Display the editor only if we have controls
-        if 'global_portfolio_controls' in st.session_state and not st.session_state.global_portfolio_controls.empty:
-            df = st.session_state.global_portfolio_controls.copy()
+        # Display the editor if we have data
+        if 'global_portfolio_data' in st.session_state and not st.session_state.global_portfolio_data.empty:
             
             # Create column configuration
             column_config = {
-                "Include": st.column_config.CheckboxColumn(
-                    "Include",
-                    help="Include portfolio in all AUs (affects all portfolios)"
-                ),
-                "Portfolio ID": st.column_config.TextColumn(
-                    "Portfolio ID",
-                    help="Unique portfolio identifier",
-                    disabled=True
-                ),
-                "Portfolio Type": st.column_config.TextColumn(
-                    "Portfolio Type",
-                    help="Type of portfolio",
-                    disabled=True
-                ),
-                "Total Customers": st.column_config.NumberColumn(
-                    "Total Customers",
-                    help="Total customers in this portfolio in original data",
-                    disabled=True
-                ),
-                "Available": st.column_config.NumberColumn(
-                    "Available",
-                    help="Total customers from this portfolio across all AUs",
-                    disabled=True
-                ),
-                "Select": st.column_config.NumberColumn(
-                    "Select",
-                    help="Number of customers to select (will keep closest)",
-                    min_value=0,
-                    step=1
-                )
+                "Include": st.column_config.CheckboxColumn("Include"),
+                "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
+                "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
+                "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
+                "Available": st.column_config.NumberColumn("Available", disabled=True),
+                "Select": st.column_config.NumberColumn("Select", min_value=0, step=1)
             }
             
-            # Use data_editor and update session state with results
+            # Simple data editor with static key
             edited_df = st.data_editor(
-                df,
+                st.session_state.global_portfolio_data,
                 column_config=column_config,
                 hide_index=True,
                 use_container_width=True,
                 height=350,
-                key="global_smart_control_editor"
+                key="global_control_editor"
             )
             
-            # Update session state with edited data
-            st.session_state.global_portfolio_controls = edited_df
-            
             # Apply Changes button
-            if st.button("Apply Global Changes", key="apply_global_smart_changes", type="primary"):
-                apply_global_smart_changes_fixed(edited_df, customer_data, branch_data)
+            if st.button("Apply Global Changes", key="apply_global_changes", type="primary"):
+                # Clear the data so it gets regenerated after changes
+                if 'global_portfolio_data' in st.session_state:
+                    del st.session_state.global_portfolio_data
+                
+                apply_global_changes_simple(edited_df, customer_data, branch_data)
             
-            # Display global statistics
+            # Display statistics
             display_global_portfolio_statistics(results_df)
         else:
             st.info("No portfolios available for global control.")
