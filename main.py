@@ -469,39 +469,86 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
 def display_global_portfolio_control_component(results_df, customer_data, branch_data):
     """Display unified global portfolio control component with table, button and statistics"""
     
-    # Generate global portfolio summary - always regenerate to reflect current results
-    global_summary = generate_global_portfolio_summary(results_df, customer_data)
+    # Create Global Portfolio tab (to match the AU tabs structure)
+    global_tab = st.tabs(["Global Control"])
     
-    if global_summary:
-        # Create Global Portfolio tab (to match the AU tabs structure)
-        global_tab = st.tabs(["Global Control"])
-        
-        with global_tab[0]:
-            # Check if we have existing global controls and if they match current portfolios
-            if 'global_portfolio_controls' not in st.session_state:
-                # First time or after regeneration - use fresh summary
-                edited_summary = create_global_control_editor(global_summary)
-            else:
-                # Check if existing controls match current portfolios
-                existing_portfolios = set(row['Portfolio ID'] for _, row in st.session_state.global_portfolio_controls.iterrows())
-                current_portfolios = set(item['Portfolio ID'] for item in global_summary)
+    with global_tab[0]:
+        # Initialize global portfolio controls if not exists or if portfolios changed
+        if 'global_portfolio_controls' not in st.session_state:
+            # Generate initial global portfolio summary
+            global_summary = generate_global_portfolio_summary(results_df, customer_data)
+            if global_summary:
+                st.session_state.global_portfolio_controls = pd.DataFrame(global_summary)
+        else:
+            # Check if portfolios have changed by comparing current vs stored
+            current_global_summary = generate_global_portfolio_summary(results_df, customer_data)
+            if current_global_summary:
+                current_portfolio_ids = set(item['Portfolio ID'] for item in current_global_summary)
+                existing_portfolio_ids = set(st.session_state.global_portfolio_controls['Portfolio ID'].tolist())
                 
-                if existing_portfolios == current_portfolios:
-                    # Portfolios match, use existing controls
-                    edited_summary = create_global_control_editor(st.session_state.global_portfolio_controls.to_dict('records'))
-                else:
-                    # Portfolios changed, use fresh summary
-                    edited_summary = create_global_control_editor(global_summary)
+                if current_portfolio_ids != existing_portfolio_ids:
+                    # Portfolios changed, regenerate
+                    st.session_state.global_portfolio_controls = pd.DataFrame(current_global_summary)
+        
+        # Display the editor only if we have controls
+        if 'global_portfolio_controls' in st.session_state and not st.session_state.global_portfolio_controls.empty:
+            df = st.session_state.global_portfolio_controls.copy()
             
-            # Store in session state
-            st.session_state.global_portfolio_controls = edited_summary
+            # Create column configuration
+            column_config = {
+                "Include": st.column_config.CheckboxColumn(
+                    "Include",
+                    help="Include portfolio in all AUs (affects all portfolios)"
+                ),
+                "Portfolio ID": st.column_config.TextColumn(
+                    "Portfolio ID",
+                    help="Unique portfolio identifier",
+                    disabled=True
+                ),
+                "Portfolio Type": st.column_config.TextColumn(
+                    "Portfolio Type",
+                    help="Type of portfolio",
+                    disabled=True
+                ),
+                "Total Customers": st.column_config.NumberColumn(
+                    "Total Customers",
+                    help="Total customers in this portfolio in original data",
+                    disabled=True
+                ),
+                "Available": st.column_config.NumberColumn(
+                    "Available",
+                    help="Total customers from this portfolio across all AUs",
+                    disabled=True
+                ),
+                "Select": st.column_config.NumberColumn(
+                    "Select",
+                    help="Number of customers to select (will keep closest)",
+                    min_value=0,
+                    step=1
+                )
+            }
             
-            # Apply Changes button with same style as AU Apply Changes
+            # Use data_editor and update session state with results
+            edited_df = st.data_editor(
+                df,
+                column_config=column_config,
+                hide_index=True,
+                use_container_width=True,
+                height=350,
+                key="global_smart_control_editor"
+            )
+            
+            # Update session state with edited data
+            st.session_state.global_portfolio_controls = edited_df
+            
+            # Apply Changes button
             if st.button("Apply Global Changes", key="apply_global_smart_changes", type="primary"):
-                apply_global_smart_changes(edited_summary, global_summary, customer_data, branch_data)
+                apply_global_smart_changes_fixed(edited_df, customer_data, branch_data)
             
-            # Display global statistics (similar to AU summary statistics)
+            # Display global statistics
             display_global_portfolio_statistics(results_df)
+        else:
+            st.info("No portfolios available for global control.")
 
 def display_global_portfolio_statistics(results_df):
     """Display summary statistics for global portfolios in horizontal format"""
@@ -604,78 +651,28 @@ def generate_global_portfolio_summary(results_df, customer_data):
     
     return summary_list
 
-def create_global_control_editor(global_summary):
-    """Create editable global control table"""
-    
-    # Handle both list of dicts and DataFrame input
-    if isinstance(global_summary, list):
-        df = pd.DataFrame(global_summary)
-    else:
-        df = global_summary.copy()
-    
-    # Create column configuration
-    column_config = {
-        "Include": st.column_config.CheckboxColumn(
-            "Include",
-            help="Include portfolio in all AUs (affects all portfolios)"
-        ),
-        "Portfolio ID": st.column_config.TextColumn(
-            "Portfolio ID",
-            help="Unique portfolio identifier",
-            disabled=True
-        ),
-        "Portfolio Type": st.column_config.TextColumn(
-            "Portfolio Type",
-            help="Type of portfolio",
-            disabled=True
-        ),
-        "Total Customers": st.column_config.NumberColumn(
-            "Total Customers",
-            help="Total customers in this portfolio in original data",
-            disabled=True
-        ),
-        "Available": st.column_config.NumberColumn(
-            "Available",
-            help="Total customers from this portfolio across all AUs",
-            disabled=True
-        ),
-        "Select": st.column_config.NumberColumn(
-            "Select",
-            help="Number of customers to select (will keep closest)",
-            min_value=0,
-            step=1
-        )
-    }
-    
-    # Use a static key to avoid recreation issues
-    edited_df = st.data_editor(
-        df,
-        column_config=column_config,
-        hide_index=True,
-        use_container_width=True,
-        height=350,
-        key="global_smart_control_editor"
-    )
-    
-    return edited_df
 
-def apply_global_smart_changes(edited_summary, original_summary, customer_data, branch_data):
-    """Apply global changes and regenerate smart portfolios"""
+
+def apply_global_smart_changes_fixed(edited_summary, customer_data, branch_data):
+    """Apply global changes and regenerate smart portfolios - Fixed version"""
     
     with st.spinner("Applying global changes and regenerating portfolios..."):
         try:
-            # Get current filters from session state
-            cust_state = st.session_state.get('mapping_cust_state', [])
-            role = st.session_state.get('mapping_role', [])
-            cust_portcd = st.session_state.get('mapping_cust_portcd', [])
+            # Get current filters from session state with defaults
+            cust_state = st.session_state.get('mapping_cust_state')
+            role = st.session_state.get('mapping_role')  
+            cust_portcd = st.session_state.get('mapping_cust_portcd')
             min_rev = st.session_state.get('mapping_min_revenue', 5000)
             min_deposit = st.session_state.get('mapping_min_deposit', 100000)
             
             # Apply customer filters to get base filtered customers
             filtered_customers = apply_customer_filters_for_mapping(
-                customer_data, cust_state if cust_state else None, 
-                role if role else None, cust_portcd if cust_portcd else None, 
-                min_rev, min_deposit
+                customer_data, 
+                cust_state if cust_state else None, 
+                role if role else None, 
+                cust_portcd if cust_portcd else None, 
+                min_rev, 
+                min_deposit
             )
             
             if len(filtered_customers) == 0:
@@ -683,8 +680,8 @@ def apply_global_smart_changes(edited_summary, original_summary, customer_data, 
                 return
             
             # Apply portfolio-level filters based on global controls
-            final_filtered_customers = apply_portfolio_level_filters(
-                filtered_customers, edited_summary, original_summary, branch_data
+            final_filtered_customers = apply_portfolio_level_filters_fixed(
+                filtered_customers, edited_summary, branch_data
             )
             
             if len(final_filtered_customers) == 0:
@@ -701,10 +698,114 @@ def apply_global_smart_changes(edited_summary, original_summary, customer_data, 
             # Update session state
             st.session_state.smart_portfolio_results = smart_portfolio_results
             
+            # Clear global portfolio controls to force regeneration
+            if 'global_portfolio_controls' in st.session_state:
+                del st.session_state.global_portfolio_controls
+            
             st.success(f"Successfully regenerated portfolios with {len(smart_portfolio_results)} customers!")
             
         except Exception as e:
             st.error(f"Error applying global changes: {str(e)}")
+
+def apply_portfolio_level_filters_fixed(filtered_customers, edited_summary, branch_data):
+    """Apply portfolio-level include/select filters - Fixed version"""
+    
+    from utils import haversine_distance
+    
+    final_customers = []
+    
+    # Get the AUs that were used in the current smart portfolio results
+    current_results = st.session_state.get('smart_portfolio_results', pd.DataFrame())
+    if not current_results.empty:
+        identified_aus = current_results['ASSIGNED_AU'].unique().tolist()
+    else:
+        identified_aus = []
+    
+    # Process each portfolio
+    for _, edited_row in edited_summary.iterrows():
+        portfolio_id = edited_row['Portfolio ID']
+        include = edited_row['Include']
+        select_count = edited_row['Select']
+        
+        # Skip if not included
+        if not include:
+            continue
+        
+        # Get customers for this portfolio
+        if portfolio_id == 'N/A':
+            # Customers without original portfolio
+            portfolio_customers = filtered_customers[
+                filtered_customers['CG_PORTFOLIO_CD'].isna()
+            ].copy()
+        else:
+            # Customers with specific portfolio code
+            portfolio_customers = filtered_customers[
+                filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id
+            ].copy()
+        
+        if len(portfolio_customers) == 0:
+            continue
+        
+        # Apply select count filter by keeping closest customers to any identified AU
+        if select_count < len(portfolio_customers):
+            portfolio_customers = select_closest_customers_to_any_au_fixed(
+                portfolio_customers, select_count, identified_aus, branch_data
+            )
+        elif select_count > len(portfolio_customers):
+            # Can't select more than available
+            select_count = len(portfolio_customers)
+        
+        final_customers.append(portfolio_customers)
+    
+    # Combine all selected customers
+    if final_customers:
+        return pd.concat(final_customers, ignore_index=True)
+    else:
+        return pd.DataFrame()
+
+def select_closest_customers_to_any_au_fixed(portfolio_customers, select_count, selected_aus, branch_data):
+    """Select closest customers to any of the AUs that would be created - Fixed version"""
+    
+    from utils import haversine_distance
+    
+    if not selected_aus or len(selected_aus) == 0:
+        # If no specific AUs, just return first N customers sorted by a consistent criteria
+        return portfolio_customers.head(select_count)
+    
+    # Calculate minimum distance to any AU for each customer
+    customers_with_distance = []
+    
+    for idx, customer in portfolio_customers.iterrows():
+        min_distance = float('inf')
+        
+        for au_id in selected_aus:
+            # Get AU coordinates
+            au_row = branch_data[branch_data['AU'] == au_id]
+            if au_row.empty:
+                continue
+                
+            au_lat = au_row.iloc[0]['BRANCH_LAT_NUM']
+            au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
+            
+            # Calculate distance
+            distance = haversine_distance(
+                customer['LAT_NUM'], customer['LON_NUM'], au_lat, au_lon
+            )
+            
+            if distance < min_distance:
+                min_distance = distance
+        
+        customers_with_distance.append({
+            'customer': customer,
+            'min_distance': min_distance,
+            'index': idx
+        })
+    
+    # Sort by distance and select closest
+    customers_with_distance.sort(key=lambda x: x['min_distance'])
+    selected_indices = [item['index'] for item in customers_with_distance[:select_count]]
+    
+    return portfolio_customers.loc[selected_indices]
 
 def apply_portfolio_level_filters(filtered_customers, edited_summary, original_summary, branch_data):
     """Apply portfolio-level include/select filters"""
