@@ -40,97 +40,46 @@ def setup_page_config():
     """, unsafe_allow_html=True)
 
 def add_logo():
-    """Add logo to the page using HTML/CSS in header"""
-    # Convert SVG to base64 and embed in header with text separately
+    """Add custom header with logo and text"""
+    # Create a custom header section instead of modifying Streamlit's header
     import base64
+    
+    logo_html = ""
     try:
         with open("logo.svg", "rb") as f:
             svg_data = f.read()
             svg_base64 = base64.b64encode(svg_data).decode()
-        
-        st.markdown(f"""
-        <style>
-        header[data-testid="stHeader"] {{
-            display: flex !important;
-            align-items: center !important;
-            justify-content: flex-start !important;
-            padding-left: 20px !important;
-        }}
-        header[data-testid="stHeader"]::before {{
-            content: url('data:image/svg+xml;base64,{svg_base64}');
-            height: 30px;
-            width: 30px;
-            display: inline-block;
-            margin-right: 10px;
-        }}
-        header[data-testid="stHeader"]::after {{
-            content: "| Banker Placement Tool";
-            color: white;
-            font-size: 1.2rem;
-            font-weight: bold;
-            display: inline-block;
-            height: 30px;
-            line-height: 30px;
-            vertical-align: middle;
-        }}
-        </style>
-        """, unsafe_allow_html=True)
-        
+            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 30px; width: 30px; margin-right: 15px;">'
     except:
         try:
             with open("logo.png", "rb") as f:
                 png_data = f.read()
                 png_base64 = base64.b64encode(png_data).decode()
-            
-            st.markdown(f"""
-            <style>
-            header[data-testid="stHeader"] {{
-                display: flex !important;
-                align-items: center !important;
-                justify-content: flex-start !important;
-                padding-left: 20px !important;
-            }}
-            header[data-testid="stHeader"]::before {{
-                content: url('data:image/png;base64,{png_base64}');
-                height: 30px;
-                width: 30px;
-                display: inline-block;
-                margin-right: 10px;
-            }}
-            header[data-testid="stHeader"]::after {{
-                content: "| Banker Placement Tool";
-                color: white;
-                font-size: 1.2rem;
-                font-weight: bold;
-                display: inline-block;
-                height: 30px;
-                line-height: 30px;
-                vertical-align: middle;
-            }}
-            </style>
-            """, unsafe_allow_html=True)
+                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 30px; width: 30px; margin-right: 15px;">'
         except:
-            # If no logo, just add the text
-            st.markdown("""
-            <style>
-            header[data-testid="stHeader"] {
-                display: flex !important;
-                align-items: center !important;
-                justify-content: flex-start !important;
-                padding-left: 20px !important;
-            }
-            header[data-testid="stHeader"]::after {
-                content: "Banker Placement Tool";
-                color: white;
-                font-size: 1.2rem;
-                font-weight: bold;
-                display: inline-block;
-                height: 30px;
-                line-height: 30px;
-                vertical-align: middle;
-            }
-            </style>
-            """, unsafe_allow_html=True)
+            pass
+    
+    # Create custom header with logo and text
+    st.markdown(f"""
+    <div style="
+        background-color: rgb(215, 30, 40);
+        color: white;
+        padding: 15px 20px;
+        margin: -1rem -1rem 0 -1rem;
+        display: flex;
+        align-items: center;
+        border-bottom: 3px solid rgb(255, 205, 65);
+    ">
+        {logo_html}
+        <span style="
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-left: 2px solid white;
+            padding-left: 15px;
+            margin-left: 10px;
+        ">Banker Placement Tool</span>
+    </div>
+    """, unsafe_allow_html=True)
 
 def create_header():
     """Create the page header with navigation"""
