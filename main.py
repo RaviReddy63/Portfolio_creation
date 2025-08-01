@@ -6,17 +6,13 @@ from ui_components import (
     add_logo, create_header, initialize_session_state,
     create_au_filters, create_customer_filters, create_portfolio_button,
     display_summary_statistics, create_portfolio_editor, create_apply_changes_button,
-    create_customer_filters_for_mapping, create_save_buttons
+    create_customer_filters_for_mapping, create_save_buttons, setup_page_config
 )
 from data_loader import load_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
 from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
 from utils import merge_dfs
-
-def setup_page_config():
-    """Configure the Streamlit page"""
-    st.set_page_config("Portfolio Creation tool", layout="wide")
 
 def get_merged_data():
     """Load and merge all data with initial cleanup"""
@@ -609,150 +605,7 @@ def generate_global_portfolio_summary(results_df, customer_data):
     
     return summary_list
 
-def apply_global_changes_final(edited_df, customer_data, branch_data):
-    """Apply changes using the edited dataframe"""
-    
-    with st.spinner("Applying changes..."):
-        try:
-            # Get CURRENT filters from UI widgets (not cached session state)
-            current_filters = get_current_mapping_filters()
-            
-            # Apply customer filters to get ALL customers that match current UI selection
-            all_filtered_customers = apply_customer_filters_for_mapping(
-                customer_data, 
-                current_filters['cust_state'], 
-                current_filters['role'], 
-                current_filters['cust_portcd'], 
-                current_filters['min_rev'], 
-                current_filters['min_deposit']
-            )
-            
-            # Get current AU assignments to calculate distances
-            current_results = st.session_state.get('smart_portfolio_results', pd.DataFrame())
-            identified_aus = current_results['ASSIGNED_AU'].unique().tolist() if not current_results.empty else []
-            
-            # Start with ALL filtered customers, then apply Global Control selections
-            final_customers = []
-            
-            # Track which customers have been selected through portfolio controls
-            selected_customer_ecns = set()
-            
-            # Apply portfolio selections from edited_df for specific portfolios
-            for _, row in edited_df.iterrows():
-                if not row['Include'] or row['Select'] <= 0:
-                    continue
-                    
-                portfolio_id = row['Portfolio ID']
-                select_count = int(row['Select'])
-                
-                # Get customers for this portfolio from the FULL filtered customer set
-                if portfolio_id == 'N/A':
-                    portfolio_customers = all_filtered_customers[
-                        all_filtered_customers['CG_PORTFOLIO_CD'].isna()
-                    ]
-                else:
-                    portfolio_customers = all_filtered_customers[
-                        all_filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id
-                    ]
-                
-                if len(portfolio_customers) > 0:
-                    # Select closest customers to nearest AUs
-                    selected = select_closest_customers_to_aus(
-                        portfolio_customers, select_count, identified_aus, branch_data
-                    )
-                    final_customers.append(selected)
-                    
-                    # Track selected customers
-                    selected_customer_ecns.update(selected['CG_ECN'].tolist())
-            
-            # Add any remaining Unassigned/Unmanaged customers that weren't explicitly controlled
-            unassigned_unmanaged = all_filtered_customers[
-                (all_filtered_customers['TYPE'].str.lower().str.strip().isin(['unassigned', 'unmanaged'])) &
-                (~all_filtered_customers['CG_ECN'].isin(selected_customer_ecns))
-            ]
-            
-            if not unassigned_unmanaged.empty:
-                final_customers.append(unassigned_unmanaged)
-            
-            if final_customers:
-                combined_customers = pd.concat(final_customers, ignore_index=True)
-                
-                # Regenerate portfolios
-                smart_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
-                    combined_customers, branch_data
-                )
-                
-                st.session_state.smart_portfolio_results = smart_results
-                
-                # Clear cached data to force updates
-                if 'global_portfolio_df' in st.session_state:
-                    del st.session_state.global_portfolio_df
-                
-                # Clear Smart Portfolio Summary controls to force refresh
-                if 'smart_portfolio_controls' in st.session_state:
-                    st.session_state.smart_portfolio_controls = {}
-                
-                st.success(f"Applied changes with {len(smart_results)} customers (from {len(all_filtered_customers)} total filtered)!")
-            else:
-                st.error("No customers selected")
-                
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
-
-def get_current_mapping_filters():
-    """Get current filter values from UI widgets"""
-    return {
-        'cust_state': st.session_state.get('mapping_cust_state'),
-        'role': st.session_state.get('mapping_role'),
-        'cust_portcd': st.session_state.get('mapping_cust_portcd'),
-        'min_rev': st.session_state.get('mapping_min_revenue', 5000),
-        'min_deposit': st.session_state.get('mapping_min_deposit', 100000)
-    }
-
-def select_closest_customers_to_aus(portfolio_customers, select_count, identified_aus, branch_data):
-    """Select customers closest to any of the identified AUs"""
-    from utils import haversine_distance
-    
-    if len(portfolio_customers) <= select_count:
-        return portfolio_customers
-    
-    if not identified_aus:
-        # If no AUs identified, return first N customers
-        return portfolio_customers.head(select_count)
-    
-    # Calculate minimum distance to any AU for each customer
-    customers_with_min_distance = []
-    
-    for idx, customer in portfolio_customers.iterrows():
-        min_distance = float('inf')
-        
-        # Find distance to closest AU
-        for au_id in identified_aus:
-            au_row = branch_data[branch_data['AU'] == au_id]
-            if au_row.empty:
-                continue
-                
-            au_lat = au_row.iloc[0]['BRANCH_LAT_NUM']
-            au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
-            
-            distance = haversine_distance(
-                customer['LAT_NUM'], customer['LON_NUM'], au_lat, au_lon
-            )
-            
-            if distance < min_distance:
-                min_distance = distance
-        
-        customers_with_min_distance.append({
-            'index': idx,
-            'min_distance': min_distance
-        })
-    
-    # Sort by minimum distance and select closest N customers
-    customers_with_min_distance.sort(key=lambda x: x['min_distance'])
-    selected_indices = [item['index'] for item in customers_with_min_distance[:select_count]]
-    
-    return portfolio_customers.loc[selected_indices]copy()
-
+# Helper functions for smart portfolios
 def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
@@ -932,6 +785,7 @@ def display_smart_geographic_map(smart_portfolios_created, branch_data):
     else:
         st.info("No customers selected for map display")
 
+# Additional helper functions for saving portfolios
 def prepare_portfolio_for_export(au_data, customer_data, branch_data):
     """Prepare portfolio data in the required export format"""
     from utils import haversine_distance
@@ -1123,6 +977,151 @@ def save_all_smart_portfolios(smart_portfolios_created, customer_data):
         
     except Exception as e:
         st.error(f"Error saving all smart portfolios: {str(e)}")
+
+# Global changes functions for smart portfolios
+def apply_global_changes_final(edited_df, customer_data, branch_data):
+    """Apply changes using the edited dataframe"""
+    
+    with st.spinner("Applying changes..."):
+        try:
+            # Get CURRENT filters from UI widgets (not cached session state)
+            current_filters = get_current_mapping_filters()
+            
+            # Apply customer filters to get ALL customers that match current UI selection
+            all_filtered_customers = apply_customer_filters_for_mapping(
+                customer_data, 
+                current_filters['cust_state'], 
+                current_filters['role'], 
+                current_filters['cust_portcd'], 
+                current_filters['min_rev'], 
+                current_filters['min_deposit']
+            )
+            
+            # Get current AU assignments to calculate distances
+            current_results = st.session_state.get('smart_portfolio_results', pd.DataFrame())
+            identified_aus = current_results['ASSIGNED_AU'].unique().tolist() if not current_results.empty else []
+            
+            # Start with ALL filtered customers, then apply Global Control selections
+            final_customers = []
+            
+            # Track which customers have been selected through portfolio controls
+            selected_customer_ecns = set()
+            
+            # Apply portfolio selections from edited_df for specific portfolios
+            for _, row in edited_df.iterrows():
+                if not row['Include'] or row['Select'] <= 0:
+                    continue
+                    
+                portfolio_id = row['Portfolio ID']
+                select_count = int(row['Select'])
+                
+                # Get customers for this portfolio from the FULL filtered customer set
+                if portfolio_id == 'N/A':
+                    portfolio_customers = all_filtered_customers[
+                        all_filtered_customers['CG_PORTFOLIO_CD'].isna()
+                    ]
+                else:
+                    portfolio_customers = all_filtered_customers[
+                        all_filtered_customers['CG_PORTFOLIO_CD'] == portfolio_id
+                    ]
+                
+                if len(portfolio_customers) > 0:
+                    # Select closest customers to nearest AUs
+                    selected = select_closest_customers_to_aus(
+                        portfolio_customers, select_count, identified_aus, branch_data
+                    )
+                    final_customers.append(selected)
+                    
+                    # Track selected customers
+                    selected_customer_ecns.update(selected['CG_ECN'].tolist())
+            
+            # Add any remaining Unassigned/Unmanaged customers that weren't explicitly controlled
+            unassigned_unmanaged = all_filtered_customers[
+                (all_filtered_customers['TYPE'].str.lower().str.strip().isin(['unassigned', 'unmanaged'])) &
+                (~all_filtered_customers['CG_ECN'].isin(selected_customer_ecns))
+            ]
+            
+            if not unassigned_unmanaged.empty:
+                final_customers.append(unassigned_unmanaged)
+            
+            if final_customers:
+                combined_customers = pd.concat(final_customers, ignore_index=True)
+                
+                # Regenerate portfolios
+                smart_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+                    combined_customers, branch_data
+                )
+                
+                st.session_state.smart_portfolio_results = smart_results
+                
+                # Clear cached data to force updates
+                if 'global_portfolio_df' in st.session_state:
+                    del st.session_state.global_portfolio_df
+                
+                # Clear Smart Portfolio Summary controls to force refresh
+                if 'smart_portfolio_controls' in st.session_state:
+                    st.session_state.smart_portfolio_controls = {}
+                
+                st.success(f"Applied changes with {len(smart_results)} customers (from {len(all_filtered_customers)} total filtered)!")
+            else:
+                st.error("No customers selected")
+                
+        except Exception as e:
+            st.error(f"Error: {str(e)}")
+
+def get_current_mapping_filters():
+    """Get current filter values from UI widgets"""
+    return {
+        'cust_state': st.session_state.get('mapping_cust_state'),
+        'role': st.session_state.get('mapping_role'),
+        'cust_portcd': st.session_state.get('mapping_cust_portcd'),
+        'min_rev': st.session_state.get('mapping_min_revenue', 5000),
+        'min_deposit': st.session_state.get('mapping_min_deposit', 100000)
+    }
+
+def select_closest_customers_to_aus(portfolio_customers, select_count, identified_aus, branch_data):
+    """Select customers closest to any of the identified AUs"""
+    from utils import haversine_distance
+    
+    if len(portfolio_customers) <= select_count:
+        return portfolio_customers
+    
+    if not identified_aus:
+        # If no AUs identified, return first N customers
+        return portfolio_customers.head(select_count)
+    
+    # Calculate minimum distance to any AU for each customer
+    customers_with_min_distance = []
+    
+    for idx, customer in portfolio_customers.iterrows():
+        min_distance = float('inf')
+        
+        # Find distance to closest AU
+        for au_id in identified_aus:
+            au_row = branch_data[branch_data['AU'] == au_id]
+            if au_row.empty:
+                continue
+                
+            au_lat = au_row.iloc[0]['BRANCH_LAT_NUM']
+            au_lon = au_row.iloc[0]['BRANCH_LON_NUM']
+            
+            distance = haversine_distance(
+                customer['LAT_NUM'], customer['LON_NUM'], au_lat, au_lon
+            )
+            
+            if distance < min_distance:
+                min_distance = distance
+        
+        customers_with_min_distance.append({
+            'index': idx,
+            'min_distance': min_distance
+        })
+    
+    # Sort by minimum distance and select closest N customers
+    customers_with_min_distance.sort(key=lambda x: x['min_distance'])
+    selected_indices = [item['index'] for item in customers_with_min_distance[:select_count]]
+    
+    return portfolio_customers.loc[selected_indices].copy()
 
 if __name__ == "__main__":
     main()
