@@ -52,12 +52,13 @@ def add_logo():
         header[data-testid="stHeader"] {{
             display: flex !important;
             align-items: center !important;
-            justify-content: center !important;
+            justify-content: flex-start !important;
+            padding-left: 20px !important;
         }}
         header[data-testid="stHeader"]::before {{
             content: url('data:image/svg+xml;base64,{svg_base64}');
-            height: 40px;
-            width: 40px;
+            height: 30px;
+            width: 30px;
             display: block;
         }}
         </style>
@@ -74,12 +75,13 @@ def add_logo():
             header[data-testid="stHeader"] {{
                 display: flex !important;
                 align-items: center !important;
-                justify-content: center !important;
+                justify-content: flex-start !important;
+                padding-left: 20px !important;
             }}
             header[data-testid="stHeader"]::before {{
                 content: url('data:image/png;base64,{png_base64}');
-                height: 40px;
-                width: 40px;
+                height: 30px;
+                width: 30px;
                 display: block;
             }}
             </style>
