@@ -58,13 +58,14 @@ def add_logo():
         }}
         header[data-testid="stHeader"]::before {{
             content: url('data:image/svg+xml;base64,{svg_base64}') " | Banker Placement Tool";
-            height: 30px;
+            height: 60px;
             display: flex;
             align-items: center;
             color: white;
             font-size: 1.2rem;
             font-weight: bold;
             white-space: nowrap;
+            line-height: 60px;
         }}
         </style>
         """, unsafe_allow_html=True)
@@ -85,13 +86,14 @@ def add_logo():
             }}
             header[data-testid="stHeader"]::before {{
                 content: url('data:image/png;base64,{png_base64}') " | Banker Placement Tool";
-                height: 30px;
+                height: 60px;
                 display: flex;
                 align-items: center;
                 color: white;
                 font-size: 1.2rem;
                 font-weight: bold;
                 white-space: nowrap;
+                line-height: 60px;
             }}
             </style>
             """, unsafe_allow_html=True)
@@ -110,6 +112,10 @@ def add_logo():
                 color: white;
                 font-size: 1.2rem;
                 font-weight: bold;
+                height: 60px;
+                display: flex;
+                align-items: center;
+                line-height: 60px;
             }
             </style>
             """, unsafe_allow_html=True)
