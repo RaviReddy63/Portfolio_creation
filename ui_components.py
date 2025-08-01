@@ -8,7 +8,13 @@ def setup_page_config():
     # Custom CSS for red header
     st.markdown("""
     <style>
-        [data-testid="stHeader"] {
+        .stApp > header[data-testid="stHeader"] {
+            background-color: rgb(215, 30, 40) !important;
+            height: 60px;
+            display: flex !important;
+        }
+        
+        .stApp > header[data-testid="stHeader"] > div {
             background-color: rgb(215, 30, 40) !important;
         }
         /* Style for clear filters buttons to look like header text */
