@@ -39,13 +39,45 @@ def setup_page_config():
     """, unsafe_allow_html=True)
 
 def add_logo():
-    """Add logo to the page"""
+    """Add logo to the page using HTML/CSS in header"""
+    # Convert SVG to base64 and embed in header
+    import base64
     try:
-        # Use sidebar image as alternative to st.logo()
-        st.sidebar.image("logo.svg", width=120)
+        with open("logo.svg", "rb") as f:
+            svg_data = f.read()
+            svg_base64 = base64.b64encode(svg_data).decode()
+        
+        st.markdown(f"""
+        <style>
+        header[data-testid="stHeader"]::before {{
+            content: url('data:image/svg+xml;base64,{svg_base64}');
+            height: 40px;
+            width: 40px;
+            margin-right: 10px;
+            margin-left: 10px;
+            display: inline-block;
+        }}
+        </style>
+        """, unsafe_allow_html=True)
+        
     except:
         try:
-            st.sidebar.image("logo.png", width=120)
+            with open("logo.png", "rb") as f:
+                png_data = f.read()
+                png_base64 = base64.b64encode(png_data).decode()
+            
+            st.markdown(f"""
+            <style>
+            header[data-testid="stHeader"]::before {{
+                content: url('data:image/png;base64,{png_base64}');
+                height: 40px;
+                width: 40px;
+                margin-right: 10px;
+                margin-left: 10px;
+                display: inline-block;
+            }}
+            </style>
+            """, unsafe_allow_html=True)
         except:
             pass  # Skip logo if not found
 
