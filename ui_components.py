@@ -5,18 +5,9 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Custom CSS for red header
+    # Custom CSS for clear filters buttons to look like header text
     st.markdown("""
     <style>
-        .stApp > header[data-testid="stHeader"] {
-            background-color: rgb(215, 30, 40) !important;
-            height: 60px;
-            display: flex !important;
-        }
-        
-        .stApp > header[data-testid="stHeader"] > div {
-            background-color: rgb(215, 30, 40) !important;
-        }
         /* Style for clear filters buttons to look like header text */
         div[data-testid="column"] button[kind="secondary"] {
             background: none !important;
@@ -46,16 +37,30 @@ def add_logo():
         try:
             st.logo("logo.png")
         except:
-            st.info("To display a logo, place logo.svg or logo.png in your project directory")
+            pass  # Skip logo if not found
 
 def create_header():
     """Create the page header with navigation"""
+    # Custom header HTML that will definitely show
+    st.markdown("""
+    <div style="
+        background-color: rgb(215, 30, 40);
+        color: white;
+        padding: 1rem 2rem;
+        margin: -1rem -1rem 2rem -1rem;
+        border-radius: 0;
+    ">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1 style="margin: 0; font-size: 1.5rem; font-weight: bold;">🏦 Portfolio Creation Tool</h1>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Navigation tabs below the header
     col1, col2 = st.columns([3, 1])
-    with col1:
-        st.title("Portfolio Creation Tool")
     with col2:
-        st.markdown("")  # Add some spacing
         page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
+    
     return page
 
 def initialize_session_state():
