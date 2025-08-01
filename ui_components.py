@@ -5,17 +5,16 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Style Streamlit's default header and add yellow line below
+    # Hide Streamlit's default header completely
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
-            background-color: rgb(215, 30, 40) !important;
-            height: 60px !important;
-            border-bottom: 3px solid rgb(255, 205, 65) !important;
+            display: none !important;
         }
         
-        header[data-testid="stHeader"] > div:first-child {
-            background-color: rgb(215, 30, 40) !important;
+        /* Adjust main content area */
+        .main .block-container {
+            padding-top: 1rem;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -49,13 +48,13 @@ def add_logo():
         with open("logo.svg", "rb") as f:
             svg_data = f.read()
             svg_base64 = base64.b64encode(svg_data).decode()
-            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 30px; width: 30px; margin-right: 15px;">'
+            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 50px; width: 50px; margin-right: 15px;">'
     except:
         try:
             with open("logo.png", "rb") as f:
                 png_data = f.read()
                 png_base64 = base64.b64encode(png_data).decode()
-                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 30px; width: 30px; margin-right: 15px;">'
+                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 50px; width: 50px; margin-right: 15px;">'
         except:
             pass
     
