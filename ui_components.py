@@ -5,12 +5,13 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Style Streamlit's default header
+    # Style Streamlit's default header and add yellow line below
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
             background-color: rgb(215, 30, 40) !important;
             height: 60px !important;
+            border-bottom: 3px solid rgb(255, 205, 65) !important;
         }
         
         header[data-testid="stHeader"] > div:first-child {
