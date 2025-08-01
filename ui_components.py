@@ -41,10 +41,11 @@ def setup_page_config():
 def add_logo():
     """Add logo to the page"""
     try:
-        st.logo("logo.svg")
+        # Use sidebar image as alternative to st.logo()
+        st.sidebar.image("logo.svg", width=120)
     except:
         try:
-            st.logo("logo.png")
+            st.sidebar.image("logo.png", width=120)
         except:
             pass  # Skip logo if not found
 
