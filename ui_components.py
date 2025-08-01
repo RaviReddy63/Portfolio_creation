@@ -41,7 +41,7 @@ def setup_page_config():
 
 def add_logo():
     """Add logo to the page using HTML/CSS in header"""
-    # Convert SVG to base64 and embed in header with text
+    # Convert SVG to base64 and embed in header with text separately
     import base64
     try:
         with open("logo.svg", "rb") as f:
@@ -57,14 +57,21 @@ def add_logo():
             padding-left: 20px !important;
         }}
         header[data-testid="stHeader"]::before {{
-            content: url('data:image/svg+xml;base64,{svg_base64}') " | Banker Placement Tool";
+            content: url('data:image/svg+xml;base64,{svg_base64}');
             height: 30px;
-            display: flex;
-            align-items: center;
+            width: 30px;
+            display: block;
+            margin-right: 10px;
+        }}
+        header[data-testid="stHeader"]::after {{
+            content: "| Banker Placement Tool";
             color: white;
             font-size: 1.2rem;
             font-weight: bold;
-            white-space: nowrap;
+            display: flex;
+            align-items: center;
+            height: 30px;
+            line-height: 30px;
         }}
         </style>
         """, unsafe_allow_html=True)
@@ -84,14 +91,21 @@ def add_logo():
                 padding-left: 20px !important;
             }}
             header[data-testid="stHeader"]::before {{
-                content: url('data:image/png;base64,{png_base64}') " | Banker Placement Tool";
+                content: url('data:image/png;base64,{png_base64}');
                 height: 30px;
-                display: flex;
-                align-items: center;
+                width: 30px;
+                display: block;
+                margin-right: 10px;
+            }}
+            header[data-testid="stHeader"]::after {{
+                content: "| Banker Placement Tool";
                 color: white;
                 font-size: 1.2rem;
                 font-weight: bold;
-                white-space: nowrap;
+                display: flex;
+                align-items: center;
+                height: 30px;
+                line-height: 30px;
             }}
             </style>
             """, unsafe_allow_html=True)
@@ -105,11 +119,15 @@ def add_logo():
                 justify-content: flex-start !important;
                 padding-left: 20px !important;
             }
-            header[data-testid="stHeader"]::before {
+            header[data-testid="stHeader"]::after {
                 content: "Banker Placement Tool";
                 color: white;
                 font-size: 1.2rem;
                 font-weight: bold;
+                display: flex;
+                align-items: center;
+                height: 30px;
+                line-height: 30px;
             }
             </style>
             """, unsafe_allow_html=True)
