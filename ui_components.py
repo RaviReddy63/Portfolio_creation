@@ -60,7 +60,7 @@ def add_logo():
             content: url('data:image/svg+xml;base64,{svg_base64}');
             height: 30px;
             width: 30px;
-            display: block;
+            display: inline-block;
             margin-right: 10px;
         }}
         header[data-testid="stHeader"]::after {{
@@ -68,10 +68,10 @@ def add_logo():
             color: white;
             font-size: 1.2rem;
             font-weight: bold;
-            display: flex;
-            align-items: center;
+            display: inline-block;
             height: 30px;
             line-height: 30px;
+            vertical-align: middle;
         }}
         </style>
         """, unsafe_allow_html=True)
@@ -94,7 +94,7 @@ def add_logo():
                 content: url('data:image/png;base64,{png_base64}');
                 height: 30px;
                 width: 30px;
-                display: block;
+                display: inline-block;
                 margin-right: 10px;
             }}
             header[data-testid="stHeader"]::after {{
@@ -102,10 +102,10 @@ def add_logo():
                 color: white;
                 font-size: 1.2rem;
                 font-weight: bold;
-                display: flex;
-                align-items: center;
+                display: inline-block;
                 height: 30px;
                 line-height: 30px;
+                vertical-align: middle;
             }}
             </style>
             """, unsafe_allow_html=True)
@@ -124,10 +124,10 @@ def add_logo():
                 color: white;
                 font-size: 1.2rem;
                 font-weight: bold;
-                display: flex;
-                align-items: center;
+                display: inline-block;
                 height: 30px;
                 line-height: 30px;
+                vertical-align: middle;
             }
             </style>
             """, unsafe_allow_html=True)
