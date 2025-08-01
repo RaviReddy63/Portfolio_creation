@@ -41,7 +41,7 @@ def setup_page_config():
 
 def add_logo():
     """Add logo to the page using HTML/CSS in header"""
-    # Convert SVG to base64 and embed in header
+    # Convert SVG to base64 and embed in header with text
     import base64
     try:
         with open("logo.svg", "rb") as f:
@@ -57,10 +57,14 @@ def add_logo():
             padding-left: 20px !important;
         }}
         header[data-testid="stHeader"]::before {{
-            content: url('data:image/svg+xml;base64,{svg_base64}');
+            content: url('data:image/svg+xml;base64,{svg_base64}') " | Banker Placement Tool";
             height: 30px;
-            width: 30px;
-            display: block;
+            display: flex;
+            align-items: center;
+            color: white;
+            font-size: 1.2rem;
+            font-weight: bold;
+            white-space: nowrap;
         }}
         </style>
         """, unsafe_allow_html=True)
@@ -80,15 +84,35 @@ def add_logo():
                 padding-left: 20px !important;
             }}
             header[data-testid="stHeader"]::before {{
-                content: url('data:image/png;base64,{png_base64}');
+                content: url('data:image/png;base64,{png_base64}') " | Banker Placement Tool";
                 height: 30px;
-                width: 30px;
-                display: block;
+                display: flex;
+                align-items: center;
+                color: white;
+                font-size: 1.2rem;
+                font-weight: bold;
+                white-space: nowrap;
             }}
             </style>
             """, unsafe_allow_html=True)
         except:
-            pass  # Skip logo if not found
+            # If no logo, just add the text
+            st.markdown("""
+            <style>
+            header[data-testid="stHeader"] {
+                display: flex !important;
+                align-items: center !important;
+                justify-content: flex-start !important;
+                padding-left: 20px !important;
+            }
+            header[data-testid="stHeader"]::before {
+                content: "Banker Placement Tool";
+                color: white;
+                font-size: 1.2rem;
+                font-weight: bold;
+            }
+            </style>
+            """, unsafe_allow_html=True)
 
 def create_header():
     """Create the page header with navigation"""
