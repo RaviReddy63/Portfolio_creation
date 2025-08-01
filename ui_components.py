@@ -49,13 +49,16 @@ def add_logo():
         
         st.markdown(f"""
         <style>
+        header[data-testid="stHeader"] {{
+            display: flex !important;
+            align-items: center !important;
+            justify-content: center !important;
+        }}
         header[data-testid="stHeader"]::before {{
             content: url('data:image/svg+xml;base64,{svg_base64}');
             height: 40px;
             width: 40px;
-            margin-right: 10px;
-            margin-left: 10px;
-            display: inline-block;
+            display: block;
         }}
         </style>
         """, unsafe_allow_html=True)
@@ -68,13 +71,16 @@ def add_logo():
             
             st.markdown(f"""
             <style>
+            header[data-testid="stHeader"] {{
+                display: flex !important;
+                align-items: center !important;
+                justify-content: center !important;
+            }}
             header[data-testid="stHeader"]::before {{
                 content: url('data:image/png;base64,{png_base64}');
                 height: 40px;
                 width: 40px;
-                margin-right: 10px;
-                margin-left: 10px;
-                display: inline-block;
+                display: block;
             }}
             </style>
             """, unsafe_allow_html=True)
