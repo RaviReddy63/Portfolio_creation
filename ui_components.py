@@ -85,13 +85,65 @@ def add_logo():
     """, unsafe_allow_html=True)
 
 def create_header():
-    """Create the page header with navigation"""
-    # Navigation tabs as tab views
-    page = st.tabs(["Portfolio Assignment", "Portfolio Mapping"])
+    """Create the page header with tab navigation and content"""
+    # Navigation tabs as tab views with content inside each tab
+    tab1, tab2 = st.tabs(["Portfolio Assignment", "Portfolio Mapping"])
     
-    # Return the selected tab index (0 for Portfolio Assignment, 1 for Portfolio Mapping)
-    # We'll handle this differently in main.py
-    return page
+    with tab1:
+        # Portfolio Assignment content - call the function that shows this content
+        show_portfolio_assignment_page()
+        
+    with tab2:
+        # Portfolio Mapping content - call the function that shows this content
+        show_portfolio_mapping_page()
+    
+    # Return None since content is handled within tabs
+    return None
+
+def show_portfolio_assignment_page():
+    """Show Portfolio Assignment page content"""
+    from data_loader import get_merged_data
+    
+    # Load data
+    customer_data, banker_data, branch_data, data = get_merged_data()
+    
+    # Store branch_data in session state for save functions
+    st.session_state.branch_data = branch_data
+    st.session_state.customer_data = customer_data
+    
+    # Create AU filters
+    selected_aus = create_au_filters(branch_data)
+    
+    # Create customer filters
+    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters(customer_data)
+    
+    # Create portfolio button
+    button_clicked = create_portfolio_button()
+    
+    # Handle portfolio creation logic here...
+    # (This would include all the existing Portfolio Assignment logic from main.py)
+
+def show_portfolio_mapping_page():
+    """Show Portfolio Mapping page content"""
+    from data_loader import get_merged_data
+    
+    st.subheader("Smart Portfolio Mapping")
+    
+    # Load data
+    customer_data, banker_data, branch_data, data = get_merged_data()
+    
+    # Create customer filters
+    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
+    
+    # Create Smart Portfolio Generation button
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.write("")
+    with col2:
+        generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
+    
+    # Handle portfolio mapping logic here...
+    # (This would include all the existing Portfolio Mapping logic from main.py)
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
