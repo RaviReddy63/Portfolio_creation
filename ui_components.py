@@ -5,7 +5,7 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header completely and set primary color theme
+    # Hide Streamlit's default header completely
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
@@ -17,30 +17,12 @@ def setup_page_config():
             padding-top: 1rem;
         }
         
-        /* Set primary color for all buttons */
-        .stButton > button {
-            background-color: rgb(215, 30, 40) !important;
-            color: white !important;
-            border: none !important;
-        }
-        
-        .stButton > button:hover {
-            background-color: rgb(185, 25, 35) !important;
-            color: white !important;
-        }
-        
-        .stButton > button:active, .stButton > button:focus {
-            background-color: rgb(165, 20, 30) !important;
-            color: white !important;
-            border: none !important;
-        }
-        
         /* Style for clear filters buttons to look like header text */
         div[data-testid="column"] button[kind="secondary"] {
             background: none !important;
             border: none !important;
             padding: 0 !important;
-            color: rgb(215, 30, 40) !important;
+            color: #1f77b4 !important;
             text-decoration: underline !important;
             font-size: 1.25rem !important;
             font-weight: 600 !important;
@@ -50,39 +32,8 @@ def setup_page_config():
             margin-top: 0.5rem !important;
         }
         div[data-testid="column"] button[kind="secondary"]:hover {
-            color: rgb(185, 25, 35) !important;
+            color: #0d47a1 !important;
             background: none !important;
-        }
-        
-        /* Radio button styling */
-        .stRadio > div[role="radiogroup"] > label > div[data-testid="stMarkdownContainer"] {
-            color: rgb(215, 30, 40) !important;
-        }
-        
-        /* Selected radio button */
-        .stRadio > div[role="radiogroup"] > label[data-checked="true"] > div[data-testid="stMarkdownContainer"] {
-            color: rgb(215, 30, 40) !important;
-            font-weight: bold !important;
-        }
-        
-        /* Checkbox styling */
-        .stCheckbox > label > span[data-testid="stMarkdownContainer"] {
-            color: rgb(215, 30, 40) !important;
-        }
-        
-        /* Multiselect styling */
-        .stMultiSelect > div > div {
-            border-color: rgb(215, 30, 40) !important;
-        }
-        
-        /* Slider styling */
-        .stSlider > div > div > div > div {
-            background-color: rgb(215, 30, 40) !important;
-        }
-        
-        /* Selectbox styling */
-        .stSelectbox > div > div {
-            border-color: rgb(215, 30, 40) !important;
         }
     </style>
     """, unsafe_allow_html=True)
@@ -145,7 +96,7 @@ def add_logo():
                 cursor: pointer;
                 padding: 5px 10px;
                 border-radius: 4px;
-                background-color: {'white' if st.session_state.current_page == 'Portfolio Assignment' else 'transparent'};
+                background-color: {'rgb(255, 205, 65)' if st.session_state.current_page == 'Portfolio Assignment' else 'transparent'};
                 color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Assignment' else 'white'};
             ">Portfolio Assignment</span>
             <span id="portfolio-mapping" style="
@@ -155,7 +106,7 @@ def add_logo():
                 cursor: pointer;
                 padding: 5px 10px;
                 border-radius: 4px;
-                background-color: {'white' if st.session_state.current_page == 'Portfolio Mapping' else 'transparent'};
+                background-color: {'rgb(255, 205, 65)' if st.session_state.current_page == 'Portfolio Mapping' else 'transparent'};
                 color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Mapping' else 'white'};
             ">Portfolio Mapping</span>
         </div>
