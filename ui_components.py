@@ -86,14 +86,11 @@ def add_logo():
 
 def create_header():
     """Create the page header with navigation"""
-    # Add page title
-    st.title("Portfolio Creation Tool")
+    # Navigation tabs as tab views
+    page = st.tabs(["Portfolio Assignment", "Portfolio Mapping"])
     
-    # Navigation tabs - back to original working approach
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
-    
+    # Return the selected tab index (0 for Portfolio Assignment, 1 for Portfolio Mapping)
+    # We'll handle this differently in main.py
     return page
 
 def initialize_session_state():
