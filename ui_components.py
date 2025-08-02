@@ -39,7 +39,7 @@ def setup_page_config():
     """, unsafe_allow_html=True)
 
 def add_logo():
-    """Add custom header with logo and text"""
+    """Add custom header with logo, text, and navigation"""
     # Create a custom header section instead of modifying Streamlit's header
     import base64
     
@@ -70,31 +70,88 @@ def add_logo():
         margin-right: calc(-50vw + 50%);
         display: flex;
         align-items: center;
+        justify-content: space-between;
         border-bottom: 3px solid rgb(255, 205, 65);
         box-sizing: border-box;
     ">
-        {logo_html}
-        <span style="
-            font-size: 1.2rem;
-            font-weight: bold;
-            border-left: 2px solid white;
-            padding-left: 15px;
-            margin-left: 10px;
-        ">Banker Placement Tool</span>
+        <div style="display: flex; align-items: center;">
+            {logo_html}
+            <span style="
+                font-size: 1.2rem;
+                font-weight: bold;
+                border-left: 2px solid white;
+                padding-left: 15px;
+                margin-left: 10px;
+            ">Banker Placement Tool</span>
+        </div>
+        <div id="header-navigation" style="display: flex; gap: 30px; align-items: center;">
+        </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Add functional navigation using Streamlit radio in the header area
+    # Use custom CSS to position it in the header
+    st.markdown("""
+    <style>
+        /* Hide the default radio styling and position in header */
+        div[data-testid="stRadio"] {
+            position: fixed;
+            top: 8px;
+            right: 20px;
+            z-index: 1000;
+            background: none !important;
+        }
+        
+        /* Style radio buttons to look like header navigation */
+        div[data-testid="stRadio"] > div[role="radiogroup"] {
+            display: flex;
+            gap: 30px;
+            background: none !important;
+        }
+        
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label {
+            background: none !important;
+            border: none !important;
+            padding: 5px 10px !important;
+            border-radius: 4px !important;
+            cursor: pointer !important;
+            color: white !important;
+            font-size: 1rem !important;
+        }
+        
+        /* Active state styling */
+        div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"] {
+            background-color: rgb(255, 205, 65) !important;
+            color: rgb(215, 30, 40) !important;
+            font-weight: bold !important;
+        }
+        
+        /* Hide radio circles */
+        div[data-testid="stRadio"] input[type="radio"] {
+            display: none !important;
+        }
+        
+        /* Text styling */
+        div[data-testid="stRadio"] label > div[data-testid="stMarkdownContainer"] > p {
+            color: inherit !important;
+            margin: 0 !important;
+            font-size: 1rem !important;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Navigation radio buttons
+    page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="header_nav")
+    
+    return page
 
 def create_header():
     """Create the page header with navigation"""
-    # Add page title
+    # Add page title only - navigation is now in header
     st.title("Portfolio Creation Tool")
     
-    # Navigation tabs
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
-    
-    return page
+    # Navigation is now handled in add_logo function
+    return None
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
