@@ -102,14 +102,18 @@ def add_logo():
     """, unsafe_allow_html=True)
 
 def create_header():
-    """Create the page header with navigation"""
+    """Create the page header with sidebar navigation"""
     # Add page title
     st.title("Portfolio Creation Tool")
     
-    # Navigation tabs - back to original working approach
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
+    # Sidebar navigation
+    with st.sidebar:
+        st.markdown("### Navigation")
+        page = st.radio(
+            "Select Page:",
+            ["Portfolio Assignment", "Portfolio Mapping"],
+            key="sidebar_nav"
+        )
     
     return page
 
