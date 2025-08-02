@@ -5,7 +5,7 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header and set primary button color
+    # Hide Streamlit's default header and set global primary color
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
@@ -17,24 +17,94 @@ def setup_page_config():
             padding-top: 1rem;
         }
         
-        /* Set primary button color to red */
+        /* Set global primary color to red for all components */
+        :root {
+            --primary-color: rgb(215, 30, 40);
+            --primary-color-hover: rgb(185, 25, 35);
+            --primary-color-active: rgb(165, 20, 30);
+        }
+        
+        /* Primary buttons */
         .stButton > button[kind="primary"] {
-            background-color: rgb(215, 30, 40) !important;
-            border-color: rgb(215, 30, 40) !important;
+            background-color: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
             color: white !important;
         }
-        
         .stButton > button[kind="primary"]:hover {
-            background-color: rgb(185, 25, 35) !important;
-            border-color: rgb(185, 25, 35) !important;
-            color: white !important;
+            background-color: var(--primary-color-hover) !important;
+            border-color: var(--primary-color-hover) !important;
         }
-        
         .stButton > button[kind="primary"]:active,
         .stButton > button[kind="primary"]:focus {
-            background-color: rgb(165, 20, 30) !important;
-            border-color: rgb(165, 20, 30) !important;
-            color: white !important;
+            background-color: var(--primary-color-active) !important;
+            border-color: var(--primary-color-active) !important;
+        }
+        
+        /* Tabs */
+        .stTabs > div > div > div > div[role="tab"][aria-selected="true"] {
+            color: var(--primary-color) !important;
+            border-bottom-color: var(--primary-color) !important;
+        }
+        .stTabs > div > div > div > div[role="tab"]:hover {
+            color: var(--primary-color-hover) !important;
+        }
+        
+        /* Sliders */
+        .stSlider > div > div > div > div[role="slider"] {
+            background-color: var(--primary-color) !important;
+        }
+        .stSlider > div > div > div[data-testid="stSlider"] > div > div {
+            background-color: var(--primary-color) !important;
+        }
+        .stSlider .rc-slider-track {
+            background-color: var(--primary-color) !important;
+        }
+        .stSlider .rc-slider-handle {
+            border-color: var(--primary-color) !important;
+            background-color: var(--primary-color) !important;
+        }
+        .stSlider .rc-slider-handle:active {
+            border-color: var(--primary-color-active) !important;
+            box-shadow: 0 0 5px var(--primary-color-active) !important;
+        }
+        
+        /* Radio buttons */
+        .stRadio > div[role="radiogroup"] > label[data-checked="true"] > div:first-child {
+            background-color: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+        }
+        
+        /* Checkboxes */
+        .stCheckbox > label > span[data-checked="true"] {
+            background-color: var(--primary-color) !important;
+            border-color: var(--primary-color) !important;
+        }
+        
+        /* Multiselect */
+        .stMultiSelect > div > div[data-baseweb="select"] > div {
+            border-color: var(--primary-color) !important;
+        }
+        .stMultiSelect div[data-baseweb="tag"] {
+            background-color: var(--primary-color) !important;
+        }
+        
+        /* Selectbox */
+        .stSelectbox > div > div[data-baseweb="select"] > div:focus-within {
+            border-color: var(--primary-color) !important;
+            box-shadow: 0 0 0 0.2rem rgba(215, 30, 40, 0.2) !important;
+        }
+        
+        /* Progress bars */
+        .stProgress > div > div > div {
+            background-color: var(--primary-color) !important;
+        }
+        
+        /* Links */
+        a {
+            color: var(--primary-color) !important;
+        }
+        a:hover {
+            color: var(--primary-color-hover) !important;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -42,7 +112,7 @@ def setup_page_config():
             background: none !important;
             border: none !important;
             padding: 0 !important;
-            color: #1f77b4 !important;
+            color: var(--primary-color) !important;
             text-decoration: underline !important;
             font-size: 1.25rem !important;
             font-weight: 600 !important;
@@ -52,7 +122,7 @@ def setup_page_config():
             margin-top: 0.5rem !important;
         }
         div[data-testid="column"] button[kind="secondary"]:hover {
-            color: #0d47a1 !important;
+            color: var(--primary-color-hover) !important;
             background: none !important;
         }
     </style>
