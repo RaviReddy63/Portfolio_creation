@@ -17,9 +17,20 @@ def setup_page_config():
             padding-top: 1rem;
         }
         
-        /* Hide the navigation buttons but keep them functional */
-        div[data-testid="column"]:has(button[key="nav_portfolio_assignment"]),
-        div[data-testid="column"]:has(button[key="nav_portfolio_mapping"]) {
+        /* Hide the navigation buttons completely */
+        button[key="nav_portfolio_assignment"],
+        button[key="nav_portfolio_mapping"] {
+            display: none !important;
+        }
+        
+        /* Hide the columns containing navigation buttons */
+        div[data-testid="column"]:has(button[key*="nav_portfolio"]) {
+            display: none !important;
+        }
+        
+        /* Alternative approach - hide by button text */
+        .stButton button:has-text("Portfolio Assignment"),
+        .stButton button:has-text("Portfolio Mapping") {
             display: none !important;
         }
         
@@ -117,16 +128,18 @@ def add_logo():
     </div>
     """, unsafe_allow_html=True)
     
-    # Navigation buttons (functional - will be hidden with CSS)
+    # Navigation buttons (functional but hidden with CSS)
+    st.markdown('<div style="display: none;">', unsafe_allow_html=True)
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("Portfolio Assignment", key="nav_portfolio_assignment"):
             st.session_state.current_page = "Portfolio Assignment"
-            st.rerun()
+            st.experimental_rerun()
     with col2:
         if st.button("Portfolio Mapping", key="nav_portfolio_mapping"):
             st.session_state.current_page = "Portfolio Mapping"
-            st.rerun()
+            st.experimental_rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
     
     return st.session_state.current_page
 
@@ -135,8 +148,8 @@ def create_header():
     # Add page title only - navigation is now in header
     st.title("Portfolio Creation Tool")
     
-    # Navigation is now handled in add_logo function
-    return None
+    # Return the current page from session state
+    return st.session_state.get('current_page', 'Portfolio Assignment')
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
