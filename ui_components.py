@@ -20,12 +20,42 @@ def setup_page_config():
             max-width: 100% !important;
         }
         
-        /* Style navigation buttons */
+        /* Style left navigation column */
+        div[data-testid="column"]:first-child {
+            background-color: #f8f9fa !important;
+            border-right: 1px solid #e0e0e0 !important;
+            padding: 20px 0px !important;
+            min-height: 100vh !important;
+        }
+        
+        /* Style navigation buttons to look like clean menu items */
         div[data-testid="column"]:first-child .stButton > button {
-            color: black !important;
-            font-weight: bold !important;
             background-color: transparent !important;
-            border: 1px solid #ccc !important;
+            border: none !important;
+            color: #333 !important;
+            font-weight: 500 !important;
+            font-size: 16px !important;
+            text-align: left !important;
+            width: 100% !important;
+            padding: 15px 20px !important;
+            margin-bottom: 5px !important;
+            border-radius: 0px !important;
+            box-shadow: none !important;
+            transition: all 0.2s ease !important;
+        }
+        
+        /* Hover effect for navigation buttons */
+        div[data-testid="column"]:first-child .stButton > button:hover {
+            background-color: #e9ecef !important;
+            color: #333 !important;
+        }
+        
+        /* Active/selected navigation button */
+        div[data-testid="column"]:first-child .stButton > button:focus,
+        div[data-testid="column"]:first-child .stButton > button:active {
+            background-color: rgb(215, 30, 40) !important;
+            color: white !important;
+            border-left: 4px solid rgb(215, 30, 40) !important;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -105,20 +135,7 @@ def create_header():
     col_nav, col_main = st.columns([15, 85])
     
     with col_nav:
-        # Add custom styling for selected button
-        st.markdown(f"""
-        <style>
-            /* Style for selected navigation button */
-            .nav-button-selected {{
-                background-color: rgb(215, 30, 40) !important;
-                color: white !important;
-                font-weight: bold !important;
-                border: 1px solid rgb(215, 30, 40) !important;
-            }}
-        </style>
-        """, unsafe_allow_html=True)
-        
-        # Navigation buttons with conditional styling
+        # Navigation buttons styled like clean menu items
         if st.button("Home", key="nav_home", use_container_width=True):
             st.session_state.current_page = "Home"
         
