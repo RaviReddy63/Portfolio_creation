@@ -106,7 +106,7 @@ def add_logo():
             ">Banker Placement Tool</span>
         </div>
         <div style="display: flex; gap: 30px; align-items: center;">
-            <span id="nav-portfolio-assignment" onclick="navigateToPage('Portfolio Assignment')" style="
+            <span style="
                 color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Assignment' else 'white'};
                 font-size: 1rem;
                 font-weight: {'bold' if st.session_state.current_page == 'Portfolio Assignment' else 'normal'};
@@ -115,7 +115,7 @@ def add_logo():
                 border-radius: 4px;
                 background-color: {'rgb(255, 205, 65)' if st.session_state.current_page == 'Portfolio Assignment' else 'transparent'};
             ">Portfolio Assignment</span>
-            <span id="nav-portfolio-mapping" onclick="navigateToPage('Portfolio Mapping')" style="
+            <span style="
                 color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Mapping' else 'white'};
                 font-size: 1rem;
                 font-weight: {'bold' if st.session_state.current_page == 'Portfolio Mapping' else 'normal'};
@@ -126,71 +126,16 @@ def add_logo():
             ">Portfolio Mapping</span>
         </div>
     </div>
-    
-    <script>
-        function navigateToPage(page) {{
-            // Find the hidden button for the selected page
-            if (page === 'Portfolio Assignment') {{
-                const button = document.querySelector('button[key="nav_portfolio_assignment"]');
-                if (button) button.click();
-            }} else if (page === 'Portfolio Mapping') {{
-                const button = document.querySelector('button[key="nav_portfolio_mapping"]');
-                if (button) button.click();
-            }}
-        }}
-        
-        // Alternative approach using more reliable selectors
-        function navigateToPageAlt(page) {{
-            const buttons = document.querySelectorAll('button');
-            for (let button of buttons) {{
-                if (button.textContent.trim() === page) {{
-                    button.click();
-                    break;
-                }}
-            }}
-        }}
-        
-        // Use the alternative approach as fallback
-        window.navigateToPage = function(page) {{
-            // Try the key-based approach first
-            let button = null;
-            if (page === 'Portfolio Assignment') {{
-                button = document.querySelector('button[key="nav_portfolio_assignment"]');
-            }} else if (page === 'Portfolio Mapping') {{
-                button = document.querySelector('button[key="nav_portfolio_mapping"]');
-            }}
-            
-            // If key-based doesn't work, try text-based approach
-            if (!button) {{
-                const buttons = document.querySelectorAll('button');
-                for (let btn of buttons) {{
-                    if (btn.textContent.trim() === page) {{
-                        button = btn;
-                        break;
-                    }}
-                }}
-            }}
-            
-            // Click the button if found
-            if (button) {{
-                button.click();
-            }}
-        }}
-    </script>
     """, unsafe_allow_html=True)
     
-    # Navigation buttons (functional but hidden with CSS)
-    st.markdown('<div style="display: none;">', unsafe_allow_html=True)
+    # Simple functional navigation using Streamlit buttons 
     col1, col2 = st.columns([1, 1])
     with col1:
         if st.button("Portfolio Assignment", key="nav_portfolio_assignment"):
             st.session_state.current_page = "Portfolio Assignment"
-            st.experimental_rerun()
     with col2:
         if st.button("Portfolio Mapping", key="nav_portfolio_mapping"):
             st.session_state.current_page = "Portfolio Mapping"
-            st.experimental_rerun()
-    st.markdown('</div>', unsafe_allow_html=True)
     
     return st.session_state.current_page
 
