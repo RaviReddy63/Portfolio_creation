@@ -48,13 +48,13 @@ def add_logo():
         with open("logo.svg", "rb") as f:
             svg_data = f.read()
             svg_base64 = base64.b64encode(svg_data).decode()
-            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain;">'
+            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain; object-position: center; overflow: hidden;">'
     except:
         try:
             with open("logo.png", "rb") as f:
                 png_data = f.read()
                 png_base64 = base64.b64encode(png_data).decode()
-                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain;">'
+                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain; object-position: center; overflow: hidden;">'
         except:
             pass
     
