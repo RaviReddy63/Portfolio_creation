@@ -106,51 +106,118 @@ def create_header():
     # Add page title
     st.title("Portfolio Creation Tool")
     
-    # Create left navigation panel and main content area
-    col_nav, col_main = st.columns([1, 4])
+    # Initialize current page if not set (default to Home)
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Home"
     
-    with col_nav:
-        # Navigation menu without headers
-        st.markdown("&nbsp;")  # Add some spacing
+    # Create the layout with left navigation and main content
+    # This creates the overall page structure
+    st.markdown("""
+    <style>
+        /* Create fixed left navigation panel */
+        .nav-panel {
+            position: fixed;
+            left: 0;
+            top: 120px;
+            width: 200px;
+            height: calc(100vh - 120px);
+            background-color: #f8f9fa;
+            border-right: 1px solid #dee2e6;
+            padding: 20px 10px;
+            z-index: 100;
+        }
         
-        # Navigation buttons
-        if st.button("Home", key="nav_home", use_container_width=True):
+        /* Adjust main content to account for left panel */
+        .main .block-container {
+            margin-left: 220px !important;
+        }
+        
+        /* Style navigation buttons */
+        .nav-button {
+            display: block;
+            width: 100%;
+            padding: 12px 16px;
+            margin-bottom: 8px;
+            background: transparent;
+            border: none;
+            text-decoration: none;
+            color: black;
+            font-weight: bold;
+            cursor: pointer;
+            text-align: left;
+            font-size: 14px;
+        }
+        
+        .nav-button:hover {
+            background-color: #e9ecef;
+        }
+        
+        .nav-button.active {
+            color: rgb(215, 30, 40);
+            background-color: transparent;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Create the left navigation panel
+    current_page = st.session_state.current_page
+    st.markdown(f"""
+    <div class="nav-panel">
+        <div class="nav-button {'active' if current_page == 'Home' else ''}" onclick="navigateToPage('Home')">
+            Home
+        </div>
+        <div class="nav-button {'active' if current_page == 'My Requests' else ''}" onclick="navigateToPage('My Requests')">
+            My Requests
+        </div>
+        <div class="nav-button {'active' if current_page == 'Portfolio Assignment' else ''}" onclick="navigateToPage('Portfolio Assignment')">
+            Portfolio Assignment
+        </div>
+        <div class="nav-button {'active' if current_page == 'Portfolio Mapping' else ''}" onclick="navigateToPage('Portfolio Mapping')">
+            Portfolio Mapping
+        </div>
+    </div>
+    
+    <script>
+        function navigateToPage(page) {{
+            // Find the corresponding Streamlit button and click it
+            const buttons = document.querySelectorAll('button');
+            for (let button of buttons) {{
+                if (button.textContent.trim() === page) {{
+                    button.click();
+                    break;
+                }}
+            }}
+        }}
+    </script>
+    """, unsafe_allow_html=True)
+    
+    # Hidden functional buttons for navigation
+    col1, col2, col3, col4 = st.columns(4)
+    with col1:
+        if st.button("Home", key="hidden_nav_home"):
             st.session_state.current_page = "Home"
-        
-        if st.button("My Requests", key="nav_requests", use_container_width=True):
+    with col2:
+        if st.button("My Requests", key="hidden_nav_requests"):
             st.session_state.current_page = "My Requests"
-        
-        if st.button("Portfolio Assignment", key="nav_portfolio_assignment", use_container_width=True):
+    with col3:
+        if st.button("Portfolio Assignment", key="hidden_nav_portfolio_assignment"):
             st.session_state.current_page = "Portfolio Assignment"
-        
-        if st.button("Portfolio Mapping", key="nav_portfolio_mapping", use_container_width=True):
+    with col4:
+        if st.button("Portfolio Mapping", key="hidden_nav_portfolio_mapping"):
             st.session_state.current_page = "Portfolio Mapping"
     
-    with col_main:
-        # Initialize current page if not set (default to Home)
-        if 'current_page' not in st.session_state:
-            st.session_state.current_page = "Home"
+    # Handle dummy pages content
+    if st.session_state.current_page == "Home":
+        st.markdown("### Welcome to Banker Placement Tool")
+        st.info("This is the home page - content coming soon.")
+        return None
         
-        # Display content based on selected page
-        if st.session_state.current_page == "Home":
-            st.markdown("### Home")
-            st.write("Welcome to the Banker Placement Tool!")
-            st.info("This is the home page - content coming soon.")
-            
-        elif st.session_state.current_page == "My Requests":
-            st.markdown("### My Requests")
-            st.write("View and manage your requests here.")
-            st.info("My Requests functionality - content coming soon.")
-            
-        elif st.session_state.current_page == "Portfolio Assignment":
-            # Return the page name so main.py can handle the content
-            return "Portfolio Assignment"
-            
-        elif st.session_state.current_page == "Portfolio Mapping":
-            # Return the page name so main.py can handle the content
-            return "Portfolio Mapping"
+    elif st.session_state.current_page == "My Requests":
+        st.markdown("### My Requests")
+        st.info("My Requests functionality - content coming soon.")
+        return None
     
-    # Return current page for main.py to handle
+    # Return page name for Portfolio Assignment and Portfolio Mapping
     return st.session_state.current_page
 
 def initialize_session_state():
