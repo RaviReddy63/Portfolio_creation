@@ -5,26 +5,16 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header completely and fix main container
+    # Hide Streamlit's default header completely
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
             display: none !important;
         }
         
-        /* Remove default padding and margin from main container */
+        /* Adjust main content area to account for hidden header */
         .main .block-container {
-            padding-top: 0rem !important;
-            padding-left: 0rem !important;
-            padding-right: 0rem !important;
-            max-width: 100% !important;
-        }
-        
-        /* Ensure the custom header spans full width */
-        .stMarkdown > div:first-child {
-            width: 100vw !important;
-            margin-left: calc(-50vw + 50%) !important;
-            margin-right: calc(-50vw + 50%) !important;
+            padding-top: 1rem;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -73,7 +63,8 @@ def add_logo():
     <div style="
         background-color: rgb(215, 30, 40);
         color: white;
-        padding: 15px 20px;
+        padding: 8px 20px;
+        margin: -1rem -1rem 2rem -1rem;
         width: 100vw;
         margin-left: calc(-50vw + 50%);
         margin-right: calc(-50vw + 50%);
@@ -92,9 +83,6 @@ def add_logo():
         ">Banker Placement Tool</span>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Add some spacing after the header
-    st.markdown("<div style='margin-top: 1rem;'></div>", unsafe_allow_html=True)
 
 def create_header():
     """Create the page header with navigation"""
