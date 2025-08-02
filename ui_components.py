@@ -5,14 +5,23 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Set theme programmatically
+    # Create .streamlit/config.toml programmatically
+    import os
     try:
-        st._config.set_option('theme.primaryColor', '#D71E28')
-        st._config.set_option('theme.backgroundColor', '#FFFFFF')
-        st._config.set_option('theme.secondaryBackgroundColor', '#F0F2F6')
-        st._config.set_option('theme.textColor', '#262730')
+        os.makedirs('.streamlit', exist_ok=True)
+        
+        config_content = '''[theme]
+primaryColor="#D71E28"
+backgroundColor="#FFFFFF"
+secondaryBackgroundColor="#F0F2F6"
+textColor="#262730"
+font="sans serif"
+'''
+        
+        with open('.streamlit/config.toml', 'w') as f:
+            f.write(config_content)
     except:
-        pass  # Fallback if the method doesn't work
+        pass  # Fallback if file creation doesn't work
     
     # Hide Streamlit's default header only
     st.markdown("""
