@@ -14,7 +14,7 @@ def setup_page_config():
         
         /* Remove default left and right padding from main container */
         .main .block-container {
-            padding-top: 1rem;
+            padding-top: 0rem !important;
             padding-left: 0rem !important;
             padding-right: 0rem !important;
             max-width: 100% !important;
@@ -25,10 +25,9 @@ def setup_page_config():
             background-color: #f8f9fa !important;
             border-right: 1px solid #e0e0e0 !important;
             padding: 20px 0px !important;
-            min-height: 100vh !important;
         }
         
-        /* Style navigation buttons to look like clean menu items */
+        /* Style navigation buttons to look like plain text */
         div[data-testid="column"]:first-child .stButton > button {
             background-color: transparent !important;
             border: none !important;
@@ -41,21 +40,21 @@ def setup_page_config():
             margin-bottom: 5px !important;
             border-radius: 0px !important;
             box-shadow: none !important;
-            transition: all 0.2s ease !important;
+            transition: color 0.2s ease !important;
         }
         
         /* Hover effect for navigation buttons */
         div[data-testid="column"]:first-child .stButton > button:hover {
-            background-color: #e9ecef !important;
+            background-color: transparent !important;
             color: #333 !important;
         }
         
-        /* Active/selected navigation button */
+        /* Active/selected navigation button - only color change */
         div[data-testid="column"]:first-child .stButton > button:focus,
         div[data-testid="column"]:first-child .stButton > button:active {
-            background-color: rgb(215, 30, 40) !important;
-            color: white !important;
-            border-left: 4px solid rgb(215, 30, 40) !important;
+            background-color: transparent !important;
+            color: rgb(215, 30, 40) !important;
+            border: none !important;
         }
         
         /* Style for clear filters buttons to look like header text */
