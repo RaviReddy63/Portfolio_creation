@@ -56,7 +56,7 @@ def setup_page_config():
     """, unsafe_allow_html=True)
 
 def add_logo():
-    """Add custom header with logo, text, and navigation"""
+    """Add custom header with logo and text only"""
     # Create a custom header section instead of modifying Streamlit's header
     import base64
     
@@ -75,11 +75,7 @@ def add_logo():
         except:
             pass
     
-    # Initialize current page if not set (default to Portfolio Assignment)
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Portfolio Assignment"
-    
-    # Create custom header with logo, text, and navigation that spans full width
+    # Create custom header with logo and text that spans full width
     st.markdown(f"""
     <div style="
         background-color: rgb(215, 30, 40);
@@ -91,61 +87,31 @@ def add_logo():
         margin-right: calc(-50vw + 50%);
         display: flex;
         align-items: center;
-        justify-content: space-between;
         border-bottom: 3px solid rgb(255, 205, 65);
         box-sizing: border-box;
     ">
-        <div style="display: flex; align-items: center;">
-            {logo_html}
-            <span style="
-                font-size: 1.2rem;
-                font-weight: bold;
-                border-left: 2px solid white;
-                padding-left: 15px;
-                margin-left: 10px;
-            ">Banker Placement Tool</span>
-        </div>
-        <div style="display: flex; gap: 30px; align-items: center;">
-            <span style="
-                color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Assignment' else 'white'};
-                font-size: 1rem;
-                font-weight: {'bold' if st.session_state.current_page == 'Portfolio Assignment' else 'normal'};
-                cursor: pointer;
-                padding: 5px 10px;
-                border-radius: 4px;
-                background-color: {'rgb(255, 205, 65)' if st.session_state.current_page == 'Portfolio Assignment' else 'transparent'};
-            ">Portfolio Assignment</span>
-            <span style="
-                color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Mapping' else 'white'};
-                font-size: 1rem;
-                font-weight: {'bold' if st.session_state.current_page == 'Portfolio Mapping' else 'normal'};
-                cursor: pointer;
-                padding: 5px 10px;
-                border-radius: 4px;
-                background-color: {'rgb(255, 205, 65)' if st.session_state.current_page == 'Portfolio Mapping' else 'transparent'};
-            ">Portfolio Mapping</span>
-        </div>
+        {logo_html}
+        <span style="
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-left: 2px solid white;
+            padding-left: 15px;
+            margin-left: 10px;
+        ">Banker Placement Tool</span>
     </div>
     """, unsafe_allow_html=True)
-    
-    # Simple functional navigation using Streamlit buttons 
-    col1, col2 = st.columns([1, 1])
-    with col1:
-        if st.button("Portfolio Assignment", key="nav_portfolio_assignment"):
-            st.session_state.current_page = "Portfolio Assignment"
-    with col2:
-        if st.button("Portfolio Mapping", key="nav_portfolio_mapping"):
-            st.session_state.current_page = "Portfolio Mapping"
-    
-    return st.session_state.current_page
 
 def create_header():
     """Create the page header with navigation"""
-    # Add page title only - navigation is now in header
+    # Add page title
     st.title("Portfolio Creation Tool")
     
-    # Return the current page from session state
-    return st.session_state.get('current_page', 'Portfolio Assignment')
+    # Navigation tabs - back to original working approach
+    col1, col2 = st.columns([3, 1])
+    with col2:
+        page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
+    
+    return page
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
