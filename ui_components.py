@@ -5,16 +5,26 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header completely
+    # Hide Streamlit's default header completely and fix main container
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
             display: none !important;
         }
         
-        /* Adjust main content area */
+        /* Remove default padding and margin from main container */
         .main .block-container {
-            padding-top: 1rem;
+            padding-top: 0rem !important;
+            padding-left: 0rem !important;
+            padding-right: 0rem !important;
+            max-width: 100% !important;
+        }
+        
+        /* Ensure the custom header spans full width */
+        .stMarkdown > div:first-child {
+            width: 100vw !important;
+            margin-left: calc(-50vw + 50%) !important;
+            margin-right: calc(-50vw + 50%) !important;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -48,26 +58,29 @@ def add_logo():
         with open("logo.svg", "rb") as f:
             svg_data = f.read()
             svg_base64 = base64.b64encode(svg_data).decode()
-            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 50px; width: 50px; margin-right: 15px;">'
+            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain;">'
     except:
         try:
             with open("logo.png", "rb") as f:
                 png_data = f.read()
                 png_base64 = base64.b64encode(png_data).decode()
-                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 50px; width: 50px; margin-right: 15px;">'
+                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain;">'
         except:
             pass
     
-    # Create custom header with logo and text
+    # Create custom header with logo and text that spans full width
     st.markdown(f"""
     <div style="
         background-color: rgb(215, 30, 40);
         color: white;
         padding: 15px 20px;
-        margin: -1rem -1rem 0 -1rem;
+        width: 100vw;
+        margin-left: calc(-50vw + 50%);
+        margin-right: calc(-50vw + 50%);
         display: flex;
         align-items: center;
         border-bottom: 3px solid rgb(255, 205, 65);
+        box-sizing: border-box;
     ">
         {logo_html}
         <span style="
@@ -79,6 +92,9 @@ def add_logo():
         ">Banker Placement Tool</span>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Add some spacing after the header
+    st.markdown("<div style='margin-top: 1rem;'></div>", unsafe_allow_html=True)
 
 def create_header():
     """Create the page header with navigation"""
