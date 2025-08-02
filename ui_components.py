@@ -5,33 +5,27 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header completely and hide navigation buttons
+    # Hide Streamlit's default header and remove default padding
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
             display: none !important;
         }
         
-        /* Adjust main content area to account for hidden header */
+        /* Remove default left and right padding from main container */
         .main .block-container {
             padding-top: 1rem;
+            padding-left: 0rem !important;
+            padding-right: 0rem !important;
+            max-width: 100% !important;
         }
         
-        /* Hide the navigation buttons completely */
-        button[key="nav_portfolio_assignment"],
-        button[key="nav_portfolio_mapping"] {
-            display: none !important;
-        }
-        
-        /* Hide the columns containing navigation buttons */
-        div[data-testid="column"]:has(button[key*="nav_portfolio"]) {
-            display: none !important;
-        }
-        
-        /* Alternative approach - hide by button text */
-        .stButton button:has-text("Portfolio Assignment"),
-        .stButton button:has-text("Portfolio Mapping") {
-            display: none !important;
+        /* Style navigation buttons */
+        div[data-testid="column"]:first-child .stButton > button {
+            color: black !important;
+            font-weight: bold !important;
+            background-color: transparent !important;
+            border: 1px solid #ccc !important;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -111,7 +105,20 @@ def create_header():
     col_nav, col_main = st.columns([15, 85])
     
     with col_nav:
-        # Navigation buttons
+        # Add custom styling for selected button
+        st.markdown(f"""
+        <style>
+            /* Style for selected navigation button */
+            .nav-button-selected {{
+                background-color: rgb(215, 30, 40) !important;
+                color: white !important;
+                font-weight: bold !important;
+                border: 1px solid rgb(215, 30, 40) !important;
+            }}
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # Navigation buttons with conditional styling
         if st.button("Home", key="nav_home", use_container_width=True):
             st.session_state.current_page = "Home"
         
@@ -125,6 +132,9 @@ def create_header():
             st.session_state.current_page = "Portfolio Mapping"
     
     with col_main:
+        # Add right padding to second column content
+        st.markdown('<div style="padding-right: 1rem;">', unsafe_allow_html=True)
+        
         # Show ALL content for selected page in right column
         if st.session_state.current_page == "Home":
             st.markdown("### Welcome to Banker Placement Tool")
@@ -141,6 +151,8 @@ def create_header():
         elif st.session_state.current_page == "Portfolio Mapping":
             # Put Portfolio Mapping content directly here
             show_portfolio_mapping_content()
+        
+        st.markdown('</div>', unsafe_allow_html=True)
     
     # Always return None - no content handled by main.py
     return None
