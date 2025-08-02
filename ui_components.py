@@ -5,7 +5,7 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header completely
+    # Hide Streamlit's default header completely and hide navigation buttons
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
@@ -15,6 +15,12 @@ def setup_page_config():
         /* Adjust main content area to account for hidden header */
         .main .block-container {
             padding-top: 1rem;
+        }
+        
+        /* Hide the navigation buttons but keep them functional */
+        div[data-testid="column"]:has(button[key="nav_portfolio_assignment"]),
+        div[data-testid="column"]:has(button[key="nav_portfolio_mapping"]) {
+            display: none !important;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -58,7 +64,11 @@ def add_logo():
         except:
             pass
     
-    # Create custom header with logo and text that spans full width
+    # Initialize current page if not set (default to Portfolio Assignment)
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Portfolio Assignment"
+    
+    # Create custom header with logo, text, and navigation that spans full width
     st.markdown(f"""
     <div style="
         background-color: rgb(215, 30, 40);
@@ -84,66 +94,41 @@ def add_logo():
                 margin-left: 10px;
             ">Banker Placement Tool</span>
         </div>
-        <div id="header-navigation" style="display: flex; gap: 30px; align-items: center;">
+        <div style="display: flex; gap: 30px; align-items: center;">
+            <span style="
+                color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Assignment' else 'white'};
+                font-size: 1rem;
+                font-weight: {'bold' if st.session_state.current_page == 'Portfolio Assignment' else 'normal'};
+                cursor: pointer;
+                padding: 5px 10px;
+                border-radius: 4px;
+                background-color: {'rgb(255, 205, 65)' if st.session_state.current_page == 'Portfolio Assignment' else 'transparent'};
+            ">Portfolio Assignment</span>
+            <span style="
+                color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Mapping' else 'white'};
+                font-size: 1rem;
+                font-weight: {'bold' if st.session_state.current_page == 'Portfolio Mapping' else 'normal'};
+                cursor: pointer;
+                padding: 5px 10px;
+                border-radius: 4px;
+                background-color: {'rgb(255, 205, 65)' if st.session_state.current_page == 'Portfolio Mapping' else 'transparent'};
+            ">Portfolio Mapping</span>
         </div>
     </div>
     """, unsafe_allow_html=True)
     
-    # Add functional navigation using Streamlit radio in the header area
-    # Use custom CSS to position it in the header
-    st.markdown("""
-    <style>
-        /* Hide the default radio styling and position in header */
-        div[data-testid="stRadio"] {
-            position: fixed;
-            top: 8px;
-            right: 20px;
-            z-index: 1000;
-            background: none !important;
-        }
-        
-        /* Style radio buttons to look like header navigation */
-        div[data-testid="stRadio"] > div[role="radiogroup"] {
-            display: flex;
-            gap: 30px;
-            background: none !important;
-        }
-        
-        div[data-testid="stRadio"] > div[role="radiogroup"] > label {
-            background: none !important;
-            border: none !important;
-            padding: 5px 10px !important;
-            border-radius: 4px !important;
-            cursor: pointer !important;
-            color: white !important;
-            font-size: 1rem !important;
-        }
-        
-        /* Active state styling */
-        div[data-testid="stRadio"] > div[role="radiogroup"] > label[data-checked="true"] {
-            background-color: rgb(255, 205, 65) !important;
-            color: rgb(215, 30, 40) !important;
-            font-weight: bold !important;
-        }
-        
-        /* Hide radio circles */
-        div[data-testid="stRadio"] input[type="radio"] {
-            display: none !important;
-        }
-        
-        /* Text styling */
-        div[data-testid="stRadio"] label > div[data-testid="stMarkdownContainer"] > p {
-            color: inherit !important;
-            margin: 0 !important;
-            font-size: 1rem !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
+    # Navigation buttons (functional - will be hidden with CSS)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Portfolio Assignment", key="nav_portfolio_assignment"):
+            st.session_state.current_page = "Portfolio Assignment"
+            st.rerun()
+    with col2:
+        if st.button("Portfolio Mapping", key="nav_portfolio_mapping"):
+            st.session_state.current_page = "Portfolio Mapping"
+            st.rerun()
     
-    # Navigation radio buttons
-    page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="header_nav")
-    
-    return page
+    return st.session_state.current_page
 
 def create_header():
     """Create the page header with navigation"""
