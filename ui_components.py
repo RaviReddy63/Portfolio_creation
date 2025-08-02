@@ -114,8 +114,6 @@ def create_header():
     col_nav, col_main = st.columns([1, 4])
     
     with col_nav:
-        st.markdown("**Navigation**")
-        
         # Navigation buttons
         if st.button("Home", key="nav_home", use_container_width=True):
             st.session_state.current_page = "Home"
@@ -130,23 +128,16 @@ def create_header():
             st.session_state.current_page = "Portfolio Mapping"
     
     with col_main:
-        # Handle dummy pages content
+        # Only show dummy content for Home and My Requests here
         if st.session_state.current_page == "Home":
             st.markdown("### Welcome to Banker Placement Tool")
             st.info("This is the home page - content coming soon.")
-            return None
             
         elif st.session_state.current_page == "My Requests":
             st.markdown("### My Requests")
             st.info("My Requests functionality - content coming soon.")
-            return None
-        
-        # For Portfolio Assignment and Portfolio Mapping, return to main content area
-        elif st.session_state.current_page in ["Portfolio Assignment", "Portfolio Mapping"]:
-            # Don't put content here - let main.py handle it in the main content area
-            pass
     
-    # Return page name for main.py to handle
+    # Return page name for main.py to handle Portfolio Assignment and Portfolio Mapping
     return st.session_state.current_page
 
 def initialize_session_state():
