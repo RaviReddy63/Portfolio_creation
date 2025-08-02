@@ -5,7 +5,7 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header completely
+    # Hide Streamlit's default header and set primary button color
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
@@ -15,6 +15,26 @@ def setup_page_config():
         /* Adjust main content area to account for hidden header */
         .main .block-container {
             padding-top: 1rem;
+        }
+        
+        /* Set primary button color to red */
+        .stButton > button[kind="primary"] {
+            background-color: rgb(215, 30, 40) !important;
+            border-color: rgb(215, 30, 40) !important;
+            color: white !important;
+        }
+        
+        .stButton > button[kind="primary"]:hover {
+            background-color: rgb(185, 25, 35) !important;
+            border-color: rgb(185, 25, 35) !important;
+            color: white !important;
+        }
+        
+        .stButton > button[kind="primary"]:active,
+        .stButton > button[kind="primary"]:focus {
+            background-color: rgb(165, 20, 30) !important;
+            border-color: rgb(165, 20, 30) !important;
+            color: white !important;
         }
         
         /* Style for clear filters buttons to look like header text */
