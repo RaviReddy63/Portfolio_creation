@@ -5,7 +5,7 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header completely
+    # Hide Streamlit's default header completely and set primary color theme
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
@@ -17,12 +17,30 @@ def setup_page_config():
             padding-top: 1rem;
         }
         
+        /* Set primary color for all buttons */
+        .stButton > button {
+            background-color: rgb(215, 30, 40) !important;
+            color: white !important;
+            border: none !important;
+        }
+        
+        .stButton > button:hover {
+            background-color: rgb(185, 25, 35) !important;
+            color: white !important;
+        }
+        
+        .stButton > button:active, .stButton > button:focus {
+            background-color: rgb(165, 20, 30) !important;
+            color: white !important;
+            border: none !important;
+        }
+        
         /* Style for clear filters buttons to look like header text */
         div[data-testid="column"] button[kind="secondary"] {
             background: none !important;
             border: none !important;
             padding: 0 !important;
-            color: #1f77b4 !important;
+            color: rgb(215, 30, 40) !important;
             text-decoration: underline !important;
             font-size: 1.25rem !important;
             font-weight: 600 !important;
@@ -32,14 +50,45 @@ def setup_page_config():
             margin-top: 0.5rem !important;
         }
         div[data-testid="column"] button[kind="secondary"]:hover {
-            color: #0d47a1 !important;
+            color: rgb(185, 25, 35) !important;
             background: none !important;
+        }
+        
+        /* Radio button styling */
+        .stRadio > div[role="radiogroup"] > label > div[data-testid="stMarkdownContainer"] {
+            color: rgb(215, 30, 40) !important;
+        }
+        
+        /* Selected radio button */
+        .stRadio > div[role="radiogroup"] > label[data-checked="true"] > div[data-testid="stMarkdownContainer"] {
+            color: rgb(215, 30, 40) !important;
+            font-weight: bold !important;
+        }
+        
+        /* Checkbox styling */
+        .stCheckbox > label > span[data-testid="stMarkdownContainer"] {
+            color: rgb(215, 30, 40) !important;
+        }
+        
+        /* Multiselect styling */
+        .stMultiSelect > div > div {
+            border-color: rgb(215, 30, 40) !important;
+        }
+        
+        /* Slider styling */
+        .stSlider > div > div > div > div {
+            background-color: rgb(215, 30, 40) !important;
+        }
+        
+        /* Selectbox styling */
+        .stSelectbox > div > div {
+            border-color: rgb(215, 30, 40) !important;
         }
     </style>
     """, unsafe_allow_html=True)
 
 def add_logo():
-    """Add custom header with logo and text"""
+    """Add custom header with logo, text, and navigation"""
     # Create a custom header section instead of modifying Streamlit's header
     import base64
     
@@ -48,17 +97,21 @@ def add_logo():
         with open("logo.svg", "rb") as f:
             svg_data = f.read()
             svg_base64 = base64.b64encode(svg_data).decode()
-            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain; object-position: center; overflow: hidden;">'
+            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
     except:
         try:
             with open("logo.png", "rb") as f:
                 png_data = f.read()
                 png_base64 = base64.b64encode(png_data).decode()
-                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 80px; width: 250px; margin-right: 15px; object-fit: contain; object-position: center; overflow: hidden;">'
+                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
         except:
             pass
     
-    # Create custom header with logo and text that spans full width
+    # Get current page from session state (default to Portfolio Assignment)
+    if 'current_page' not in st.session_state:
+        st.session_state.current_page = "Portfolio Assignment"
+    
+    # Create custom header with logo, text, and navigation that spans full width
     st.markdown(f"""
     <div style="
         background-color: rgb(215, 30, 40);
@@ -70,31 +123,62 @@ def add_logo():
         margin-right: calc(-50vw + 50%);
         display: flex;
         align-items: center;
+        justify-content: space-between;
         border-bottom: 3px solid rgb(255, 205, 65);
         box-sizing: border-box;
     ">
-        {logo_html}
-        <span style="
-            font-size: 1.2rem;
-            font-weight: bold;
-            border-left: 2px solid white;
-            padding-left: 15px;
-            margin-left: 10px;
-        ">Banker Placement Tool</span>
+        <div style="display: flex; align-items: center;">
+            {logo_html}
+            <span style="
+                font-size: 1.2rem;
+                font-weight: bold;
+                border-left: 2px solid white;
+                padding-left: 15px;
+                margin-left: 10px;
+            ">Banker Placement Tool</span>
+        </div>
+        <div style="display: flex; gap: 30px; align-items: center;">
+            <span id="portfolio-assignment" style="
+                color: white;
+                font-size: 1rem;
+                font-weight: {'bold' if st.session_state.current_page == 'Portfolio Assignment' else 'normal'};
+                cursor: pointer;
+                padding: 5px 10px;
+                border-radius: 4px;
+                background-color: {'white' if st.session_state.current_page == 'Portfolio Assignment' else 'transparent'};
+                color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Assignment' else 'white'};
+            ">Portfolio Assignment</span>
+            <span id="portfolio-mapping" style="
+                color: white;
+                font-size: 1rem;
+                font-weight: {'bold' if st.session_state.current_page == 'Portfolio Mapping' else 'normal'};
+                cursor: pointer;
+                padding: 5px 10px;
+                border-radius: 4px;
+                background-color: {'white' if st.session_state.current_page == 'Portfolio Mapping' else 'transparent'};
+                color: {'rgb(215, 30, 40)' if st.session_state.current_page == 'Portfolio Mapping' else 'white'};
+            ">Portfolio Mapping</span>
+        </div>
     </div>
     """, unsafe_allow_html=True)
+    
+    # Add navigation buttons below header (hidden but functional)
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Portfolio Assignment", key="nav_portfolio_assignment", help="Switch to Portfolio Assignment"):
+            st.session_state.current_page = "Portfolio Assignment"
+            st.rerun()
+    with col2:
+        if st.button("Portfolio Mapping", key="nav_portfolio_mapping", help="Switch to Portfolio Mapping"):
+            st.session_state.current_page = "Portfolio Mapping"
+            st.rerun()
+    
+    return st.session_state.current_page
 
 def create_header():
     """Create the page header with navigation"""
-    # Add page title
-    st.title("Portfolio Creation Tool")
-    
-    # Navigation tabs
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
-    
-    return page
+    # Navigation is now handled in add_logo function, no page title needed
+    return None
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
