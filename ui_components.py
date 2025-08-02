@@ -86,19 +86,37 @@ def add_logo():
 
 def create_header():
     """Create the page header with tab navigation and content"""
-    # Navigation tabs as tab views with content inside each tab
-    tab1, tab2 = st.tabs(["Portfolio Assignment", "Portfolio Mapping"])
+    # Navigation tabs with all 4 pages
+    tab1, tab2, tab3, tab4 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping"])
     
     with tab1:
-        # Portfolio Assignment content - call the function that shows this content
-        show_portfolio_assignment_page()
+        # Home content
+        show_home_page()
         
     with tab2:
-        # Portfolio Mapping content - call the function that shows this content
+        # My Requests content
+        show_my_requests_page()
+        
+    with tab3:
+        # Portfolio Assignment content
+        show_portfolio_assignment_page()
+        
+    with tab4:
+        # Portfolio Mapping content
         show_portfolio_mapping_page()
     
     # Return None since content is handled within tabs
     return None
+
+def show_home_page():
+    """Show Home page content"""
+    st.markdown("### Welcome to Banker Placement Tool")
+    st.info("This is the home page - content coming soon.")
+
+def show_my_requests_page():
+    """Show My Requests page content"""
+    st.markdown("### My Requests")
+    st.info("My Requests functionality - content coming soon.")
 
 def show_portfolio_assignment_page():
     """Show Portfolio Assignment page content"""
@@ -126,8 +144,6 @@ def show_portfolio_assignment_page():
 def show_portfolio_mapping_page():
     """Show Portfolio Mapping page content"""
     from data_loader import get_merged_data
-    
-    st.subheader("Smart Portfolio Mapping")
     
     # Load data
     customer_data, banker_data, branch_data, data = get_merged_data()
