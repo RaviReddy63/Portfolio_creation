@@ -102,20 +102,56 @@ def add_logo():
     """, unsafe_allow_html=True)
 
 def create_header():
-    """Create the page header with sidebar navigation"""
+    """Create the page header with left panel navigation"""
     # Add page title
     st.title("Portfolio Creation Tool")
     
-    # Sidebar navigation
-    with st.sidebar:
-        st.markdown("### Navigation")
-        page = st.radio(
-            "Select Page:",
-            ["Portfolio Assignment", "Portfolio Mapping"],
-            key="sidebar_nav"
-        )
+    # Create left navigation panel and main content area
+    col_nav, col_main = st.columns([1, 4])
     
-    return page
+    with col_nav:
+        # Navigation menu without headers
+        st.markdown("&nbsp;")  # Add some spacing
+        
+        # Navigation buttons
+        if st.button("Home", key="nav_home", use_container_width=True):
+            st.session_state.current_page = "Home"
+        
+        if st.button("My Requests", key="nav_requests", use_container_width=True):
+            st.session_state.current_page = "My Requests"
+        
+        if st.button("Portfolio Assignment", key="nav_portfolio_assignment", use_container_width=True):
+            st.session_state.current_page = "Portfolio Assignment"
+        
+        if st.button("Portfolio Mapping", key="nav_portfolio_mapping", use_container_width=True):
+            st.session_state.current_page = "Portfolio Mapping"
+    
+    with col_main:
+        # Initialize current page if not set (default to Home)
+        if 'current_page' not in st.session_state:
+            st.session_state.current_page = "Home"
+        
+        # Display content based on selected page
+        if st.session_state.current_page == "Home":
+            st.markdown("### Home")
+            st.write("Welcome to the Banker Placement Tool!")
+            st.info("This is the home page - content coming soon.")
+            
+        elif st.session_state.current_page == "My Requests":
+            st.markdown("### My Requests")
+            st.write("View and manage your requests here.")
+            st.info("My Requests functionality - content coming soon.")
+            
+        elif st.session_state.current_page == "Portfolio Assignment":
+            # Return the page name so main.py can handle the content
+            return "Portfolio Assignment"
+            
+        elif st.session_state.current_page == "Portfolio Mapping":
+            # Return the page name so main.py can handle the content
+            return "Portfolio Mapping"
+    
+    # Return current page for main.py to handle
+    return st.session_state.current_page
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
