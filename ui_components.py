@@ -102,16 +102,13 @@ def add_logo():
     """, unsafe_allow_html=True)
 
 def create_header():
-    """Create the page header with simple two-column layout"""
-    # Add page title
-    st.title("Portfolio Creation Tool")
-    
+    """Create the page header with two-column layout"""
     # Initialize current page if not set (default to Home)
     if 'current_page' not in st.session_state:
         st.session_state.current_page = "Home"
     
-    # Create two columns: navigation and main content
-    col_nav, col_main = st.columns([1, 4])
+    # Create two columns: navigation (15%) and main content (85%)
+    col_nav, col_main = st.columns([15, 85])
     
     with col_nav:
         # Navigation buttons
@@ -128,7 +125,7 @@ def create_header():
             st.session_state.current_page = "Portfolio Mapping"
     
     with col_main:
-        # Only show dummy content for Home and My Requests here
+        # Show content for selected page in right column
         if st.session_state.current_page == "Home":
             st.markdown("### Welcome to Banker Placement Tool")
             st.info("This is the home page - content coming soon.")
@@ -136,9 +133,17 @@ def create_header():
         elif st.session_state.current_page == "My Requests":
             st.markdown("### My Requests")
             st.info("My Requests functionality - content coming soon.")
+            
+        elif st.session_state.current_page == "Portfolio Assignment":
+            # Return Portfolio Assignment to indicate this page is selected
+            return "Portfolio Assignment"
+            
+        elif st.session_state.current_page == "Portfolio Mapping":
+            # Return Portfolio Mapping to indicate this page is selected
+            return "Portfolio Mapping"
     
-    # Return page name for main.py to handle Portfolio Assignment and Portfolio Mapping
-    return st.session_state.current_page
+    # Return None for Home and My Requests since content is handled above
+    return None
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
