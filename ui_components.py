@@ -5,56 +5,16 @@ def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Hide Streamlit's default header and remove default padding
+    # Hide Streamlit's default header completely
     st.markdown("""
     <style>
         header[data-testid="stHeader"] {
             display: none !important;
         }
         
-        /* Remove default left and right padding from main container */
+        /* Adjust main content area to account for hidden header */
         .main .block-container {
-            padding-top: 0rem !important;
-            padding-left: 0rem !important;
-            padding-right: 0rem !important;
-            max-width: 100% !important;
-        }
-        
-        /* Style left navigation column */
-        div[data-testid="column"]:first-child {
-            background-color: #f8f9fa !important;
-            border-right: 1px solid #e0e0e0 !important;
-            padding: 20px 0px !important;
-        }
-        
-        /* Style navigation buttons to look like plain text */
-        div[data-testid="column"]:first-child .stButton > button {
-            background-color: transparent !important;
-            border: none !important;
-            color: #333 !important;
-            font-weight: 500 !important;
-            font-size: 16px !important;
-            text-align: left !important;
-            width: 100% !important;
-            padding: 15px 20px !important;
-            margin-bottom: 5px !important;
-            border-radius: 0px !important;
-            box-shadow: none !important;
-            transition: color 0.2s ease !important;
-        }
-        
-        /* Hover effect for navigation buttons */
-        div[data-testid="column"]:first-child .stButton > button:hover {
-            background-color: transparent !important;
-            color: #333 !important;
-        }
-        
-        /* Active/selected navigation button - only color change */
-        div[data-testid="column"]:first-child .stButton > button:focus,
-        div[data-testid="column"]:first-child .stButton > button:active {
-            background-color: transparent !important;
-            color: rgb(215, 30, 40) !important;
-            border: none !important;
+            padding-top: 1rem;
         }
         
         /* Style for clear filters buttons to look like header text */
@@ -79,7 +39,7 @@ def setup_page_config():
     """, unsafe_allow_html=True)
 
 def add_logo():
-    """Add custom header with logo and text only"""
+    """Add custom header with logo and text"""
     # Create a custom header section instead of modifying Streamlit's header
     import base64
     
@@ -125,167 +85,16 @@ def add_logo():
     """, unsafe_allow_html=True)
 
 def create_header():
-    """Create the page header with two-column layout"""
-    # Initialize current page if not set (default to Home)
-    if 'current_page' not in st.session_state:
-        st.session_state.current_page = "Home"
+    """Create the page header with navigation"""
+    # Add page title
+    st.title("Portfolio Creation Tool")
     
-    # Create two columns: navigation (15%) and main content (85%)
-    col_nav, col_main = st.columns([15, 85])
-    
-    with col_nav:
-        # Navigation buttons styled like clean menu items
-        if st.button("Home", key="nav_home", use_container_width=True):
-            st.session_state.current_page = "Home"
-        
-        if st.button("My Requests", key="nav_requests", use_container_width=True):
-            st.session_state.current_page = "My Requests"
-        
-        if st.button("Portfolio Assignment", key="nav_portfolio_assignment", use_container_width=True):
-            st.session_state.current_page = "Portfolio Assignment"
-        
-        if st.button("Portfolio Mapping", key="nav_portfolio_mapping", use_container_width=True):
-            st.session_state.current_page = "Portfolio Mapping"
-    
-    with col_main:
-        # Add right padding to second column content
-        st.markdown('<div style="padding-right: 1rem;">', unsafe_allow_html=True)
-        
-        # Show ALL content for selected page in right column
-        if st.session_state.current_page == "Home":
-            st.markdown("### Welcome to Banker Placement Tool")
-            st.info("This is the home page - content coming soon.")
-            
-        elif st.session_state.current_page == "My Requests":
-            st.markdown("### My Requests")
-            st.info("My Requests functionality - content coming soon.")
-            
-        elif st.session_state.current_page == "Portfolio Assignment":
-            # Put Portfolio Assignment content directly here
-            show_portfolio_assignment_content()
-            
-        elif st.session_state.current_page == "Portfolio Mapping":
-            # Put Portfolio Mapping content directly here
-            show_portfolio_mapping_content()
-        
-        st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Always return None - no content handled by main.py
-    return None
-
-def show_portfolio_assignment_content():
-    """Display Portfolio Assignment content"""
-    from data_loader import get_merged_data
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    # Store branch_data in session state for save functions
-    st.session_state.branch_data = branch_data
-    st.session_state.customer_data = customer_data
-    
-    # Create AU filters
-    selected_aus = create_au_filters(branch_data)
-    
-    # Create customer filters
-    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters(customer_data)
-    
-    # Create portfolio button
-    button_clicked = create_portfolio_button()
-    
-    # Handle button click and portfolio creation logic
-    if button_clicked:
-        if not selected_aus:
-            st.error("Please select at least one AU")
-        else:
-            st.session_state.should_create_portfolios = True
-    
-    # Process portfolio creation
-    if st.session_state.should_create_portfolios:
-        if not selected_aus:
-            st.error("Please select at least one AU")
-            st.session_state.should_create_portfolios = False
-        else:
-            from portfolio_creation import process_portfolio_creation
-            portfolios_created, portfolio_summaries = process_portfolio_creation(
-                selected_aus, customer_data, banker_data, branch_data,
-                role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
-            )
-            
-            if portfolios_created:
-                st.session_state.portfolios_created = portfolios_created
-                st.session_state.portfolio_summaries = portfolio_summaries
-                st.session_state.should_create_portfolios = False
-            else:
-                st.session_state.should_create_portfolios = False
-    
-    # Display results
-    display_portfolio_assignment_results(branch_data)
-
-def show_portfolio_mapping_content():
-    """Display Portfolio Mapping content"""
-    from data_loader import get_merged_data
-    
-    st.subheader("Smart Portfolio Mapping")
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    st.session_state.customer_data = customer_data
-    
-    # Create customer filters (reuse from Portfolio Assignment)
-    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
-    
-    # Create Smart Portfolio Generation button
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        st.write("")  # Empty space
+    # Navigation tabs - back to original working approach
+    col1, col2 = st.columns([3, 1])
     with col2:
-        generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
+        page = st.radio("", ["Portfolio Assignment", "Portfolio Mapping"], horizontal=True, key="page_nav")
     
-    # Handle button click and smart portfolio logic
-    if generate_button:
-        st.session_state.should_generate_smart_portfolios = True
-    
-    # Process smart portfolio generation
-    if st.session_state.get('should_generate_smart_portfolios', False):
-        from main import generate_smart_portfolios, apply_customer_filters_for_mapping
-        generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit)
-        st.session_state.should_generate_smart_portfolios = False
-    
-    # Display results if they exist
-    display_smart_portfolio_mapping_results(customer_data, branch_data)
-
-def display_portfolio_assignment_results(branch_data):
-    """Display portfolio assignment results"""
-    if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
-        from main import display_portfolio_tables, display_geographic_map
-        portfolios_created = st.session_state.portfolios_created
-        portfolio_summaries = st.session_state.get('portfolio_summaries', {})
-        
-        # Show Portfolio Summary Tables and Geographic Distribution
-        st.markdown("----")
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.subheader("Portfolio Summary Tables")
-            display_portfolio_tables(portfolios_created, portfolio_summaries, branch_data)
-        
-        with col2:
-            st.subheader("Geographic Distribution")
-            display_geographic_map(portfolios_created, branch_data)
-    else:
-        # Show message when no portfolios exist
-        if st.session_state.get('portfolios_created') is not None:
-            st.warning("No customers found for the selected AUs with current filters.")
-
-def display_smart_portfolio_mapping_results(customer_data, branch_data):
-    """Display smart portfolio mapping results"""
-    from main import display_smart_portfolio_results
-    if 'smart_portfolio_results' not in st.session_state or len(st.session_state.smart_portfolio_results) == 0:
-        st.info("Click 'Generate Smart Portfolios' to create optimized customer assignments.")
-        return
-    
-    display_smart_portfolio_results(customer_data, branch_data)
+    return page
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
