@@ -141,6 +141,9 @@ def show_portfolio_assignment_page():
     from data_loader import get_merged_data
     from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
     
+    # Initialize session state variables
+    initialize_session_state()
+    
     # Load data
     customer_data, banker_data, branch_data, data = get_merged_data()
     
@@ -189,6 +192,9 @@ def show_portfolio_mapping_page():
     """Show complete Portfolio Mapping functionality"""
     from data_loader import get_merged_data
     from main import generate_smart_portfolios, display_smart_portfolio_results
+    
+    # Initialize session state variables
+    initialize_session_state()
     
     # Load data
     customer_data, banker_data, branch_data, data = get_merged_data()
