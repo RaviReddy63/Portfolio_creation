@@ -104,8 +104,8 @@ def add_logo():
 
 def create_header():
     """Create the page header with tab navigation and content"""
-    # Navigation tabs with all 4 pages
-    tab1, tab2, tab3, tab4 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping"])
+    # Navigation tabs with all 5 pages
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
     
     with tab1:
         # Home content
@@ -122,6 +122,10 @@ def create_header():
     with tab4:
         # Portfolio Mapping content - all functionality inside tab
         show_portfolio_mapping_page()
+        
+    with tab5:
+        # Ask AI chat interface
+        show_ask_ai_page()
     
     # Return None since all content is handled within tabs
     return None
@@ -131,10 +135,78 @@ def show_home_page():
     st.markdown("### Welcome to Banker Placement Tool")
     st.info("This is the home page - content coming soon.")
 
-def show_my_requests_page():
-    """Show My Requests page content"""
-    st.markdown("### My Requests")
-    st.info("My Requests functionality - content coming soon.")
+def show_ask_ai_page():
+    """Show Ask AI chat interface"""
+    # Initialize session state for chat
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = []
+        # Add initial AI message
+        ai_intro = """👋 Hello! I'm your AI Assistant for the Banker Placement Tool.
+
+I can help you analyze customer information and portfolios:
+
+🔍 **Customer Analytics**: Get counts of customers in portfolios or specific areas
+📊 **Portfolio Insights**: Analyze customer distributions and demographics  
+💰 **Revenue Analysis**: Break down customer revenue and deposit patterns
+🎯 **Opportunities**: Identify growth opportunities and market gaps
+📍 **Geographic Data**: Understand customer locations and coverage areas
+📋 **Product Details**: Get information about customer products and services
+
+Just ask me anything about your customers, portfolios, or market opportunities!"""
+        
+        st.session_state.chat_messages.append({
+            "role": "assistant", 
+            "content": ai_intro
+        })
+    
+    st.markdown("### 🤖 Ask AI Assistant")
+    st.markdown("*Get insights about your customers, portfolios, and market opportunities*")
+    st.markdown("---")
+    
+    # Chat container
+    chat_container = st.container()
+    
+    with chat_container:
+        # Display chat messages
+        for message in st.session_state.chat_messages:
+            if message["role"] == "assistant":
+                with st.chat_message("assistant", avatar="🤖"):
+                    st.markdown(message["content"])
+            else:
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(message["content"])
+    
+    # Chat input
+    user_input = st.chat_input("Ask me about customers, portfolios, or opportunities...")
+    
+    if user_input:
+        # Add user message to chat
+        st.session_state.chat_messages.append({
+            "role": "user",
+            "content": user_input
+        })
+        
+        # For now, respond with the same introduction
+        ai_response = """I understand you're asking about: "{}"
+
+Currently, I'm in demonstration mode. Here's what I can help you with:
+
+🔍 **Customer Analytics**: "How many customers are in Portfolio ABC?" or "Show me customers in Dallas area"
+📊 **Portfolio Insights**: "What's the average revenue in my portfolios?" or "Which areas have the most customers?"
+💰 **Revenue Analysis**: "What are the top revenue-generating customer segments?"
+🎯 **Opportunities**: "Where should I focus my next banking expansion?"
+📍 **Geographic Data**: "Show me customer density by region"
+📋 **Product Details**: "What products do customers in Portfolio XYZ use most?"
+
+*Full AI capabilities coming soon! This will connect to your customer database for real-time insights.*""".format(user_input)
+        
+        st.session_state.chat_messages.append({
+            "role": "assistant",
+            "content": ai_response
+        })
+        
+        # Rerun to show the new messages
+        st.rerun()
 
 def show_portfolio_assignment_page():
     """Show complete Portfolio Assignment functionality"""
