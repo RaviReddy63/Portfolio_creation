@@ -1,4 +1,21 @@
-import streamlit as st
+def show_portfolio_assignment_page():
+    """Show Portfolio Assignment page content with full functionality"""
+    from data_loader import get_merged_data
+    from portfolio_creation import process_portfolio_creation
+    from portfolio_creation import apply_portfolio_changes
+    
+    # Load data
+    customer_data, banker_data, branch_data, data = get_merged_data()
+    
+    # Store branch_data in session state for save functions
+    st.session_state.branch_data = branch_data
+    st.session_state.customer_data = customer_data
+    
+    # Create AU filters
+    selected_aus = create_au_filters(branch_data)
+    
+    # Create customer filters
+    cust_state, role, cust_portimport streamlit as st
 import pandas as pd
 
 def setup_page_config():
