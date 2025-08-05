@@ -168,23 +168,75 @@ Just ask me anything about your customers, portfolios, or market opportunities!"
     st.markdown("*Get insights about your customers, portfolios, and market opportunities*")
     st.markdown("---")
     
-    # Chat container
-    chat_container = st.container()
+    # Custom CSS for chat styling
+    st.markdown("""
+    <style>
+        .chat-container {
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .user-message {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 18px;
+            margin: 10px 0;
+            margin-left: 20%;
+            text-align: right;
+        }
+        .ai-message {
+            background-color: white;
+            color: #333;
+            padding: 12px 16px;
+            border-radius: 18px;
+            margin: 10px 0;
+            margin-right: 20%;
+            border: 1px solid #dee2e6;
+        }
+        .message-header {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
     
-    with chat_container:
-        # Display chat messages
-        for message in st.session_state.chat_messages:
-            if message["role"] == "assistant":
-                with st.chat_message("assistant", avatar="🤖"):
-                    st.markdown(message["content"])
-            else:
-                with st.chat_message("user", avatar="👤"):
-                    st.markdown(message["content"])
+    # Chat container with custom styling
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
     
-    # Chat input
-    user_input = st.chat_input("Ask me about customers, portfolios, or opportunities...")
+    # Display chat messages
+    for message in st.session_state.chat_messages:
+        if message["role"] == "assistant":
+            st.markdown(f"""
+            <div class="ai-message">
+                <div class="message-header">🤖 AI Assistant</div>
+                {message["content"]}
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="user-message">
+                <div class="message-header">👤 You</div>
+                {message["content"]}
+            </div>
+            """, unsafe_allow_html=True)
     
-    if user_input:
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Chat input using text_input and button
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        user_input = st.text_input("Ask me about customers, portfolios, or opportunities...", key="chat_input", placeholder="Type your question here...")
+    
+    with col2:
+        send_button = st.button("Send", type="primary")
+    
+    if send_button and user_input:
         # Add user message to chat
         st.session_state.chat_messages.append({
             "role": "user",
@@ -192,7 +244,7 @@ Just ask me anything about your customers, portfolios, or market opportunities!"
         })
         
         # For now, respond with the same introduction
-        ai_response = """I understand you're asking about: "{}"
+        ai_response = f"""I understand you're asking about: **"{user_input}"**
 
 Currently, I'm in demonstration mode. Here's what I can help you with:
 
@@ -203,14 +255,15 @@ Currently, I'm in demonstration mode. Here's what I can help you with:
 📍 **Geographic Data**: "Show me customer density by region"
 📋 **Product Details**: "What products do customers in Portfolio XYZ use most?"
 
-*Full AI capabilities coming soon! This will connect to your customer database for real-time insights.*""".format(user_input)
+*Full AI capabilities coming soon! This will connect to your customer database for real-time insights.*"""
         
         st.session_state.chat_messages.append({
             "role": "assistant",
             "content": ai_response
         })
         
-        # Rerun to show the new messages
+        # Clear the input and rerun
+        st.session_state.chat_input = ""
         st.rerun()
 
 def show_portfolio_assignment_page():
