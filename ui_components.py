@@ -135,6 +135,11 @@ def show_home_page():
     st.markdown("### Welcome to Banker Placement Tool")
     st.info("This is the home page - content coming soon.")
 
+def show_my_requests_page():
+    """Show My Requests page content"""
+    st.markdown("### My Requests")
+    st.info("My Requests functionality - content coming soon.")
+
 def show_ask_ai_page():
     """Show Ask AI chat interface"""
     # Initialize session state for chat
