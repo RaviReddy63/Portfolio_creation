@@ -1,21 +1,4 @@
-def show_portfolio_assignment_page():
-    """Show Portfolio Assignment page content with full functionality"""
-    from data_loader import get_merged_data
-    from portfolio_creation import process_portfolio_creation
-    from portfolio_creation import apply_portfolio_changes
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    # Store branch_data in session state for save functions
-    st.session_state.branch_data = branch_data
-    st.session_state.customer_data = customer_data
-    
-    # Create AU filters
-    selected_aus = create_au_filters(branch_data)
-    
-    # Create customer filters
-    cust_state, role, cust_portimport streamlit as st
+import streamlit as st
 import pandas as pd
 
 def setup_page_config():
@@ -127,21 +110,20 @@ def create_header():
     with tab1:
         # Home content
         show_home_page()
+        return None
         
     with tab2:
         # My Requests content
         show_my_requests_page()
+        return None
         
     with tab3:
-        # Portfolio Assignment content
-        show_portfolio_assignment_page()
+        # Portfolio Assignment content - return page name for main.py to handle
+        return "Portfolio Assignment"
         
     with tab4:
-        # Portfolio Mapping content
-        show_portfolio_mapping_page()
-    
-    # Return None since content is handled within tabs
-    return None
+        # Portfolio Mapping content - return page name for main.py to handle
+        return "Portfolio Mapping"
 
 def show_home_page():
     """Show Home page content"""
@@ -152,49 +134,6 @@ def show_my_requests_page():
     """Show My Requests page content"""
     st.markdown("### My Requests")
     st.info("My Requests functionality - content coming soon.")
-
-def show_portfolio_assignment_page():
-    """Show Portfolio Assignment page content"""
-    from data_loader import get_merged_data
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    # Store branch_data in session state for save functions
-    st.session_state.branch_data = branch_data
-    st.session_state.customer_data = customer_data
-    
-    # Create AU filters
-    selected_aus = create_au_filters(branch_data)
-    
-    # Create customer filters
-    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters(customer_data)
-    
-    # Create portfolio button
-    button_clicked = create_portfolio_button()
-    
-    # Handle portfolio creation logic here...
-    # (This would include all the existing Portfolio Assignment logic from main.py)
-
-def show_portfolio_mapping_page():
-    """Show Portfolio Mapping page content"""
-    from data_loader import get_merged_data
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    # Create customer filters
-    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
-    
-    # Create Smart Portfolio Generation button
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        st.write("")
-    with col2:
-        generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
-    
-    # Handle portfolio mapping logic here...
-    # (This would include all the existing Portfolio Mapping logic from main.py)
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
