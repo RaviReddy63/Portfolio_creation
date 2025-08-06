@@ -1,7 +1,6 @@
 import plotly.graph_objects as go
 import pandas as pd
 import numpy as np
-from utils import format_currency, format_number
 
 def create_combined_map(all_portfolios, branch_data):
     """Create a combined map showing all portfolios with different colors - one color per AU"""
@@ -40,16 +39,13 @@ def create_combined_map(all_portfolios, branch_data):
         # Create hover text for this AU portfolio
         hover_text = []
         for _, customer in df.iterrows():
-            revenue_formatted = format_currency(customer.get('BANK_REVENUE', 0))
-            deposit_formatted = format_currency(customer.get('DEPOSIT_BAL', 0))
-            
             hover_text.append(f"""
             <b>{customer.get('CG_ECN', 'N/A')}</b><br>
             AU Portfolio: {au_id}<br>
             Portfolio ID: {customer.get('PORT_CODE', 'N/A')}<br>
             Distance: {customer.get('Distance', 0):.1f} miles<br>
-            Revenue: {revenue_formatted}<br>
-            Deposit: {deposit_formatted}<br>
+            Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
+            Deposit: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
             State: {customer.get('BILLINGSTATE', 'N/A')}<br>
             Type: {customer.get('TYPE', 'N/A')}
             """)
@@ -65,7 +61,7 @@ def create_combined_map(all_portfolios, branch_data):
             ),
             hovertemplate='%{text}<extra></extra>',
             text=hover_text,
-            name=f"AU {au_id} Portfolio ({format_number(len(df))} customers)",
+            name=f"AU {au_id} Portfolio ({len(df)} customers)",
             showlegend=True
         ))
     
@@ -189,7 +185,7 @@ def create_smart_portfolio_map(results_df, branch_data):
                 ),
                 hovertemplate='%{text}<extra></extra>',
                 text=inmarket_hover,
-                name=f"AU {au} - INMARKET ({format_number(len(inmarket_data))})",
+                name=f"AU {au} - INMARKET ({len(inmarket_data)})",
                 showlegend=True
             ))
         
@@ -220,7 +216,7 @@ def create_smart_portfolio_map(results_df, branch_data):
                 ),
                 hovertemplate='%{text}<extra></extra>',
                 text=centralized_hover,
-                name=f"AU {au} - CENTRALIZED ({format_number(len(centralized_data))})",
+                name=f"AU {au} - CENTRALIZED ({len(centralized_data)})",
                 showlegend=True
             ))
         
@@ -239,9 +235,9 @@ def create_smart_portfolio_map(results_df, branch_data):
             <b>AU {au}</b><br>
             Location: {au_city}<br>
             Coordinates: {au_lat:.4f}, {au_lon:.4f}<br>
-            Total Customers: {format_number(len(au_data))}<br>
-            INMARKET: {format_number(len(inmarket_data))}<br>
-            CENTRALIZED: {format_number(len(centralized_data))}
+            Total Customers: {len(au_data)}<br>
+            INMARKET: {len(inmarket_data)}<br>
+            CENTRALIZED: {len(centralized_data)}
             <extra></extra>
             """,
             name=f"AU {au} Branch",
