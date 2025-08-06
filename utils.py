@@ -17,58 +17,6 @@ def haversine_distance(clat, clon, blat, blon):
     distance = 3959*c  # Earth's radius in miles
     return distance
 
-def format_currency(value):
-    """Format number as currency with $ and commas"""
-    if pd.isna(value) or value is None:
-        return "$0"
-    try:
-        return f"${value:,.0f}"
-    except (ValueError, TypeError):
-        return "$0"
-
-def format_number(value):
-    """Format number with commas (no dollar sign)"""
-    if pd.isna(value) or value is None:
-        return "0"
-    try:
-        return f"{value:,.0f}"
-    except (ValueError, TypeError):
-        return "0"
-
-def format_currency_short(value):
-    """Format currency in short form (K, M, B)"""
-    if pd.isna(value) or value is None:
-        return "$0"
-    try:
-        value = float(value)
-        if abs(value) >= 1_000_000_000:
-            return f"${value/1_000_000_000:.1f}B"
-        elif abs(value) >= 1_000_000:
-            return f"${value/1_000_000:.1f}M"
-        elif abs(value) >= 1_000:
-            return f"${value/1_000:.1f}K"
-        else:
-            return f"${value:.0f}"
-    except (ValueError, TypeError):
-        return "$0"
-
-def format_number_short(value):
-    """Format number in short form (K, M, B) without dollar sign"""
-    if pd.isna(value) or value is None:
-        return "0"
-    try:
-        value = float(value)
-        if abs(value) >= 1_000_000_000:
-            return f"{value/1_000_000_000:.1f}B"
-        elif abs(value) >= 1_000_000:
-            return f"{value/1_000_000:.1f}M"
-        elif abs(value) >= 1_000:
-            return f"{value/1_000:.1f}K"
-        else:
-            return f"{value:.0f}"
-    except (ValueError, TypeError):
-        return "0"
-
 def merge_dfs(customer_data, banker_data, branch_data):
     """Merge customer, banker, and branch dataframes"""
     customer_data = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
