@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from utils import format_currency, format_number, format_currency_short, format_number_short
 
 def setup_page_config():
     """Configure the Streamlit page"""
@@ -489,9 +490,9 @@ def create_customer_filters(customer_data):
         with col4:
             max_dist = st.slider("Max Distance (miles)", 1, 100, value=20, key="max_distance")
         with col5:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="min_revenue")
+            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="min_revenue", format="$%d")
         with col6:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="min_deposit")
+            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="min_deposit", format="$%d")
     
     return cust_state, role, cust_portcd, max_dist, min_rev, min_deposit
 
@@ -504,20 +505,26 @@ def create_portfolio_button():
         return st.button("Create Portfolios", key="create_portfolios", type="primary")
 
 def display_summary_statistics(au_filtered_data):
-    """Display summary statistics for an AU"""
+    """Display summary statistics for an AU with proper formatting"""
     if not au_filtered_data.empty:
         st.subheader("AU Summary Statistics")
         col_a, col_b, col_c, col_d = st.columns(4)
+        
         with col_a:
-            st.metric("Total Customers", len(au_filtered_data))
+            total_customers = len(au_filtered_data)
+            st.metric("Total Customers", format_number(total_customers))
+        
         with col_b:
-            st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
+            avg_distance = au_filtered_data['Distance'].mean()
+            st.metric("Avg Distance (Miles)", f"{avg_distance:.1f}")
+        
         with col_c:
-            avg_revenue_k = au_filtered_data['BANK_REVENUE'].mean() / 1000
-            st.metric("Average Revenue", f"{avg_revenue_k:.1f}K")
+            avg_revenue = au_filtered_data['BANK_REVENUE'].mean()
+            st.metric("Average Revenue", format_currency_short(avg_revenue))
+        
         with col_d:
-            avg_deposit_mm = au_filtered_data['DEPOSIT_BAL'].mean() / 1000000
-            st.metric("Average Deposits", f"{avg_deposit_mm:.1f}MM")
+            avg_deposit = au_filtered_data['DEPOSIT_BAL'].mean()
+            st.metric("Average Deposits", format_currency_short(avg_deposit))
 
 def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
     """Create an editable portfolio dataframe"""
@@ -526,14 +533,15 @@ def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
             "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
             "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
             "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-            "Available for all new portfolios": st.column_config.NumberColumn("Available for all new portfolios", disabled=True),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
+            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True, format="%d"),
+            "Available for all new portfolios": st.column_config.NumberColumn("Available for all new portfolios", disabled=True, format="%d"),
+            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True, format="%d"),
             "Select": st.column_config.NumberColumn(
                 "Select",
                 help="Number of customers to select from this portfolio",
                 min_value=0,
-                step=1
+                step=1,
+                format="%d"
             )
         }
     else:
@@ -541,13 +549,14 @@ def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
             "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
             "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
             "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
+            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True, format="%d"),
+            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True, format="%d"),
             "Select": st.column_config.NumberColumn(
                 "Select",
                 help="Number of customers to select from this portfolio",
                 min_value=0,
-                step=1
+                step=1,
+                format="%d"
             )
         }
     
@@ -588,44 +597,3 @@ def create_customer_filters_for_mapping(customer_data):
     with col_clear2:
         st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
         if st.button("Clear filters", key="clear_mapping_filters", help="Clear customer selection filters", type="secondary"):
-            # Clear customer filters for mapping by clearing widget keys
-            mapping_filter_keys = ["mapping_cust_state", "mapping_role", "mapping_cust_portcd", "mapping_min_revenue", "mapping_min_deposit"]
-            for key in mapping_filter_keys:
-                if key in st.session_state:
-                    del st.session_state[key]
-            # Clear smart portfolio results
-            if 'smart_portfolio_results' in st.session_state:
-                del st.session_state.smart_portfolio_results
-    
-    with st.expander("Customer Filters", expanded=True):
-        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
-        
-        with col1:
-            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="mapping_cust_state")
-            if not cust_state:
-                cust_state = None
-        
-        with col2:
-            role_options = list(customer_data['TYPE'].dropna().unique())
-            role = st.multiselect("Role", role_options, key="mapping_role")
-            if not role:
-                role = None
-        
-        with col2_or:
-            st.markdown("<div style='text-align: center; padding-top: 8px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
-        
-        with col3:
-            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
-            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="mapping_cust_portcd")
-            if not cust_portcd:
-                cust_portcd = None
-        
-        col4, col5 = st.columns(2)
-        with col4:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="mapping_min_revenue")
-        with col5:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="mapping_min_deposit")
-    
-    return cust_state, role, cust_portcd, None, min_rev, min_deposit
