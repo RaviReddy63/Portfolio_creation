@@ -509,15 +509,21 @@ def display_summary_statistics(au_filtered_data):
         st.subheader("AU Summary Statistics")
         col_a, col_b, col_c, col_d = st.columns(4)
         with col_a:
-            st.metric("Total Customers", len(au_filtered_data))
+            st.metric("Total Customers", f"{len(au_filtered_data):,}")  # Added comma formatting
         with col_b:
             st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
         with col_c:
-            avg_revenue_k = au_filtered_data['BANK_REVENUE'].mean() / 1000
-            st.metric("Average Revenue", f"{avg_revenue_k:.1f}K")
+            avg_revenue = au_filtered_data['BANK_REVENUE'].mean()
+            if avg_revenue >= 1000000:
+                st.metric("Average Revenue", f"${avg_revenue/1000000:.1f}M")  # Added $ and M format
+            else:
+                st.metric("Average Revenue", f"${avg_revenue/1000:.1f}K")  # Added $ and K format
         with col_d:
-            avg_deposit_mm = au_filtered_data['DEPOSIT_BAL'].mean() / 1000000
-            st.metric("Average Deposits", f"{avg_deposit_mm:.1f}MM")
+            avg_deposit = au_filtered_data['DEPOSIT_BAL'].mean()
+            if avg_deposit >= 1000000:
+                st.metric("Average Deposits", f"${avg_deposit/1000000:.1f}M")  # Added $ and M format
+            else:
+                st.metric("Average Deposits", f"${avg_deposit/1000:.1f}K")  # Added $ and K format
 
 def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
     """Create an editable portfolio dataframe"""
