@@ -10,7 +10,9 @@ def create_portfolio_summary(filtered_data, au_id, customer_data):
     grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
     
     for pid, group in grouped:
-        total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
+        # Fix the column reference - use the original customer_data with proper renaming
+        customer_data_renamed = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+        total_customer = len(customer_data_renamed[customer_data_renamed["PORT_CODE"] == pid])
         
         # Determine portfolio type
         portfolio_type = "Unknown"
@@ -41,7 +43,7 @@ def create_portfolio_summary(filtered_data, au_id, customer_data):
             'Portfolio Type': 'Unmanaged',
             'Total Customers': len(customer_data[
                 (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                (customer_data['PORT_CODE'].isna())
+                (customer_data['CG_PORTFOLIO_CD'].isna())  # Use original column name
             ]),
             'Available': len(unmanaged_customers),
             'Select': len(unmanaged_customers)
@@ -80,7 +82,9 @@ def recalculate_portfolio_summaries(portfolios_created, customer_data):
         grouped = filtered_data[filtered_data['PORT_CODE'].notna()].groupby("PORT_CODE")
         
         for pid, group in grouped:
-            total_customer = len(customer_data[customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})["PORT_CODE"] == pid])
+            # Fix the column reference - use the original customer_data with proper renaming
+            customer_data_renamed = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+            total_customer = len(customer_data_renamed[customer_data_renamed["PORT_CODE"] == pid])
             
             # Determine portfolio type
             portfolio_type = "Unknown"
@@ -127,7 +131,7 @@ def recalculate_portfolio_summaries(portfolios_created, customer_data):
                 'Portfolio Type': 'Unmanaged',
                 'Total Customers': len(customer_data[
                     (customer_data['TYPE'].str.lower().str.strip() == 'unmanaged') |
-                    (customer_data['PORT_CODE'].isna())
+                    (customer_data['CG_PORTFOLIO_CD'].isna())  # Use original column name
                 ]),
                 'Available for this portfolio': len(unmanaged_customers),
                 'Select': len(unmanaged_customers)
