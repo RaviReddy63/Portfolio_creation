@@ -489,9 +489,18 @@ def create_customer_filters(customer_data):
         with col4:
             max_dist = st.slider("Max Distance (miles)", 1, 100, value=20, key="max_distance")
         with col5:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="min_revenue", format="$%d")
+            min_rev = st.select_slider("Minimum Revenue", 
+                                     options=[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 
+                                            11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000],
+                                     value=5000,
+                                     format_func=lambda x: f"${x:,}",
+                                     key="min_revenue")
         with col6:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="min_deposit", format="$%d")
+            min_deposit = st.select_slider("Minimum Deposit",
+                                         options=[0, 25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000],
+                                         value=100000,
+                                         format_func=lambda x: f"${x:,}",
+                                         key="min_deposit")
     
     return cust_state, role, cust_portcd, max_dist, min_rev, min_deposit
 
@@ -630,8 +639,17 @@ def create_customer_filters_for_mapping(customer_data):
         
         col4, col5 = st.columns(2)
         with col4:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="mapping_min_revenue", format="$%d")
+            min_rev = st.select_slider("Minimum Revenue", 
+                                     options=[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 
+                                            11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000],
+                                     value=5000,
+                                     format_func=lambda x: f"${x:,}",
+                                     key="mapping_min_revenue")
         with col5:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="mapping_min_deposit", format="$%d")
+            min_deposit = st.select_slider("Minimum Deposit",
+                                         options=[0, 25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000],
+                                         value=100000,
+                                         format_func=lambda x: f"${x:,}",
+                                         key="mapping_min_deposit")
     
     return cust_state, role, cust_portcd, None, min_rev, min_deposit
