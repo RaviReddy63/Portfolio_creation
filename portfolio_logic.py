@@ -24,7 +24,10 @@ def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data
         lambda row: haversine_distance(row['LAT_NUM'], row['LON_NUM'], AU_lat, AU_lon), axis=1
     )
     
-    customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+    # Ensure PORT_CODE column exists
+    if 'PORT_CODE' not in customer_data_boxed.columns:
+        customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+    
     filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
     
     # Apply distance filter for all roles except CENTRALIZED
