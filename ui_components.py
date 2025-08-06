@@ -489,9 +489,9 @@ def create_customer_filters(customer_data):
         with col4:
             max_dist = st.slider("Max Distance (miles)", 1, 100, value=20, key="max_distance")
         with col5:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="min_revenue")
+            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="min_revenue", format="$%d")
         with col6:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="min_deposit")
+            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="min_deposit", format="$%d")
     
     return cust_state, role, cust_portcd, max_dist, min_rev, min_deposit
 
@@ -630,8 +630,8 @@ def create_customer_filters_for_mapping(customer_data):
         
         col4, col5 = st.columns(2)
         with col4:
-            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="mapping_min_revenue")
+            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="mapping_min_revenue", format="$%d")
         with col5:
-            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="mapping_min_deposit")
+            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="mapping_min_deposit", format="$%d")
     
     return cust_state, role, cust_portcd, None, min_rev, min_deposit
