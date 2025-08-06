@@ -541,14 +541,15 @@ def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
             "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
             "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
             "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-            "Available for all new portfolios": st.column_config.NumberColumn("Available for all new portfolios", disabled=True),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
+            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True, format="%d"),
+            "Available for all new portfolios": st.column_config.NumberColumn("Available for all new portfolios", disabled=True, format="%d"),
+            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True, format="%d"),
             "Select": st.column_config.NumberColumn(
                 "Select",
                 help="Number of customers to select from this portfolio",
                 min_value=0,
-                step=1
+                step=1,
+                format="%d"
             )
         }
     else:
@@ -556,13 +557,14 @@ def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
             "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
             "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
             "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True),
+            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True, format="%d"),
+            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True, format="%d"),
             "Select": st.column_config.NumberColumn(
                 "Select",
                 help="Number of customers to select from this portfolio",
                 min_value=0,
-                step=1
+                step=1,
+                format="%d"
             )
         }
     
