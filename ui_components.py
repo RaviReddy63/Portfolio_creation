@@ -597,3 +597,44 @@ def create_customer_filters_for_mapping(customer_data):
     with col_clear2:
         st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
         if st.button("Clear filters", key="clear_mapping_filters", help="Clear customer selection filters", type="secondary"):
+            # Clear customer filters for mapping by clearing widget keys
+            mapping_filter_keys = ["mapping_cust_state", "mapping_role", "mapping_cust_portcd", "mapping_min_revenue", "mapping_min_deposit"]
+            for key in mapping_filter_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+            # Clear smart portfolio results
+            if 'smart_portfolio_results' in st.session_state:
+                del st.session_state.smart_portfolio_results
+    
+    with st.expander("Customer Filters", expanded=True):
+        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
+        
+        with col1:
+            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+            cust_state = st.multiselect("Customer State", cust_state_options, key="mapping_cust_state")
+            if not cust_state:
+                cust_state = None
+        
+        with col2:
+            role_options = list(customer_data['TYPE'].dropna().unique())
+            role = st.multiselect("Role", role_options, key="mapping_role")
+            if not role:
+                role = None
+        
+        with col2_or:
+            st.markdown("<div style='text-align: center; padding-top: 8px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
+        
+        with col3:
+            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
+            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
+            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="mapping_cust_portcd")
+            if not cust_portcd:
+                cust_portcd = None
+        
+        col4, col5 = st.columns(2)
+        with col4:
+            min_rev = st.slider("Minimum Revenue", 0, 20000, value=5000, step=1000, key="mapping_min_revenue", format="$%d")
+        with col5:
+            min_deposit = st.slider("Minimum Deposit", 0, 200000, value=100000, step=5000, key="mapping_min_deposit", format="$%d")
+    
+    return cust_state, role, cust_portcd, None, min_rev, min_deposit
