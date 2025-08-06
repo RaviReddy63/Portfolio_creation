@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from portfolio_logic import filter_customers_for_au, reassign_to_nearest_au, apply_portfolio_selection_changes
+from utils import format_number
 
 def create_portfolio_summary(filtered_data, au_id, customer_data):
     """Create portfolio summary for an AU"""
@@ -177,7 +178,8 @@ def process_portfolio_creation(selected_aus, customer_data, banker_data, branch_
                 portfolios_created, selected_aus, branch_data
             )
         
-        st.success(f"Portfolios created for {len(portfolios_created)} AUs")
+        total_portfolios = len(portfolios_created)
+        st.success(f"Portfolios created for {format_number(total_portfolios)} AUs")
         
         # Recalculate portfolio summaries after reassignment
         portfolio_summaries = recalculate_portfolio_summaries(portfolios_created, customer_data)
