@@ -294,7 +294,7 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         st.error("No customers found with the selected filters. Please adjust your criteria.")
         return
     
-    st.info(f"Processing {len(filtered_customers)} customers for smart portfolio generation...")
+    st.info(f"Processing {len(filtered_customers):,} customers for smart portfolio generation...")
     
     # Create progress bar
     progress_bar = st.progress(0)
@@ -334,7 +334,7 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         progress_bar.empty()
         status_text.empty()
         
-        st.success(f"Successfully generated smart portfolios for {len(smart_portfolio_results)} customers!")
+        st.success(f"Successfully generated smart portfolios for {len(smart_portfolio_results):,} customers!")
         
     except Exception as e:
         progress_bar.empty()
@@ -521,16 +521,16 @@ def display_global_portfolio_statistics(results_df):
         col_a, col_b, col_c, col_d = st.columns(4)
         
         with col_a:
-            st.metric("Total Customers", f"{total_customers}")
+            st.metric("Total Customers", f"{total_customers:,}")
         
         with col_b:
             st.metric("Average Distance (Miles)", f"{avg_distance:.1f}")
         
         with col_c:
-            st.metric("In-Market Portfolios", f"{inmarket_aus}")
+            st.metric("In-Market Portfolios", f"{inmarket_aus:,}")
         
         with col_d:
-            st.metric("Centralized Portfolios", f"{centralized_aus}")
+            st.metric("Centralized Portfolios", f"{centralized_aus:,}")
         
     else:
         # Show empty state
@@ -881,7 +881,7 @@ def save_single_au_portfolio(au_id, portfolios_created, customer_data):
             key=f"download_au_{au_id}"
         )
         
-        st.success(f"Portfolio for AU {au_id} prepared for download ({len(export_data)} customers)")
+        st.success(f"Portfolio for AU {au_id} prepared for download ({len(export_data):,} customers)")
         
     except Exception as e:
         st.error(f"Error saving portfolio: {str(e)}")
@@ -927,7 +927,7 @@ def save_all_portfolios(portfolios_created, customer_data):
             key="download_all_portfolios"
         )
         
-        st.success(f"All portfolios prepared for download ({len(combined_data)} customers across {len(portfolios_created)} AUs)")
+        st.success(f"All portfolios prepared for download ({len(combined_data):,} customers across {len(portfolios_created):,} AUs)")
         
     except Exception as e:
         st.error(f"Error saving all portfolios: {str(e)}")
@@ -973,7 +973,7 @@ def save_all_smart_portfolios(smart_portfolios_created, customer_data):
             key="download_all_smart_portfolios"
         )
         
-        st.success(f"All smart portfolios prepared for download ({len(combined_data)} customers across {len(smart_portfolios_created)} AUs)")
+        st.success(f"All smart portfolios prepared for download ({len(combined_data):,} customers across {len(smart_portfolios_created):,} AUs)")
         
     except Exception as e:
         st.error(f"Error saving all smart portfolios: {str(e)}")
@@ -1062,7 +1062,7 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 if 'smart_portfolio_controls' in st.session_state:
                     st.session_state.smart_portfolio_controls = {}
                 
-                st.success(f"Applied changes with {len(smart_results)} customers (from {len(all_filtered_customers)} total filtered)!")
+                st.success(f"Applied changes with {len(smart_results):,} customers (from {len(all_filtered_customers):,} total filtered)!")
             else:
                 st.error("No customers selected")
                 
