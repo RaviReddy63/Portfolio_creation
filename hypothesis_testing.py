@@ -159,26 +159,26 @@ print("="*60)
 from scipy import stats
 
 # HYPOTHESIS 1: Customer-level proximity test
-# H0: Average BANK_REVENUE is the same for customers within 20 miles vs. beyond 20 miles
-# H1: Average BANK_REVENUE is higher for customers within 20 miles
+# H0: Average BANK_REVENUE is the same for customers within 10 miles vs. beyond 10 miles
+# H1: Average BANK_REVENUE is higher for customers within 10 miles
 
 print("\nHYPOTHESIS TEST 1: Customer-Level Analysis")
 print("-" * 50)
 
-customers_within_20 = final_data[final_data['distance_to_branch'] <= 20]['BANK_REVENUE']
-customers_beyond_20 = final_data[final_data['distance_to_branch'] > 20]['BANK_REVENUE']
+customers_within_10 = final_data[final_data['distance_to_branch'] <= 10]['BANK_REVENUE']
+customers_beyond_10 = final_data[final_data['distance_to_branch'] > 10]['BANK_REVENUE']
 
 # Remove any NaN values
-customers_within_20 = customers_within_20.dropna()
-customers_beyond_20 = customers_beyond_20.dropna()
+customers_within_10 = customers_within_10.dropna()
+customers_beyond_10 = customers_beyond_10.dropna()
 
-print(f"Customers within 20 miles: {len(customers_within_20)}")
-print(f"Customers beyond 20 miles: {len(customers_beyond_20)}")
-print(f"Average revenue within 20 miles: ${customers_within_20.mean():,.2f}")
-print(f"Average revenue beyond 20 miles: ${customers_beyond_20.mean():,.2f}")
+print(f"Customers within 10 miles: {len(customers_within_10)}")
+print(f"Customers beyond 10 miles: {len(customers_beyond_10)}")
+print(f"Average revenue within 10 miles: ${customers_within_10.mean():,.2f}")
+print(f"Average revenue beyond 10 miles: ${customers_beyond_10.mean():,.2f}")
 
 # Perform independent t-test
-t_stat_customers, p_value_customers = stats.ttest_ind(customers_within_20, customers_beyond_20)
+t_stat_customers, p_value_customers = stats.ttest_ind(customers_within_10, customers_beyond_10)
 
 print(f"\nT-test Results:")
 print(f"T-statistic: {t_stat_customers:.4f}")
@@ -187,18 +187,18 @@ print(f"Significance level: 0.05")
 
 if p_value_customers < 0.05:
     print("✓ REJECT null hypothesis - There IS a significant difference in bank revenue")
-    if customers_within_20.mean() > customers_beyond_20.mean():
-        print("✓ Customers within 20 miles have significantly HIGHER average bank revenue")
+    if customers_within_10.mean() > customers_beyond_10.mean():
+        print("✓ Customers within 10 miles have significantly HIGHER average bank revenue")
     else:
-        print("✗ Customers within 20 miles have significantly LOWER average bank revenue")
+        print("✗ Customers within 10 miles have significantly LOWER average bank revenue")
 else:
     print("✗ FAIL to reject null hypothesis - No significant difference found")
 
 # Effect size (Cohen's d)
-pooled_std = np.sqrt(((len(customers_within_20) - 1) * customers_within_20.var() + 
-                     (len(customers_beyond_20) - 1) * customers_beyond_20.var()) / 
-                     (len(customers_within_20) + len(customers_beyond_20) - 2))
-cohens_d_customers = (customers_within_20.mean() - customers_beyond_20.mean()) / pooled_std
+pooled_std = np.sqrt(((len(customers_within_10) - 1) * customers_within_10.var() + 
+                     (len(customers_beyond_10) - 1) * customers_beyond_10.var()) / 
+                     (len(customers_within_10) + len(customers_beyond_10) - 2))
+cohens_d_customers = (customers_within_10.mean() - customers_beyond_10.mean()) / pooled_std
 print(f"Cohen's d (effect size): {cohens_d_customers:.4f}")
 
 # HYPOTHESIS 2: Portfolio-level proximity test (In-market portfolios only)
