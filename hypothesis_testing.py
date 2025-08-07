@@ -35,18 +35,18 @@ def create_distance_buckets(distance):
     else:
         return '> 250 miles'
 
-# Load your data (replace with your actual file paths)
-# client_data = pd.read_csv('CLIENT_GROUP_DF_NEW.csv')
-# active_portfolio = pd.read_csv('ACTIVE_PORTFOLIO.csv')
-# branch_data = pd.read_csv('BRANCH_DATA.csv')
+# Load your data (replace with your actual file paths if reading from files)
+# CLIENT_GROUP_DF_NEW = pd.read_csv('CLIENT_GROUP_DF_NEW.csv')
+# ACTIVE_PORTFOLIO = pd.read_csv('ACTIVE_PORTFOLIO.csv')
+# BRANCH_DATA = pd.read_csv('BRANCH_DATA.csv')
 
-# For demonstration, I'll show the structure assuming you have the dataframes
-# Make sure your dataframes are named: client_data, active_portfolio, branch_data
+# Assuming your dataframes are already loaded as:
+# CLIENT_GROUP_DF_NEW, ACTIVE_PORTFOLIO, BRANCH_DATA
 
 # Step 1: Merge all data together
 # First merge client data with active portfolio
-merged_data = client_data.merge(
-    active_portfolio, 
+merged_data = CLIENT_GROUP_DF_NEW.merge(
+    ACTIVE_PORTFOLIO, 
     left_on='CG_PORTFOLIO_CD', 
     right_on='PORT_CODE', 
     how='inner'
@@ -54,7 +54,7 @@ merged_data = client_data.merge(
 
 # Then merge with branch data to get branch coordinates
 final_data = merged_data.merge(
-    branch_data, 
+    BRANCH_DATA, 
     on='AU', 
     how='inner'
 )
