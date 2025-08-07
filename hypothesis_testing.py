@@ -159,26 +159,26 @@ print("="*60)
 from scipy import stats
 
 # HYPOTHESIS 1: Customer-level proximity test
-# H0: Average BANK_REVENUE is the same for customers within 10 miles vs. beyond 10 miles
-# H1: Average BANK_REVENUE is higher for customers within 10 miles
+# H0: Average BANK_REVENUE is the same for customers within 20 miles vs. beyond 20 miles
+# H1: Average BANK_REVENUE is higher for customers within 20 miles
 
 print("\nHYPOTHESIS TEST 1: Customer-Level Analysis")
 print("-" * 50)
 
-customers_within_10 = final_data[final_data['distance_to_branch'] <= 10]['BANK_REVENUE']
-customers_beyond_10 = final_data[final_data['distance_to_branch'] > 10]['BANK_REVENUE']
+customers_within_20 = final_data[final_data['distance_to_branch'] <= 20]['BANK_REVENUE']
+customers_beyond_20 = final_data[final_data['distance_to_branch'] > 20]['BANK_REVENUE']
 
 # Remove any NaN values
-customers_within_10 = customers_within_10.dropna()
-customers_beyond_10 = customers_beyond_10.dropna()
+customers_within_20 = customers_within_20.dropna()
+customers_beyond_20 = customers_beyond_20.dropna()
 
-print(f"Customers within 10 miles: {len(customers_within_10)}")
-print(f"Customers beyond 10 miles: {len(customers_beyond_10)}")
-print(f"Average revenue within 10 miles: ${customers_within_10.mean():,.2f}")
-print(f"Average revenue beyond 10 miles: ${customers_beyond_10.mean():,.2f}")
+print(f"Customers within 20 miles: {len(customers_within_20)}")
+print(f"Customers beyond 20 miles: {len(customers_beyond_20)}")
+print(f"Average revenue within 20 miles: ${customers_within_20.mean():,.2f}")
+print(f"Average revenue beyond 20 miles: ${customers_beyond_20.mean():,.2f}")
 
 # Perform independent t-test
-t_stat_customers, p_value_customers = stats.ttest_ind(customers_within_10, customers_beyond_10)
+t_stat_customers, p_value_customers = stats.ttest_ind(customers_within_20, customers_beyond_20)
 
 print(f"\nT-test Results:")
 print(f"T-statistic: {t_stat_customers:.4f}")
@@ -187,54 +187,68 @@ print(f"Significance level: 0.05")
 
 if p_value_customers < 0.05:
     print("✓ REJECT null hypothesis - There IS a significant difference in bank revenue")
-    if customers_within_10.mean() > customers_beyond_10.mean():
-        print("✓ Customers within 10 miles have significantly HIGHER average bank revenue")
+    if customers_within_20.mean() > customers_beyond_20.mean():
+        print("✓ Customers within 20 miles have significantly HIGHER average bank revenue")
     else:
-        print("✗ Customers within 10 miles have significantly LOWER average bank revenue")
+        print("✗ Customers within 20 miles have significantly LOWER average bank revenue")
 else:
     print("✗ FAIL to reject null hypothesis - No significant difference found")
 
 # Effect size (Cohen's d)
-pooled_std = np.sqrt(((len(customers_within_10) - 1) * customers_within_10.var() + 
-                     (len(customers_beyond_10) - 1) * customers_beyond_10.var()) / 
-                     (len(customers_within_10) + len(customers_beyond_10) - 2))
-cohens_d_customers = (customers_within_10.mean() - customers_beyond_10.mean()) / pooled_std
+pooled_std = np.sqrt(((len(customers_within_20) - 1) * customers_within_20.var() + 
+                     (len(customers_beyond_20) - 1) * customers_beyond_20.var()) / 
+                     (len(customers_within_20) + len(customers_beyond_20) - 2))
+cohens_d_customers = (customers_within_20.mean() - customers_beyond_20.mean()) / pooled_std
 print(f"Cohen's d (effect size): {cohens_d_customers:.4f}")
 
-# HYPOTHESIS 2: Portfolio-level proximity test (In-market portfolios only)
+# HYPOTHESIS 2: Portfolio-level proximity test (In-market AND Centralized portfolios)
 # H0: Average BANK_REVENUE is the same for portfolios with avg distance <20 miles vs. >20 miles
 # H1: Average BANK_REVENUE is higher for portfolios with avg distance <20 miles
 
-print("\n\nHYPOTHESIS TEST 2: Portfolio-Level Analysis (In-market only)")
-print("-" * 60)
+print("\n\nHYPOTHESIS TEST 2: Portfolio-Level Analysis (In-market and Centralized)")
+print("-" * 70)
 
-# Filter for In-market portfolios only (assuming ROLE_TYPE or TYPE indicates this)
-# You may need to adjust this filter based on your data
-inmarket_data = final_data[final_data['ROLE_TYPE'].str.contains('In-market', case=False, na=False) | 
-                          final_data['TYPE'].str.contains('In-market', case=False, na=False)]
+# Step 1: Get In-market portfolios that have distances calculated (from final_data)
+inmarket_data = final_data[
+    (final_data['ROLE_TYPE'].str.contains('In-market', case=False, na=False) | 
+     final_data['TYPE'].str.contains('In-market', case=False, na=False))
+]
 
-if len(inmarket_data) == 0:
-    print("WARNING: No 'In-market' portfolios found. Using all portfolios for analysis.")
-    print("Please check your ROLE_TYPE or TYPE columns for correct 'In-market' designation.")
-    inmarket_data = final_data.copy()
+# Step 2: Get Centralized portfolios from original merged data (before branch merge)
+centralized_data = merged_data[
+    (merged_data['ROLE_TYPE'].str.contains('Centralized', case=False, na=False) | 
+     merged_data['TYPE'].str.contains('Centralized', case=False, na=False))
+]
 
-print(f"In-market records: {len(inmarket_data)}")
+print(f"In-market records with distance calculated: {len(inmarket_data)}")
+print(f"Centralized records (assumed >20 miles): {len(centralized_data)}")
 
-# Calculate portfolio-level averages for In-market portfolios
+# Step 3: Calculate portfolio averages for In-market portfolios
 inmarket_portfolio_stats = inmarket_data.groupby('CG_PORTFOLIO_CD').agg({
     'distance_to_branch': 'mean',
     'BANK_REVENUE': 'mean'
 }).reset_index()
 
-portfolios_within_20 = inmarket_portfolio_stats[inmarket_portfolio_stats['distance_to_branch'] <= 20]['BANK_REVENUE']
-portfolios_beyond_20 = inmarket_portfolio_stats[inmarket_portfolio_stats['distance_to_branch'] > 20]['BANK_REVENUE']
+# Step 4: Calculate portfolio averages for Centralized portfolios (no distance, just revenue)
+centralized_portfolio_stats = centralized_data.groupby('CG_PORTFOLIO_CD').agg({
+    'BANK_REVENUE': 'mean'
+}).reset_index()
+# Assign distance > 20 for all Centralized portfolios
+centralized_portfolio_stats['distance_to_branch'] = 999  # Arbitrary large number > 20
+
+# Step 5: Combine both portfolio types
+combined_portfolio_stats = pd.concat([inmarket_portfolio_stats, centralized_portfolio_stats], ignore_index=True)
+
+# Step 6: Split into distance groups
+portfolios_within_20 = combined_portfolio_stats[combined_portfolio_stats['distance_to_branch'] <= 20]['BANK_REVENUE']
+portfolios_beyond_20 = combined_portfolio_stats[combined_portfolio_stats['distance_to_branch'] > 20]['BANK_REVENUE']
 
 # Remove any NaN values
 portfolios_within_20 = portfolios_within_20.dropna()
 portfolios_beyond_20 = portfolios_beyond_20.dropna()
 
-print(f"In-market portfolios with avg distance ≤20 miles: {len(portfolios_within_20)}")
-print(f"In-market portfolios with avg distance >20 miles: {len(portfolios_beyond_20)}")
+print(f"\nPortfolios with avg distance ≤20 miles (In-market only): {len(portfolios_within_20)}")
+print(f"Portfolios with avg distance >20 miles (In-market + Centralized): {len(portfolios_beyond_20)}")
 
 if len(portfolios_within_20) > 0 and len(portfolios_beyond_20) > 0:
     print(f"Average revenue for portfolios ≤20 miles: ${portfolios_within_20.mean():,.2f}")
