@@ -35,18 +35,18 @@ def create_distance_buckets(distance):
     else:
         return '> 250 miles'
 
-# Load your data (replace with your actual file paths if reading from files)
-# CLIENT_GROUP_DF_NEW = pd.read_csv('CLIENT_GROUP_DF_NEW.csv')
-# ACTIVE_PORTFOLIO = pd.read_csv('ACTIVE_PORTFOLIO.csv')
-# BRANCH_DATA = pd.read_csv('BRANCH_DATA.csv')
+# Load your data (replace with your actual file paths)
+# client_data = pd.read_csv('CLIENT_GROUP_DF_NEW.csv')
+# active_portfolio = pd.read_csv('ACTIVE_PORTFOLIO.csv')
+# branch_data = pd.read_csv('BRANCH_DATA.csv')
 
-# Assuming your dataframes are already loaded as:
-# CLIENT_GROUP_DF_NEW, ACTIVE_PORTFOLIO, BRANCH_DATA
+# For demonstration, I'll show the structure assuming you have the dataframes
+# Make sure your dataframes are named: client_data, active_portfolio, branch_data
 
 # Step 1: Merge all data together
 # First merge client data with active portfolio
-merged_data = CLIENT_GROUP_DF_NEW.merge(
-    ACTIVE_PORTFOLIO, 
+merged_data = client_data.merge(
+    active_portfolio, 
     left_on='CG_PORTFOLIO_CD', 
     right_on='PORT_CODE', 
     how='inner'
@@ -54,7 +54,7 @@ merged_data = CLIENT_GROUP_DF_NEW.merge(
 
 # Then merge with branch data to get branch coordinates
 final_data = merged_data.merge(
-    BRANCH_DATA, 
+    branch_data, 
     on='AU', 
     how='inner'
 )
@@ -201,54 +201,40 @@ pooled_std = np.sqrt(((len(customers_within_20) - 1) * customers_within_20.var()
 cohens_d_customers = (customers_within_20.mean() - customers_beyond_20.mean()) / pooled_std
 print(f"Cohen's d (effect size): {cohens_d_customers:.4f}")
 
-# HYPOTHESIS 2: Portfolio-level proximity test (In-market AND Centralized portfolios)
+# HYPOTHESIS 2: Portfolio-level proximity test (In-market portfolios only)
 # H0: Average BANK_REVENUE is the same for portfolios with avg distance <20 miles vs. >20 miles
 # H1: Average BANK_REVENUE is higher for portfolios with avg distance <20 miles
 
-print("\n\nHYPOTHESIS TEST 2: Portfolio-Level Analysis (In-market and Centralized)")
-print("-" * 70)
+print("\n\nHYPOTHESIS TEST 2: Portfolio-Level Analysis (In-market only)")
+print("-" * 60)
 
-# Step 1: Get In-market portfolios that have distances calculated (from final_data)
-inmarket_data = final_data[
-    (final_data['ROLE_TYPE'].str.contains('In-market', case=False, na=False) | 
-     final_data['TYPE'].str.contains('In-market', case=False, na=False))
-]
+# Filter for In-market portfolios only (assuming ROLE_TYPE or TYPE indicates this)
+# You may need to adjust this filter based on your data
+inmarket_data = final_data[final_data['ROLE_TYPE'].str.contains('In-market', case=False, na=False) | 
+                          final_data['TYPE'].str.contains('In-market', case=False, na=False)]
 
-# Step 2: Get Centralized portfolios from original merged data (before branch merge)
-centralized_data = merged_data[
-    (merged_data['ROLE_TYPE'].str.contains('Centralized', case=False, na=False) | 
-     merged_data['TYPE'].str.contains('Centralized', case=False, na=False))
-]
+if len(inmarket_data) == 0:
+    print("WARNING: No 'In-market' portfolios found. Using all portfolios for analysis.")
+    print("Please check your ROLE_TYPE or TYPE columns for correct 'In-market' designation.")
+    inmarket_data = final_data.copy()
 
-print(f"In-market records with distance calculated: {len(inmarket_data)}")
-print(f"Centralized records (assumed >20 miles): {len(centralized_data)}")
+print(f"In-market records: {len(inmarket_data)}")
 
-# Step 3: Calculate portfolio averages for In-market portfolios
+# Calculate portfolio-level averages for In-market portfolios
 inmarket_portfolio_stats = inmarket_data.groupby('CG_PORTFOLIO_CD').agg({
     'distance_to_branch': 'mean',
     'BANK_REVENUE': 'mean'
 }).reset_index()
 
-# Step 4: Calculate portfolio averages for Centralized portfolios (no distance, just revenue)
-centralized_portfolio_stats = centralized_data.groupby('CG_PORTFOLIO_CD').agg({
-    'BANK_REVENUE': 'mean'
-}).reset_index()
-# Assign distance > 20 for all Centralized portfolios
-centralized_portfolio_stats['distance_to_branch'] = 999  # Arbitrary large number > 20
-
-# Step 5: Combine both portfolio types
-combined_portfolio_stats = pd.concat([inmarket_portfolio_stats, centralized_portfolio_stats], ignore_index=True)
-
-# Step 6: Split into distance groups
-portfolios_within_20 = combined_portfolio_stats[combined_portfolio_stats['distance_to_branch'] <= 20]['BANK_REVENUE']
-portfolios_beyond_20 = combined_portfolio_stats[combined_portfolio_stats['distance_to_branch'] > 20]['BANK_REVENUE']
+portfolios_within_20 = inmarket_portfolio_stats[inmarket_portfolio_stats['distance_to_branch'] <= 20]['BANK_REVENUE']
+portfolios_beyond_20 = inmarket_portfolio_stats[inmarket_portfolio_stats['distance_to_branch'] > 20]['BANK_REVENUE']
 
 # Remove any NaN values
 portfolios_within_20 = portfolios_within_20.dropna()
 portfolios_beyond_20 = portfolios_beyond_20.dropna()
 
-print(f"\nPortfolios with avg distance ≤20 miles (In-market only): {len(portfolios_within_20)}")
-print(f"Portfolios with avg distance >20 miles (In-market + Centralized): {len(portfolios_beyond_20)}")
+print(f"In-market portfolios with avg distance ≤20 miles: {len(portfolios_within_20)}")
+print(f"In-market portfolios with avg distance >20 miles: {len(portfolios_beyond_20)}")
 
 if len(portfolios_within_20) > 0 and len(portfolios_beyond_20) > 0:
     print(f"Average revenue for portfolios ≤20 miles: ${portfolios_within_20.mean():,.2f}")
