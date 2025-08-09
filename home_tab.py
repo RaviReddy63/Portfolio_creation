@@ -251,7 +251,7 @@ def create_metrics_charts(filtered_data, metrics):
             color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
         )
         fig_bar.update_layout(height=400, showlegend=False)
-        fig_bar.update_yaxis(title="Average Revenue ($)")
+        fig_bar.update_layout(yaxis_title="Average Revenue ($)")
         st.plotly_chart(fig_bar, use_container_width=True)
     
     # State-wise distribution
