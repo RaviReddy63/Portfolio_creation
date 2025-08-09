@@ -41,7 +41,9 @@ def prepare_portfolio_data(customer_data, banker_data, branch_data):
         portfolio_data = portfolio_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
     
     # Merge with banker data
-    portfolio_data = portfolio_data.merge(banker_data, on="PORT_CODE", how='left')
+    # Fill missing banker data
+    portfolio_data['BANKER_FIRSTNAME'] = portfolio_data['BANKER_FIRSTNAME'].fillna('Unknown')
+    portfolio_data['BANKER_LASTNAME'] = portfolio_data['BANKER_LASTNAME'].fillna('Banker')
     
     # Create banker hierarchy fields if they don't exist
     if 'DIRECTOR_NAME' not in portfolio_data.columns:
