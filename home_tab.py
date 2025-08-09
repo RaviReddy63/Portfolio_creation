@@ -415,8 +415,7 @@ def create_portfolio_map(filtered_data, branch_data):
                     marker=dict(
                         size=12,
                         color='blue',
-                        symbol='triangle-up',
-                        line=dict(width=2, color='darkblue')
+                        symbol='triangle-up'
                     ),
                     hovertemplate=f"""
                     <b>In-Market AU {au_data['AU']}</b><br>
@@ -452,8 +451,7 @@ def create_portfolio_map(filtered_data, branch_data):
                     marker=dict(
                         size=15,
                         color='red',
-                        symbol='star',
-                        line=dict(width=2, color='darkred')
+                        symbol='star'
                     ),
                     hovertemplate=f"""
                     <b>Centralized Portfolio {portfolio['PORT_CODE']}</b><br>
