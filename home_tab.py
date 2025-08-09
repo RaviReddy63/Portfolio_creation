@@ -41,9 +41,7 @@ def prepare_portfolio_data(customer_data, banker_data, branch_data):
         portfolio_data = portfolio_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
     
     # Merge with banker data
-    # Fill missing banker data
-    portfolio_data['BANKER_FIRSTNAME'] = portfolio_data['BANKER_FIRSTNAME'].fillna('Unknown')
-    portfolio_data['BANKER_LASTNAME'] = portfolio_data['BANKER_LASTNAME'].fillna('Banker')
+    portfolio_data = portfolio_data.merge(banker_data, on="PORT_CODE", how='left')
     
     # Create banker hierarchy fields if they don't exist
     if 'DIRECTOR_NAME' not in portfolio_data.columns:
@@ -181,27 +179,57 @@ def display_portfolio_metrics(filtered_data):
     create_metrics_charts(filtered_data, metrics)
 
 def calculate_portfolio_metrics(filtered_data):
-    """Calculate all portfolio metrics"""
+    """Calculate all portfolio metrics with safety checks"""
+    
+    # Safety check for empty data
+    if filtered_data.empty:
+        return {
+            'total_customers': 0,
+            'total_portfolios': 0,
+            'inmarket_portfolios': 0,
+            'centralized_portfolios': 0,
+            'inmarket_customers': 0,
+            'centralized_customers': 0,
+            'unassigned_customers': 0,
+            'unmanaged_customers': 0,
+            'avg_revenue': 0,
+            'avg_deposits': 0,
+            'avg_gross_sales': 0,
+            'utilization_rate': 0
+        }
     
     # Basic counts
     total_customers = len(filtered_data)
-    total_portfolios = filtered_data['PORT_CODE'].nunique()
     
-    # Coverage breakdown
-    coverage_counts = filtered_data['COVERAGE'].value_counts()
-    inmarket_customers = coverage_counts.get('In-Market', 0)
-    centralized_customers = coverage_counts.get('Centralized', 0)
-    unassigned_customers = coverage_counts.get('Unassigned', 0)
-    unmanaged_customers = coverage_counts.get('Unmanaged', 0)
+    # Safe portfolio counting
+    total_portfolios = filtered_data['PORT_CODE'].nunique() if 'PORT_CODE' in filtered_data.columns else 0
     
-    # Portfolio type counts
-    inmarket_portfolios = len(filtered_data[filtered_data['COVERAGE'] == 'In-Market']['PORT_CODE'].unique())
-    centralized_portfolios = len(filtered_data[filtered_data['COVERAGE'] == 'Centralized']['PORT_CODE'].unique())
+    # Coverage breakdown with safety checks
+    if 'COVERAGE' in filtered_data.columns:
+        coverage_counts = filtered_data['COVERAGE'].value_counts()
+        inmarket_customers = coverage_counts.get('In-Market', 0)
+        centralized_customers = coverage_counts.get('Centralized', 0)
+        unassigned_customers = coverage_counts.get('Unassigned', 0)
+        unmanaged_customers = coverage_counts.get('Unmanaged', 0)
+    else:
+        inmarket_customers = centralized_customers = unassigned_customers = unmanaged_customers = 0
     
-    # Financial metrics
-    avg_revenue = filtered_data['BANK_REVENUE'].mean()
-    avg_deposits = filtered_data['DEPOSIT_BAL'].mean()
-    avg_gross_sales = filtered_data['CG_GROSS_SALES'].mean()
+    # Portfolio type counts with safety checks
+    if 'PORT_CODE' in filtered_data.columns and 'COVERAGE' in filtered_data.columns:
+        inmarket_portfolios = len(filtered_data[filtered_data['COVERAGE'] == 'In-Market']['PORT_CODE'].unique())
+        centralized_portfolios = len(filtered_data[filtered_data['COVERAGE'] == 'Centralized']['PORT_CODE'].unique())
+    else:
+        inmarket_portfolios = centralized_portfolios = 0
+    
+    # Financial metrics with safety checks
+    avg_revenue = filtered_data['BANK_REVENUE'].mean() if 'BANK_REVENUE' in filtered_data.columns else 0
+    avg_deposits = filtered_data['DEPOSIT_BAL'].mean() if 'DEPOSIT_BAL' in filtered_data.columns else 0
+    avg_gross_sales = filtered_data['CG_GROSS_SALES'].mean() if 'CG_GROSS_SALES' in filtered_data.columns else 0
+    
+    # Handle NaN values
+    avg_revenue = avg_revenue if not pd.isna(avg_revenue) else 0
+    avg_deposits = avg_deposits if not pd.isna(avg_deposits) else 0
+    avg_gross_sales = avg_gross_sales if not pd.isna(avg_gross_sales) else 0
     
     # Utilization rate (managed customers vs total)
     managed_customers = inmarket_customers + centralized_customers
@@ -223,78 +251,119 @@ def calculate_portfolio_metrics(filtered_data):
     }
 
 def create_metrics_charts(filtered_data, metrics):
-    """Create visualization charts for metrics"""
+    """Create visualization charts for metrics with safety checks"""
     
     st.markdown("### 📊 Visual Analytics")
+    
+    # Safety check for empty data
+    if filtered_data.empty:
+        st.info("No data available for charts")
+        return
     
     col1, col2 = st.columns(2)
     
     with col1:
-        # Coverage distribution pie chart
-        coverage_data = filtered_data['COVERAGE'].value_counts()
-        fig_pie = px.pie(
-            values=coverage_data.values,
-            names=coverage_data.index,
-            title="Customer Distribution by Coverage Type",
-            color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-        )
-        fig_pie.update_layout(height=400)
-        st.plotly_chart(fig_pie, use_container_width=True)
+        # Coverage distribution pie chart with safety checks
+        if 'COVERAGE' in filtered_data.columns:
+            coverage_data = filtered_data['COVERAGE'].value_counts()
+            if not coverage_data.empty:
+                fig_pie = px.pie(
+                    values=coverage_data.values,
+                    names=coverage_data.index,
+                    title="Customer Distribution by Coverage Type",
+                    color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+                )
+                fig_pie.update_layout(height=400)
+                st.plotly_chart(fig_pie, use_container_width=True)
+            else:
+                st.info("No coverage data available for pie chart")
+        else:
+            st.info("Coverage column not found")
     
     with col2:
-        # Revenue by coverage type
-        revenue_by_coverage = filtered_data.groupby('COVERAGE')['BANK_REVENUE'].mean().reset_index()
-        fig_bar = px.bar(
-            revenue_by_coverage,
-            x='COVERAGE',
-            y='BANK_REVENUE',
-            title="Average Revenue by Coverage Type",
-            color='COVERAGE',
-            color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-        )
-        fig_bar.update_layout(height=400, showlegend=False)
-        fig_bar.update_layout(yaxis_title="Average Revenue ($)")
-        st.plotly_chart(fig_bar, use_container_width=True)
+        # Revenue by coverage type with safety checks
+        if 'COVERAGE' in filtered_data.columns and 'BANK_REVENUE' in filtered_data.columns:
+            revenue_by_coverage = filtered_data.groupby('COVERAGE')['BANK_REVENUE'].mean().reset_index()
+            if not revenue_by_coverage.empty:
+                fig_bar = px.bar(
+                    revenue_by_coverage,
+                    x='COVERAGE',
+                    y='BANK_REVENUE',
+                    title="Average Revenue by Coverage Type",
+                    color='COVERAGE',
+                    color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+                )
+                fig_bar.update_layout(height=400, showlegend=False, yaxis_title="Average Revenue ($)")
+                st.plotly_chart(fig_bar, use_container_width=True)
+            else:
+                st.info("No revenue data available for bar chart")
+        else:
+            st.info("Required columns not found for revenue chart")
     
-    # State-wise distribution
-    if len(filtered_data['BILLINGSTATE'].unique()) > 1:
+    # State-wise distribution with safety checks
+    if ('BILLINGSTATE' in filtered_data.columns and 
+        'COVERAGE' in filtered_data.columns and 
+        len(filtered_data['BILLINGSTATE'].unique()) > 1):
+        
         st.markdown("#### State-wise Portfolio Distribution")
         state_coverage = filtered_data.groupby(['BILLINGSTATE', 'COVERAGE']).size().reset_index(name='Count')
-        fig_state = px.bar(
-            state_coverage,
-            x='BILLINGSTATE',
-            y='Count',
-            color='COVERAGE',
-            title="Customer Count by State and Coverage Type",
-            color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
-        )
-        fig_state.update_layout(height=400)
-        st.plotly_chart(fig_state, use_container_width=True)
+        
+        if not state_coverage.empty:
+            fig_state = px.bar(
+                state_coverage,
+                x='BILLINGSTATE',
+                y='Count',
+                color='COVERAGE',
+                title="Customer Count by State and Coverage Type",
+                color_discrete_sequence=['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+            )
+            fig_state.update_layout(height=400)
+            st.plotly_chart(fig_state, use_container_width=True)
+        else:
+            st.info("No state-wise data available")
 
 def create_portfolio_map(filtered_data, branch_data):
     """Create interactive map showing current portfolio state"""
     
+    # Safety check for empty data
     if filtered_data.empty:
         st.warning("No data to display on map")
         return
     
+    # Check for valid coordinates
+    if filtered_data['LAT_NUM'].isna().all() or filtered_data['LON_NUM'].isna().all():
+        st.warning("No valid coordinates found for mapping")
+        return
+    
     fig = go.Figure()
     
-    # Color palette for portfolios
-    unique_portfolios = filtered_data['PORT_CODE'].unique()
+    # Color palette for portfolios - with safety checks
+    unique_portfolios = filtered_data['PORT_CODE'].dropna().unique()
+    
+    # Safety check for empty portfolios
+    if len(unique_portfolios) == 0:
+        st.warning("No portfolios found with current filters")
+        return
+    
     colors = px.colors.qualitative.Set3[:len(unique_portfolios)]
     portfolio_colors = dict(zip(unique_portfolios, colors))
     
-    # Add customer dots by portfolio (different colors)
+    # Add customer dots by portfolio (different colors) - with safety checks
     for portfolio in unique_portfolios:
         portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == portfolio]
         
+        # Safety check - skip empty portfolios
         if portfolio_customers.empty:
+            continue
+        
+        # Safety check for valid coordinates
+        valid_coords = portfolio_customers.dropna(subset=['LAT_NUM', 'LON_NUM'])
+        if valid_coords.empty:
             continue
         
         # Create hover text
         hover_text = []
-        for _, customer in portfolio_customers.iterrows():
+        for _, customer in valid_coords.iterrows():
             hover_text.append(f"""
             <b>{customer.get('CG_ECN', 'N/A')}</b><br>
             Portfolio: {portfolio}<br>
@@ -305,13 +374,16 @@ def create_portfolio_map(filtered_data, branch_data):
             State: {customer.get('BILLINGSTATE', 'N/A')}
             """)
         
+        # Safe color access
+        portfolio_color = portfolio_colors.get(portfolio, 'gray')
+        
         fig.add_trace(go.Scattermapbox(
-            lat=portfolio_customers['LAT_NUM'],
-            lon=portfolio_customers['LON_NUM'],
+            lat=valid_coords['LAT_NUM'],
+            lon=valid_coords['LON_NUM'],
             mode='markers',
             marker=dict(
                 size=6,
-                color=portfolio_colors[portfolio],
+                color=portfolio_color,
                 opacity=0.7
             ),
             hovertemplate='%{text}<extra></extra>',
@@ -320,11 +392,11 @@ def create_portfolio_map(filtered_data, branch_data):
             showlegend=False  # Don't show portfolio colors in legend
         ))
     
-    # Add In-Market AU triangles
+    # Add In-Market AU triangles - with safety checks
     inmarket_data = filtered_data[filtered_data['COVERAGE'] == 'In-Market']
-    if not inmarket_data.empty:
+    if not inmarket_data.empty and 'AU' in inmarket_data.columns:
         # Get unique AUs for in-market customers
-        inmarket_aus = inmarket_data.groupby(['AU', 'COVERAGE']).first().reset_index()
+        inmarket_aus = inmarket_data.dropna(subset=['AU']).groupby(['AU', 'COVERAGE']).first().reset_index()
         
         for _, au_data in inmarket_aus.iterrows():
             # Get AU coordinates from branch_data
@@ -357,39 +429,43 @@ def create_portfolio_map(filtered_data, branch_data):
                     showlegend=False
                 ))
     
-    # Add Centralized portfolio centroids (stars)
+    # Add Centralized portfolio centroids (stars) - with safety checks
     centralized_data = filtered_data[filtered_data['COVERAGE'] == 'Centralized']
     if not centralized_data.empty:
-        # Calculate centroids for each centralized portfolio
-        centralized_portfolios = centralized_data.groupby('PORT_CODE').agg({
-            'LAT_NUM': 'mean',
-            'LON_NUM': 'mean',
-            'CG_ECN': 'count',
-            'BANK_REVENUE': 'mean'
-        }).reset_index()
+        # Safety check for valid coordinates
+        centralized_valid = centralized_data.dropna(subset=['LAT_NUM', 'LON_NUM', 'PORT_CODE'])
         
-        for _, portfolio in centralized_portfolios.iterrows():
-            fig.add_trace(go.Scattermapbox(
-                lat=[portfolio['LAT_NUM']],
-                lon=[portfolio['LON_NUM']],
-                mode='markers',
-                marker=dict(
-                    size=15,
-                    color='red',
-                    symbol='star',
-                    line=dict(width=2, color='darkred')
-                ),
-                hovertemplate=f"""
-                <b>Centralized Portfolio {portfolio['PORT_CODE']}</b><br>
-                Centroid Location<br>
-                Customers: {portfolio['CG_ECN']}<br>
-                Avg Revenue: ${portfolio['BANK_REVENUE']:,.0f}<br>
-                Type: Centralized Portfolio
-                <extra></extra>
-                """,
-                name="Centralized Centroids",
-                showlegend=False
-            ))
+        if not centralized_valid.empty:
+            # Calculate centroids for each centralized portfolio
+            centralized_portfolios = centralized_valid.groupby('PORT_CODE').agg({
+                'LAT_NUM': 'mean',
+                'LON_NUM': 'mean',
+                'CG_ECN': 'count',
+                'BANK_REVENUE': 'mean'
+            }).reset_index()
+            
+            for _, portfolio in centralized_portfolios.iterrows():
+                fig.add_trace(go.Scattermapbox(
+                    lat=[portfolio['LAT_NUM']],
+                    lon=[portfolio['LON_NUM']],
+                    mode='markers',
+                    marker=dict(
+                        size=15,
+                        color='red',
+                        symbol='star',
+                        line=dict(width=2, color='darkred')
+                    ),
+                    hovertemplate=f"""
+                    <b>Centralized Portfolio {portfolio['PORT_CODE']}</b><br>
+                    Centroid Location<br>
+                    Customers: {portfolio['CG_ECN']}<br>
+                    Avg Revenue: ${portfolio['BANK_REVENUE']:,.0f}<br>
+                    Type: Centralized Portfolio
+                    <extra></extra>
+                    """,
+                    name="Centralized Centroids",
+                    showlegend=False
+                ))
     
     # Add legend traces (invisible, just for legend)
     fig.add_trace(go.Scattermapbox(
@@ -416,14 +492,15 @@ def create_portfolio_map(filtered_data, branch_data):
         showlegend=True
     ))
     
-    # Calculate map center
-    if not filtered_data['LAT_NUM'].isna().all():
-        center_lat = filtered_data['LAT_NUM'].mean()
-        center_lon = filtered_data['LON_NUM'].mean()
+    # Calculate map center - with safety checks
+    valid_coords_all = filtered_data.dropna(subset=['LAT_NUM', 'LON_NUM'])
+    if not valid_coords_all.empty:
+        center_lat = valid_coords_all['LAT_NUM'].mean()
+        center_lon = valid_coords_all['LON_NUM'].mean()
         
         # Calculate zoom based on data spread
-        lat_range = filtered_data['LAT_NUM'].max() - filtered_data['LAT_NUM'].min()
-        lon_range = filtered_data['LON_NUM'].max() - filtered_data['LON_NUM'].min()
+        lat_range = valid_coords_all['LAT_NUM'].max() - valid_coords_all['LAT_NUM'].min()
+        lon_range = valid_coords_all['LON_NUM'].max() - valid_coords_all['LON_NUM'].min()
         max_range = max(lat_range, lon_range)
         
         if max_range > 20:
@@ -435,6 +512,7 @@ def create_portfolio_map(filtered_data, branch_data):
         else:
             zoom = 7
     else:
+        # Default US center if no valid coordinates
         center_lat = 39.8283
         center_lon = -98.5795
         zoom = 4
