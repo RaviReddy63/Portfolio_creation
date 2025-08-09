@@ -76,7 +76,7 @@ def prepare_portfolio_data(customer_data, banker_data, branch_data):
     return portfolio_data
 
 def create_home_filters(portfolio_data):
-    """Create filter section for Home tab"""
+    """Create filter section for Home tab with default director filter"""
     
     st.subheader("🔍 Portfolio Filters")
     
@@ -84,96 +84,137 @@ def create_home_filters(portfolio_data):
         col1, col2, col3 = st.columns(3)
         
         with col1:
-            # Director filter
+            # Director filter - single select with default
             director_options = ['All'] + sorted(portfolio_data['DIRECTOR_NAME'].dropna().unique().tolist())
-            selected_director = st.selectbox("Director Name", director_options, key="home_director")
             
-            # Manager filter  
-            manager_options = ['All'] + sorted(portfolio_data['MANAGER_NAME'].dropna().unique().tolist())
-            selected_manager = st.selectbox("Manager Name", manager_options, key="home_manager")
+            # Set default to first director (not 'All') for better performance
+            default_director = director_options[1] if len(director_options) > 1 else director_options[0]
+            
+            selected_director = st.selectbox(
+                "Director Name", 
+                director_options, 
+                index=director_options.index(default_director) if default_director in director_options else 0,
+                key="home_director",
+                help="Default filter applied for better performance"
+            )
+            
+            # Manager filter - multi select
+            manager_options = sorted(portfolio_data['MANAGER_NAME'].dropna().unique().tolist())
+            selected_managers = st.multiselect("Manager Name", manager_options, key="home_managers")
         
         with col2:
-            # Banker filter
-            banker_options = ['All'] + sorted(portfolio_data['BANKER_NAME'].dropna().unique().tolist())
-            selected_banker = st.selectbox("Banker Name", banker_options, key="home_banker")
+            # Banker filter - multi select
+            banker_options = sorted(portfolio_data['BANKER_NAME'].dropna().unique().tolist())
+            selected_bankers = st.multiselect("Banker Name", banker_options, key="home_bankers")
             
-            # Portfolio Code filter
-            portfolio_options = ['All'] + sorted(portfolio_data['PORT_CODE'].dropna().unique().tolist())
-            selected_portfolio = st.selectbox("Portfolio Code", portfolio_options, key="home_portfolio")
+            # Portfolio Code filter - multi select
+            portfolio_options = sorted(portfolio_data['PORT_CODE'].dropna().unique().tolist())
+            selected_portfolios = st.multiselect("Portfolio Code", portfolio_options, key="home_portfolios")
         
         with col3:
-            # Billing State filter
-            state_options = ['All'] + sorted(portfolio_data['BILLINGSTATE'].dropna().unique().tolist())
-            selected_state = st.selectbox("Billing State", state_options, key="home_state")
+            # Billing State filter - multi select
+            state_options = sorted(portfolio_data['BILLINGSTATE'].dropna().unique().tolist())
+            selected_states = st.multiselect("Billing State", state_options, key="home_states")
             
-            # Coverage filter
-            coverage_options = ['All'] + sorted(portfolio_data['COVERAGE'].dropna().unique().tolist())
-            selected_coverage = st.selectbox("Coverage", coverage_options, key="home_coverage")
+            # Type filter - multi select (replaced Coverage)
+            type_options = sorted(portfolio_data['TYPE'].dropna().unique().tolist())
+            selected_types = st.multiselect("Type", type_options, key="home_types")
     
-    # Apply filters
+    # Apply filters with early filtering for performance
     filtered_data = portfolio_data.copy()
     
+    # Apply director filter first for performance (most restrictive)
     if selected_director != 'All':
         filtered_data = filtered_data[filtered_data['DIRECTOR_NAME'] == selected_director]
     
-    if selected_manager != 'All':
-        filtered_data = filtered_data[filtered_data['MANAGER_NAME'] == selected_manager]
+    # Apply multi-select filters (only if selections are made)
+    if selected_managers:
+        filtered_data = filtered_data[filtered_data['MANAGER_NAME'].isin(selected_managers)]
     
-    if selected_banker != 'All':
-        filtered_data = filtered_data[filtered_data['BANKER_NAME'] == selected_banker]
+    if selected_bankers:
+        filtered_data = filtered_data[filtered_data['BANKER_NAME'].isin(selected_bankers)]
     
-    if selected_portfolio != 'All':
-        filtered_data = filtered_data[filtered_data['PORT_CODE'] == selected_portfolio]
+    if selected_portfolios:
+        filtered_data = filtered_data[filtered_data['PORT_CODE'].isin(selected_portfolios)]
     
-    if selected_state != 'All':
-        filtered_data = filtered_data[filtered_data['BILLINGSTATE'] == selected_state]
+    if selected_states:
+        filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(selected_states)]
     
-    if selected_coverage != 'All':
-        filtered_data = filtered_data[filtered_data['COVERAGE'] == selected_coverage]
+    if selected_types:
+        filtered_data = filtered_data[filtered_data['TYPE'].isin(selected_types)]
+    
+    # Show filter summary for user feedback
+    if selected_director != 'All':
+        filter_summary = [f"Director: **{selected_director}**"]
+        
+        if selected_managers:
+            filter_summary.append(f"Managers: {len(selected_managers)} selected")
+        if selected_bankers:
+            filter_summary.append(f"Bankers: {len(selected_bankers)} selected")
+        if selected_portfolios:
+            filter_summary.append(f"Portfolios: {len(selected_portfolios)} selected")
+        if selected_states:
+            filter_summary.append(f"States: {len(selected_states)} selected")
+        if selected_types:
+            filter_summary.append(f"Types: {len(selected_types)} selected")
+        
+        filter_text = " | ".join(filter_summary)
+        st.info(f"📊 Active Filters: {filter_text} | **{len(filtered_data):,} customers**")
     
     return filtered_data
 
 def display_portfolio_metrics(filtered_data):
-    """Display portfolio metrics with visualizations"""
+    """Display portfolio metrics with visualizations in specified order"""
     
     st.subheader("📈 Portfolio Metrics")
     
     # Calculate metrics
     metrics = calculate_portfolio_metrics(filtered_data)
     
-    # Create metrics display in columns
+    # Row 1: Portfolio counts
     col1, col2, col3, col4 = st.columns(4)
     
     with col1:
         st.metric("📋 Total Portfolios", f"{metrics['total_portfolios']:,}")
-        st.metric("🎯 In-Market Portfolios", f"{metrics['inmarket_portfolios']:,}")
     
     with col2:
-        st.metric("🏢 Centralized Portfolios", f"{metrics['centralized_portfolios']:,}")
-        st.metric("💰 Avg Bank Revenue", f"${metrics['avg_revenue']:,.0f}")
+        st.metric("🎯 In-Market Portfolios", f"{metrics['inmarket_portfolios']:,}")
     
     with col3:
-        st.metric("🏦 Avg Deposit Balance", f"${metrics['avg_deposits']:,.0f}")
-        st.metric("📊 Avg Gross Sales", f"${metrics['avg_gross_sales']:,.0f}")
+        st.metric("🏢 Centralized Portfolios", f"{metrics['centralized_portfolios']:,}")
     
     with col4:
-        st.metric("👥 Total Customers", f"{metrics['total_customers']:,}")
-        st.metric("📍 In-Market Customers", f"{metrics['inmarket_customers']:,}")
+        st.metric("❓ Unassigned Portfolios", f"{metrics['unassigned_portfolios']:,}")
     
-    # Second row of metrics
+    # Row 2: Customer counts
     col5, col6, col7, col8 = st.columns(4)
     
     with col5:
-        st.metric("🏢 Centralized Customers", f"{metrics['centralized_customers']:,}")
+        st.metric("👥 Total Customers", f"{metrics['total_customers']:,}")
     
     with col6:
-        st.metric("❓ Unassigned Customers", f"{metrics['unassigned_customers']:,}")
+        st.metric("📍 In-Market Customers", f"{metrics['inmarket_customers']:,}")
     
     with col7:
-        st.metric("⚪ Unmanaged Customers", f"{metrics['unmanaged_customers']:,}")
+        st.metric("🏢 Centralized Customers", f"{metrics['centralized_customers']:,}")
     
     with col8:
-        st.metric("📈 Portfolio Utilization", f"{metrics['utilization_rate']:.1f}%")
+        st.metric("❓ Unassigned Customers", f"{metrics['unassigned_customers']:,}")
+    
+    # Row 3: Financial metrics and unmanaged
+    col9, col10, col11, col12 = st.columns(4)
+    
+    with col9:
+        st.metric("💰 Avg Bank Revenue", f"${metrics['avg_revenue']:,.0f}")
+    
+    with col10:
+        st.metric("🏦 Avg Deposit Balance", f"${metrics['avg_deposits']:,.0f}")
+    
+    with col11:
+        st.metric("📊 Avg Gross Sales", f"${metrics['avg_gross_sales']:,.0f}")
+    
+    with col12:
+        st.metric("⚪ Total Unmanaged Customers", f"{metrics['unmanaged_customers']:,}")
     
     # Create visualizations
     create_metrics_charts(filtered_data, metrics)
@@ -188,6 +229,7 @@ def calculate_portfolio_metrics(filtered_data):
             'total_portfolios': 0,
             'inmarket_portfolios': 0,
             'centralized_portfolios': 0,
+            'unassigned_portfolios': 0,
             'inmarket_customers': 0,
             'centralized_customers': 0,
             'unassigned_customers': 0,
@@ -218,8 +260,9 @@ def calculate_portfolio_metrics(filtered_data):
     if 'PORT_CODE' in filtered_data.columns and 'COVERAGE' in filtered_data.columns:
         inmarket_portfolios = len(filtered_data[filtered_data['COVERAGE'] == 'In-Market']['PORT_CODE'].unique())
         centralized_portfolios = len(filtered_data[filtered_data['COVERAGE'] == 'Centralized']['PORT_CODE'].unique())
+        unassigned_portfolios = len(filtered_data[filtered_data['COVERAGE'] == 'Unassigned']['PORT_CODE'].unique())
     else:
-        inmarket_portfolios = centralized_portfolios = 0
+        inmarket_portfolios = centralized_portfolios = unassigned_portfolios = 0
     
     # Financial metrics with safety checks
     avg_revenue = filtered_data['BANK_REVENUE'].mean() if 'BANK_REVENUE' in filtered_data.columns else 0
@@ -240,6 +283,7 @@ def calculate_portfolio_metrics(filtered_data):
         'total_portfolios': total_portfolios,
         'inmarket_portfolios': inmarket_portfolios,
         'centralized_portfolios': centralized_portfolios,
+        'unassigned_portfolios': unassigned_portfolios,
         'inmarket_customers': inmarket_customers,
         'centralized_customers': centralized_customers,
         'unassigned_customers': unassigned_customers,
@@ -331,39 +375,57 @@ def create_portfolio_map(filtered_data, branch_data):
         return
     
     # Check for valid coordinates
-    if filtered_data['LAT_NUM'].isna().all() or filtered_data['LON_NUM'].isna().all():
+    valid_customer_data = filtered_data.dropna(subset=['LAT_NUM', 'LON_NUM'])
+    if valid_customer_data.empty:
         st.warning("No valid coordinates found for mapping")
         return
     
+    # Debug info
+    st.write(f"🔍 Debug: {len(valid_customer_data)} customers with valid coordinates")
+    unique_portfolios_debug = valid_customer_data['PORT_CODE'].dropna().unique()
+    st.write(f"🔍 Debug: {len(unique_portfolios_debug)} unique portfolios found: {list(unique_portfolios_debug)[:5]}...")
+    
     fig = go.Figure()
     
-    # Color palette for portfolios - with safety checks
-    unique_portfolios = filtered_data['PORT_CODE'].dropna().unique()
+    # Color palette for portfolios - Fixed approach
+    unique_portfolios = valid_customer_data['PORT_CODE'].dropna().unique()
     
     # Safety check for empty portfolios
     if len(unique_portfolios) == 0:
         st.warning("No portfolios found with current filters")
         return
     
-    colors = px.colors.qualitative.Set3[:len(unique_portfolios)]
-    portfolio_colors = dict(zip(unique_portfolios, colors))
+    # Create color mapping with more colors
+    colors = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', 
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+        '#c49c94', '#f7b6d3', '#c7c7c7', '#dbdb8d', '#9edae5'
+    ]
     
-    # Add customer dots by portfolio (different colors) - with safety checks
-    for portfolio in unique_portfolios:
-        portfolio_customers = filtered_data[filtered_data['PORT_CODE'] == portfolio]
+    # Extend colors if needed
+    while len(colors) < len(unique_portfolios):
+        colors.extend(colors)
+    
+    portfolio_colors = dict(zip(unique_portfolios, colors[:len(unique_portfolios)]))
+    
+    # Add customer dots by portfolio (different colors) - with debugging
+    customers_plotted = 0
+    for i, portfolio in enumerate(unique_portfolios):
+        portfolio_customers = valid_customer_data[valid_customer_data['PORT_CODE'] == portfolio]
         
         # Safety check - skip empty portfolios
         if portfolio_customers.empty:
             continue
         
-        # Safety check for valid coordinates
-        valid_coords = portfolio_customers.dropna(subset=['LAT_NUM', 'LON_NUM'])
-        if valid_coords.empty:
+        # Use coordinates directly without additional filtering
+        plot_data = portfolio_customers[['LAT_NUM', 'LON_NUM']].dropna()
+        if plot_data.empty:
             continue
         
         # Create hover text
         hover_text = []
-        for _, customer in valid_coords.iterrows():
+        for _, customer in portfolio_customers.iterrows():
             hover_text.append(f"""
             <b>{customer.get('CG_ECN', 'N/A')}</b><br>
             Portfolio: {portfolio}<br>
@@ -374,132 +436,50 @@ def create_portfolio_map(filtered_data, branch_data):
             State: {customer.get('BILLINGSTATE', 'N/A')}
             """)
         
-        # Safe color access
-        portfolio_color = portfolio_colors.get(portfolio, 'gray')
+        # Get color for this portfolio
+        portfolio_color = portfolio_colors[portfolio]
         
+        # Add trace with explicit color
         fig.add_trace(go.Scattermapbox(
-            lat=valid_coords['LAT_NUM'],
-            lon=valid_coords['LON_NUM'],
+            lat=portfolio_customers['LAT_NUM'],
+            lon=portfolio_customers['LON_NUM'],
             mode='markers',
             marker=dict(
-                size=6,
+                size=8,
                 color=portfolio_color,
-                opacity=0.7
+                opacity=0.8
             ),
             hovertemplate='%{text}<extra></extra>',
             text=hover_text,
-            name=f"Customers",
-            showlegend=False  # Don't show portfolio colors in legend
+            name=f"Portfolio {portfolio}",
+            showlegend=False
         ))
-    
-    # Add In-Market AU triangles - with safety checks
-    inmarket_data = filtered_data[filtered_data['COVERAGE'] == 'In-Market']
-    if not inmarket_data.empty and 'AU' in inmarket_data.columns:
-        # Get unique AUs for in-market customers
-        inmarket_aus = inmarket_data.dropna(subset=['AU']).groupby(['AU', 'COVERAGE']).first().reset_index()
         
-        for _, au_data in inmarket_aus.iterrows():
-            # Get AU coordinates from branch_data
-            au_info = branch_data[branch_data['AU'] == au_data['AU']]
-            if not au_info.empty:
-                au_lat = au_info.iloc[0]['BRANCH_LAT_NUM']
-                au_lon = au_info.iloc[0]['BRANCH_LON_NUM']
-                au_city = au_info.iloc[0].get('CITY', f"AU {au_data['AU']}")
-                
-                customer_count = len(inmarket_data[inmarket_data['AU'] == au_data['AU']])
-                
-                fig.add_trace(go.Scattermapbox(
-                    lat=[au_lat],
-                    lon=[au_lon],
-                    mode='markers',
-                    marker=dict(
-                        size=12,
-                        color='blue',
-                        symbol='triangle-up'
-                    ),
-                    hovertemplate=f"""
-                    <b>In-Market AU {au_data['AU']}</b><br>
-                    Location: {au_city}<br>
-                    Customers: {customer_count}<br>
-                    Type: In-Market Portfolio
-                    <extra></extra>
-                    """,
-                    name="In-Market AUs",
-                    showlegend=False
-                ))
+        customers_plotted += len(portfolio_customers)
     
-    # Add Centralized portfolio centroids (stars) - with safety checks
-    centralized_data = filtered_data[filtered_data['COVERAGE'] == 'Centralized']
-    if not centralized_data.empty:
-        # Safety check for valid coordinates
-        centralized_valid = centralized_data.dropna(subset=['LAT_NUM', 'LON_NUM', 'PORT_CODE'])
-        
-        if not centralized_valid.empty:
-            # Calculate centroids for each centralized portfolio
-            centralized_portfolios = centralized_valid.groupby('PORT_CODE').agg({
-                'LAT_NUM': 'mean',
-                'LON_NUM': 'mean',
-                'CG_ECN': 'count',
-                'BANK_REVENUE': 'mean'
-            }).reset_index()
-            
-            for _, portfolio in centralized_portfolios.iterrows():
-                fig.add_trace(go.Scattermapbox(
-                    lat=[portfolio['LAT_NUM']],
-                    lon=[portfolio['LON_NUM']],
-                    mode='markers',
-                    marker=dict(
-                        size=15,
-                        color='red',
-                        symbol='star'
-                    ),
-                    hovertemplate=f"""
-                    <b>Centralized Portfolio {portfolio['PORT_CODE']}</b><br>
-                    Centroid Location<br>
-                    Customers: {portfolio['CG_ECN']}<br>
-                    Avg Revenue: ${portfolio['BANK_REVENUE']:,.0f}<br>
-                    Type: Centralized Portfolio
-                    <extra></extra>
-                    """,
-                    name="Centralized Centroids",
-                    showlegend=False
-                ))
+    st.write(f"🔍 Debug: {customers_plotted} customers plotted on map")
+    
+    # Skip AU plotting for now since current state data might not have AU assignments
+    # Focus on getting customer colors working first
     
     # Add legend traces (invisible, just for legend)
     fig.add_trace(go.Scattermapbox(
         lat=[None], lon=[None],
         mode='markers',
-        marker=dict(size=8, color='gray', symbol='circle'),
+        marker=dict(size=8, color='blue', symbol='circle'),
         name="🔵 Customers",
         showlegend=True
     ))
     
-    fig.add_trace(go.Scattermapbox(
-        lat=[None], lon=[None],
-        mode='markers',
-        marker=dict(size=12, color='blue', symbol='triangle-up'),
-        name="🔺 In-Market AUs",
-        showlegend=True
-    ))
-    
-    fig.add_trace(go.Scattermapbox(
-        lat=[None], lon=[None],
-        mode='markers',
-        marker=dict(size=15, color='red', symbol='star'),
-        name="⭐ Centralized Centroids",
-        showlegend=True
-    ))
-    
-    # Calculate map center - with safety checks
-    valid_coords_all = filtered_data.dropna(subset=['LAT_NUM', 'LON_NUM'])
-    if not valid_coords_all.empty:
-        center_lat = valid_coords_all['LAT_NUM'].mean()
-        center_lon = valid_coords_all['LON_NUM'].mean()
+    # Calculate map center
+    if not valid_customer_data.empty:
+        center_lat = valid_customer_data['LAT_NUM'].mean()
+        center_lon = valid_customer_data['LON_NUM'].mean()
         
         # Calculate zoom based on data spread
-        lat_range = valid_coords_all['LAT_NUM'].max() - valid_coords_all['LAT_NUM'].min()
-        lon_range = valid_coords_all['LON_NUM'].max() - valid_coords_all['LON_NUM'].min()
-        max_range = max(lat_range, lon_range)
+        lat_range = valid_customer_data['LAT_NUM'].max() - valid_customer_data['LAT_NUM'].min()
+        lon_range = valid_customer_data['LON_NUM'].max() - valid_customer_data['LON_NUM'].min()
+        max_range = max(lat_range, lon_range) if lat_range > 0 and lon_range > 0 else 5
         
         if max_range > 20:
             zoom = 4
