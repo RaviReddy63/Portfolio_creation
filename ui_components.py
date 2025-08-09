@@ -108,7 +108,7 @@ def create_header():
     tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
     
     with tab1:
-        # Home content
+        # Home content - Updated with new dashboard
         show_home_page()
         
     with tab2:
@@ -131,9 +131,15 @@ def create_header():
     return None
 
 def show_home_page():
-    """Show Home page content"""
-    st.markdown("### Welcome to Banker Placement Tool")
-    st.info("This is the home page - content coming soon.")
+    """Show Home page content with portfolio dashboard"""
+    from data_loader import get_merged_data
+    from home_tab import show_home_tab_content
+    
+    # Load data
+    customer_data, banker_data, branch_data, _ = get_merged_data()
+    
+    # Show the complete home tab content
+    show_home_tab_content(customer_data, banker_data, branch_data)
 
 def show_my_requests_page():
     """Show My Requests page content"""
