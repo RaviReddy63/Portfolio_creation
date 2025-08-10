@@ -429,7 +429,7 @@ def create_portfolio_map(filtered_data, branch_data):
             hover_text.append(f"""
             <b>{customer.get('CG_ECN', 'N/A')}</b><br>
             Portfolio: {portfolio}<br>
-            Coverage: {customer.get('COVERAGE', 'N/A')}<br>
+            Type: {customer.get('TYPE', 'N/A')}<br>
             Banker: {customer.get('BANKER_NAME', 'N/A')}<br>
             Revenue: ${customer.get('BANK_REVENUE', 0):,.0f}<br>
             Deposits: ${customer.get('DEPOSIT_BAL', 0):,.0f}<br>
@@ -459,15 +459,128 @@ def create_portfolio_map(filtered_data, branch_data):
     
     st.write(f"🔍 Debug: {customers_plotted} customers plotted on map")
     
-    # Skip AU plotting for now since current state data might not have AU assignments
-    # Focus on getting customer colors working first
+    # Add In-Market AU triangles - Enhanced with proper AU handling
+    inmarket_data = valid_customer_data[valid_customer_data['TYPE'].str.contains('In-Market|Inmarket|in-market', case=False, na=False)]
+    st.write(f"🔍 Debug: {len(inmarket_data)} In-Market customers found")
     
-    # Add legend traces (invisible, just for legend)
+    if not inmarket_data.empty:
+        # Get unique portfolio codes for in-market customers
+        inmarket_portfolios = inmarket_data['PORT_CODE'].dropna().unique()
+        st.write(f"🔍 Debug: In-Market portfolios: {list(inmarket_portfolios)}")
+        
+        # For each in-market portfolio, find the closest AU from branch_data
+        for portfolio in inmarket_portfolios:
+            portfolio_customers = inmarket_data[inmarket_data['PORT_CODE'] == portfolio]
+            if portfolio_customers.empty:
+                continue
+            
+            # Calculate centroid of customers in this portfolio
+            portfolio_lat = portfolio_customers['LAT_NUM'].mean()
+            portfolio_lon = portfolio_customers['LON_NUM'].mean()
+            
+            # Find closest AU from branch_data
+            min_distance = float('inf')
+            closest_au = None
+            
+            for _, au_row in branch_data.iterrows():
+                au_lat = au_row['BRANCH_LAT_NUM']
+                au_lon = au_row['BRANCH_LON_NUM']
+                
+                # Simple distance calculation
+                distance = ((portfolio_lat - au_lat) ** 2 + (portfolio_lon - au_lon) ** 2) ** 0.5
+                
+                if distance < min_distance:
+                    min_distance = distance
+                    closest_au = au_row
+            
+            if closest_au is not None:
+                customer_count = len(portfolio_customers)
+                au_city = closest_au.get('CITY', f"AU {closest_au['AU']}")
+                
+                # Add triangle for this AU - BLACK, LARGER SIZE, ON TOP
+                fig.add_trace(go.Scattermapbox(
+                    lat=[closest_au['BRANCH_LAT_NUM']],
+                    lon=[closest_au['BRANCH_LON_NUM']],
+                    mode='markers',
+                    marker=dict(
+                        size=16,  # Double the customer size (8 * 2)
+                        color='black',
+                        symbol='triangle-up',
+                        opacity=1.0
+                    ),
+                    hovertemplate=f"""
+                    <b>In-Market AU {closest_au['AU']}</b><br>
+                    Location: {au_city}<br>
+                    Portfolio: {portfolio}<br>
+                    Customers: {customer_count}<br>
+                    Type: In-Market Portfolio
+                    <extra></extra>
+                    """,
+                    name="In-Market AUs",
+                    showlegend=False
+                ))
+    
+    # Add Centralized portfolio centroids (stars) - Enhanced
+    centralized_data = valid_customer_data[valid_customer_data['TYPE'].str.contains('Centralized|centralized', case=False, na=False)]
+    st.write(f"🔍 Debug: {len(centralized_data)} Centralized customers found")
+    
+    if not centralized_data.empty:
+        # Calculate centroids for each centralized portfolio
+        centralized_portfolios = centralized_data.groupby('PORT_CODE').agg({
+            'LAT_NUM': 'mean',
+            'LON_NUM': 'mean',
+            'CG_ECN': 'count',
+            'BANK_REVENUE': 'mean'
+        }).reset_index()
+        
+        st.write(f"🔍 Debug: {len(centralized_portfolios)} Centralized portfolio centroids calculated")
+        
+        for _, portfolio in centralized_portfolios.iterrows():
+            # Add star for centralized portfolio - BLACK, LARGER SIZE, ON TOP
+            fig.add_trace(go.Scattermapbox(
+                lat=[portfolio['LAT_NUM']],
+                lon=[portfolio['LON_NUM']],
+                mode='markers',
+                marker=dict(
+                    size=16,  # Double the customer size (8 * 2)
+                    color='black',
+                    symbol='star',
+                    opacity=1.0
+                ),
+                hovertemplate=f"""
+                <b>Centralized Portfolio {portfolio['PORT_CODE']}</b><br>
+                Centroid Location<br>
+                Customers: {portfolio['CG_ECN']}<br>
+                Avg Revenue: ${portfolio['BANK_REVENUE']:,.0f}<br>
+                Type: Centralized Portfolio
+                <extra></extra>
+                """,
+                name="Centralized Centroids",
+                showlegend=False
+            ))
+    
+    # Add legend traces (invisible, just for legend) - ADDED AFTER markers so they appear on top
     fig.add_trace(go.Scattermapbox(
         lat=[None], lon=[None],
         mode='markers',
         marker=dict(size=8, color='blue', symbol='circle'),
         name="🔵 Customers",
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scattermapbox(
+        lat=[None], lon=[None],
+        mode='markers',
+        marker=dict(size=16, color='black', symbol='triangle-up'),
+        name="🔺 In-Market AUs",
+        showlegend=True
+    ))
+    
+    fig.add_trace(go.Scattermapbox(
+        lat=[None], lon=[None],
+        mode='markers',
+        marker=dict(size=16, color='black', symbol='star'),
+        name="⭐ Centralized Centroids",
         showlegend=True
     ))
     
