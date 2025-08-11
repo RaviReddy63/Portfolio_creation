@@ -441,8 +441,25 @@ def create_au_filters(branch_data):
             filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
         
         with col3:
-            available_aus = list(filtered_branch_data['AU'].dropna().unique())
-            selected_aus = st.multiselect("AU", available_aus, key="selected_aus")
+            # Create AU options with "Name - AU" format
+            au_data = filtered_branch_data[['AU', 'NAME']].dropna()
+            au_options = []
+            au_mapping = {}  # To map display format back to AU number
+            
+            for _, row in au_data.iterrows():
+                au_number = row['AU']
+                au_name = row['NAME']
+                display_text = f"{au_name} - {au_number}"
+                au_options.append(display_text)
+                au_mapping[display_text] = au_number
+            
+            # Remove duplicates and sort
+            au_options = sorted(list(set(au_options)))
+            
+            selected_au_displays = st.multiselect("AU", au_options, key="selected_aus")
+            
+            # Convert back to AU numbers for the rest of the functionality
+            selected_aus = [au_mapping[display] for display in selected_au_displays if display in au_mapping]
     
     return selected_aus
 
