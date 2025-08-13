@@ -1,9 +1,13 @@
 import pandas as pd
 import numpy as np
-from utils import haversine_distance
+from utils import haversine_distance, clean_portfolio_data, remove_customer_duplicates, validate_no_duplicates
 
 def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
-    """Filter customers for a specific AU based on criteria"""
+    """Filter customers for a specific AU based on criteria with deduplication"""
+    
+    # Clean input data first
+    customer_data = clean_portfolio_data(customer_data)
+    banker_data = clean_portfolio_data(banker_data)
     
     # Get AU data
     AU_row = branch_data[branch_data['AU'] == int(selected_au)].iloc[0]
@@ -29,6 +33,9 @@ def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data
         customer_data_boxed = customer_data_boxed.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
     
     filtered_data = customer_data_boxed.merge(banker_data, on="PORT_CODE", how='left')
+    
+    # Clean after merge
+    filtered_data = clean_portfolio_data(filtered_data)
     
     # Apply distance filter for all roles except CENTRALIZED
     if role is None or (role is not None and not any(r.lower().strip() == 'centralized' for r in role)):
@@ -67,10 +74,13 @@ def filter_customers_for_au(customer_data, banker_data, selected_au, branch_data
     filtered_data['BRANCH_LAT_NUM'] = AU_lat
     filtered_data['BRANCH_LON_NUM'] = AU_lon
     
+    # Final cleaning before return
+    filtered_data = clean_portfolio_data(filtered_data)
+    
     return filtered_data, AU_row
 
 def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, selected_aus, branch_data):
-    """Apply the selection changes from portfolio controls to filter customers"""
+    """Apply the selection changes from portfolio controls to filter customers with deduplication"""
     
     updated_portfolios = {}
     
@@ -79,6 +89,8 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
             continue
             
         original_data = portfolios_created[au_id].copy()
+        original_data = clean_portfolio_data(original_data)  # Clean input
+        
         control_data = portfolio_controls[au_id]
         
         # Start with empty list for this AU
@@ -102,7 +114,8 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
                 ].copy()
                 
                 if not unmanaged_customers.empty:
-                    # Sort by distance (closest first) and take the requested count
+                    # Clean and sort by distance (closest first) and take the requested count
+                    unmanaged_customers = clean_portfolio_data(unmanaged_customers)
                     unmanaged_sorted = unmanaged_customers.sort_values('Distance').head(select_count)
                     selected_customers.append(unmanaged_sorted)
                     
@@ -111,13 +124,16 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
                 portfolio_customers = original_data[original_data['PORT_CODE'] == portfolio_id].copy()
                 
                 if not portfolio_customers.empty:
-                    # Sort by distance (closest first) and take the requested count
+                    # Clean and sort by distance (closest first) and take the requested count
+                    portfolio_customers = clean_portfolio_data(portfolio_customers)
                     portfolio_sorted = portfolio_customers.sort_values('Distance').head(select_count)
                     selected_customers.append(portfolio_sorted)
         
         # Combine all selected customers for this AU
         if selected_customers:
             au_final_customers = pd.concat(selected_customers, ignore_index=True)
+            # Final cleaning
+            au_final_customers = clean_portfolio_data(au_final_customers)
             updated_portfolios[au_id] = au_final_customers
         else:
             # No customers selected for this AU
@@ -126,7 +142,7 @@ def apply_portfolio_selection_changes(portfolios_created, portfolio_controls, se
     return updated_portfolios
 
 def reassign_to_nearest_au(portfolios_created, selected_aus, branch_data):
-    """Reassign customers to their nearest AU from the selected AUs"""
+    """Reassign customers to their nearest AU from the selected AUs with deduplication"""
     
     if not portfolios_created or not selected_aus:
         return portfolios_created, {}
@@ -135,6 +151,8 @@ def reassign_to_nearest_au(portfolios_created, selected_aus, branch_data):
     all_customers = []
     for au_id, customers_df in portfolios_created.items():
         if not customers_df.empty:
+            # Clean before processing
+            customers_df = clean_portfolio_data(customers_df)
             customers_copy = customers_df.copy()
             customers_copy['original_au'] = au_id
             all_customers.append(customers_copy)
@@ -143,6 +161,8 @@ def reassign_to_nearest_au(portfolios_created, selected_aus, branch_data):
         return portfolios_created, {}
     
     combined_customers = pd.concat(all_customers, ignore_index=True)
+    # Clean combined customers
+    combined_customers = clean_portfolio_data(combined_customers)
     
     # Get AU coordinates for selected AUs
     au_coordinates = {}
@@ -195,8 +215,9 @@ def reassign_to_nearest_au(portfolios_created, selected_aus, branch_data):
     for au_id in selected_aus:
         au_customers = combined_customers[combined_customers['AU'] == au_id]
         if not au_customers.empty:
-            # Remove the temporary 'original_au' column
+            # Remove the temporary 'original_au' column and clean
             au_customers = au_customers.drop('original_au', axis=1)
+            au_customers = clean_portfolio_data(au_customers)
             new_portfolios_created[au_id] = au_customers.reset_index(drop=True)
     
     return new_portfolios_created, reassignment_summary
@@ -207,6 +228,9 @@ def recommend_reassignment(all_portfolios):
         return pd.DataFrame()
     
     combine_df = pd.concat([df.assign(original_portfolio=portfolio_id) for portfolio_id, df in all_portfolios.items()], ignore_index=True)
+    
+    # Clean combined data
+    combine_df = clean_portfolio_data(combine_df)
     
     au_map = {portfolio_id: (df["BRANCH_LAT_NUM"].iloc[0], df["BRANCH_LON_NUM"].iloc[0])
               for portfolio_id, df in all_portfolios.items()
@@ -226,5 +250,10 @@ def recommend_reassignment(all_portfolios):
         row_data['recommended_portfolio'] = best_portfolio
         row_data['recommended_dist'] = min_dist
         records.append(row_data)
-        
-    return pd.DataFrame(records)
+    
+    result_df = pd.DataFrame(records)
+    
+    # Clean final result
+    result_df = clean_portfolio_data(result_df)
+    
+    return result_df
