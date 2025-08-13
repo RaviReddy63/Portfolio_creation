@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from portfolio_logic import filter_customers_for_au, reassign_to_nearest_au, apply_portfolio_selection_changes
+from utils import clean_portfolio_data, remove_customer_duplicates, validate_no_duplicates
 
 def create_portfolio_summary(filtered_data, au_id, customer_data):
     """Create portfolio summary for an AU"""
@@ -158,7 +159,7 @@ def recalculate_portfolio_summaries(portfolios_created, customer_data):
     return portfolio_summaries
 
 def process_portfolio_creation(selected_aus, customer_data, banker_data, branch_data, role, cust_state, cust_portcd, max_dist, min_rev, min_deposit):
-    """Main function to process portfolio creation"""
+    """Main function to process portfolio creation with deduplication"""
     portfolios_created = {}
     portfolio_summaries = {}
     
@@ -170,6 +171,15 @@ def process_portfolio_creation(selected_aus, customer_data, banker_data, branch_
         )
         
         if not filtered_data.empty:
+            # Clean filtered data to remove duplicates
+            filtered_data = clean_portfolio_data(filtered_data)
+            
+            # Validate no duplicates remain
+            is_clean, duplicate_ids = validate_no_duplicates(filtered_data, 'CG_ECN')
+            if not is_clean:
+                print(f"Warning: AU {au_id} still has duplicates after cleaning: {duplicate_ids}")
+                filtered_data = filtered_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+            
             portfolio_summary = create_portfolio_summary(filtered_data, au_id, customer_data)
             portfolios_created[au_id] = filtered_data
             portfolio_summaries[au_id] = portfolio_summary
@@ -181,8 +191,19 @@ def process_portfolio_creation(selected_aus, customer_data, banker_data, branch_
                 portfolios_created, selected_aus, branch_data
             )
         
+        # Clean portfolios after reassignment
+        for au_id in portfolios_created:
+            portfolios_created[au_id] = clean_portfolio_data(portfolios_created[au_id])
+            
+            # Final validation
+            is_clean, duplicate_ids = validate_no_duplicates(portfolios_created[au_id], 'CG_ECN')
+            if not is_clean:
+                print(f"Warning: AU {au_id} has duplicates after reassignment: {duplicate_ids}")
+                portfolios_created[au_id] = portfolios_created[au_id].drop_duplicates(subset=['CG_ECN'], keep='first')
+        
         total_portfolios = len(portfolios_created)
-        st.success(f"Portfolios created for {total_portfolios} AUs")
+        total_customers = sum(len(df) for df in portfolios_created.values())
+        st.success(f"Portfolios created for {total_portfolios} AUs with {total_customers:,} total customers")
         
         # Recalculate portfolio summaries after reassignment
         portfolio_summaries = recalculate_portfolio_summaries(portfolios_created, customer_data)
@@ -193,7 +214,7 @@ def process_portfolio_creation(selected_aus, customer_data, banker_data, branch_
         return None, None
 
 def apply_portfolio_changes(au_id, branch_data):
-    """Apply portfolio selection changes for a specific AU"""
+    """Apply portfolio selection changes for a specific AU with deduplication"""
     with st.spinner("Applying selection changes..."):
         if 'portfolios_created' in st.session_state and au_id in st.session_state.portfolios_created:
             updated_portfolios = apply_portfolio_selection_changes(
@@ -203,8 +224,16 @@ def apply_portfolio_changes(au_id, branch_data):
                 branch_data
             )
             
-            # Update only this AU's portfolio
+            # Update only this AU's portfolio and clean it
             if au_id in updated_portfolios:
-                st.session_state.portfolios_created[au_id] = updated_portfolios[au_id]
+                cleaned_portfolio = clean_portfolio_data(updated_portfolios[au_id])
+                
+                # Validate no duplicates
+                is_clean, duplicate_ids = validate_no_duplicates(cleaned_portfolio, 'CG_ECN')
+                if not is_clean:
+                    st.warning(f"Removed {len(duplicate_ids)} duplicate customers from AU {au_id}")
+                    cleaned_portfolio = cleaned_portfolio.drop_duplicates(subset=['CG_ECN'], keep='first')
+                
+                st.session_state.portfolios_created[au_id] = cleaned_portfolio
             
             st.success("Portfolio selection updated!")
