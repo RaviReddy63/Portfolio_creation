@@ -14,7 +14,6 @@ from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
 from utils import (
     merge_dfs, clean_portfolio_data, remove_customer_duplicates, validate_no_duplicates,
-    enhanced_customer_au_assignment_with_two_inmarket_iterations_deduplicated,
     prepare_portfolio_for_export_deduplicated
 )
 
@@ -243,7 +242,7 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     # Display results if they exist
     display_smart_portfolio_results(customer_data, branch_data)
 
-    def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, min_rev, min_deposit):
+def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Apply customer filters for Portfolio Mapping"""
     filtered_data = customer_data.copy()
     
@@ -316,13 +315,16 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         progress_bar.progress(30)
         status_text.text("Running advanced clustering analysis...")
         
-        # Use the deduplicated version
-        smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations_deduplicated(
+        # Use your existing clustering with input/output cleaning
+        smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
             filtered_customers, branch_data
         )
         
         progress_bar.progress(80)
-        status_text.text("Processing results...")
+        status_text.text("Processing and cleaning results...")
+        
+        # Clean the output from your clustering algorithm
+        smart_portfolio_results = clean_portfolio_data(smart_portfolio_results)
         
         # Validate results are clean
         is_clean, duplicate_ids = validate_no_duplicates(smart_portfolio_results, 'ECN')
@@ -1059,10 +1061,13 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 # Clean combined customers
                 combined_customers = clean_portfolio_data(combined_customers)
                 
-                # Regenerate portfolios with cleaned data
-                smart_results = enhanced_customer_au_assignment_with_two_inmarket_iterations_deduplicated(
+                # Regenerate portfolios with cleaned data using your existing clustering
+                smart_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
                     combined_customers, branch_data
                 )
+                
+                # Clean the output from your clustering algorithm
+                smart_results = clean_portfolio_data(smart_results)
                 
                 st.session_state.smart_portfolio_results = smart_results
                 
