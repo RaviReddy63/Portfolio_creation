@@ -12,7 +12,11 @@ from data_loader import load_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
 from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
-from utils import merge_dfs
+from utils import (
+    merge_dfs, clean_portfolio_data, remove_customer_duplicates, validate_no_duplicates,
+    enhanced_customer_au_assignment_with_two_inmarket_iterations_deduplicated,
+    prepare_portfolio_for_export_deduplicated
+)
 
 def get_merged_data():
     """Load and merge all data with initial cleanup"""
@@ -47,8 +51,8 @@ def clean_initial_data(customer_data):
     cleaned_data = customer_data[~mask_to_remove].copy()
     priority_removed = original_count - len(cleaned_data)
     
-    # Step 2: Remove duplicate ECNs (keep only first occurrence)
-    final_data = cleaned_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+    # Step 2: Comprehensive deduplication using new function
+    final_data = clean_portfolio_data(cleaned_data)
     duplicate_removed = len(cleaned_data) - len(final_data)
     
     # Log cleanup results
@@ -239,7 +243,7 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     # Display results if they exist
     display_smart_portfolio_results(customer_data, branch_data)
 
-def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, min_rev, min_deposit):
+    def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Apply customer filters for Portfolio Mapping"""
     filtered_data = customer_data.copy()
     
@@ -279,7 +283,7 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     return filtered_data
 
 def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit):
-    """Generate smart portfolios using advanced clustering"""
+    """Generate smart portfolios using advanced clustering with deduplication"""
     
     # Clear global data when generating new portfolios
     if 'global_portfolio_df' in st.session_state:
@@ -294,6 +298,9 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         st.error("No customers found with the selected filters. Please adjust your criteria.")
         return
     
+    # Clean filtered customers to remove duplicates
+    filtered_customers = clean_portfolio_data(filtered_customers)
+    
     st.info(f"Processing {len(filtered_customers):,} customers for smart portfolio generation...")
     
     # Create progress bar
@@ -305,17 +312,23 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         progress_bar.progress(10)
         status_text.text("Initializing clustering algorithm...")
         
-        # Run the enhanced clustering algorithm
+        # Run the enhanced clustering algorithm with deduplication
         progress_bar.progress(30)
         status_text.text("Running advanced clustering analysis...")
         
-        # Call the enhanced clustering function
-        smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+        # Use the deduplicated version
+        smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations_deduplicated(
             filtered_customers, branch_data
         )
         
         progress_bar.progress(80)
         status_text.text("Processing results...")
+        
+        # Validate results are clean
+        is_clean, duplicate_ids = validate_no_duplicates(smart_portfolio_results, 'ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers in final results")
+            smart_portfolio_results = smart_portfolio_results.drop_duplicates(subset=['ECN'], keep='first')
         
         # Store results in session state
         st.session_state.smart_portfolio_results = smart_portfolio_results
@@ -342,7 +355,7 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         st.error(f"Error generating smart portfolios: {str(e)}")
 
 def display_smart_portfolio_results(customer_data, branch_data):
-    """Display smart portfolio results like Portfolio Assignment"""
+    """Display smart portfolio results like Portfolio Assignment with deduplication"""
     
     # Store customer_data in session state for save functions
     st.session_state.customer_data = customer_data
@@ -351,8 +364,16 @@ def display_smart_portfolio_results(customer_data, branch_data):
         st.info("Click 'Generate Smart Portfolios' to create optimized customer assignments.")
         return
     
-    # Always use the current results from session state
+    # Always use the current results from session state and clean them
     results_df = st.session_state.smart_portfolio_results
+    results_df = clean_portfolio_data(results_df)  # Clean on display
+    
+    # Validate and show cleaning stats
+    is_clean, duplicate_ids = validate_no_duplicates(results_df, 'ECN')
+    if not is_clean:
+        st.warning(f"Cleaned {len(duplicate_ids)} duplicate customers from display")
+        results_df = results_df.drop_duplicates(subset=['ECN'], keep='first')
+        st.session_state.smart_portfolio_results = results_df  # Update session state
     
     # Convert smart portfolio results to Portfolio Assignment format - regenerate every time
     smart_portfolios_created = {}
@@ -360,6 +381,9 @@ def display_smart_portfolio_results(customer_data, branch_data):
     # Group by AU
     for au in results_df['ASSIGNED_AU'].unique():
         au_data = results_df[results_df['ASSIGNED_AU'] == au].copy()
+        
+        # Clean AU data
+        au_data = clean_portfolio_data(au_data)
         
         # Add required columns for Portfolio Assignment format
         au_data['AU'] = au
@@ -378,7 +402,12 @@ def display_smart_portfolio_results(customer_data, branch_data):
         
         # Merge with original customer_data to get financial information
         customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
+        customer_data_subset = clean_portfolio_data(customer_data_subset)  # Clean before merge
+        
         au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
+        
+        # Clean after merge
+        au_data = clean_portfolio_data(au_data)
         
         # Use original portfolio code if available, otherwise use N/A
         au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('N/A')
@@ -695,6 +724,9 @@ def apply_smart_portfolio_changes(au_id, smart_portfolios_created, branch_data):
             control_data = st.session_state.smart_portfolio_controls[au_id]
             original_data = smart_portfolios_created[au_id].copy()
             
+            # Clean original data
+            original_data = clean_portfolio_data(original_data)
+            
             # Apply selection changes
             updated_au_data = apply_smart_selection_changes(original_data, control_data)
             
@@ -714,6 +746,9 @@ def apply_smart_portfolio_changes(au_id, smart_portfolios_created, branch_data):
                     })[['ECN', 'BILLINGCITY', 'BILLINGSTATE', 'LAT_NUM', 'LON_NUM', 'ASSIGNED_AU', 'DISTANCE_TO_AU', 'TYPE']]
                     
                     results_df = pd.concat([results_df, updated_results], ignore_index=True)
+                
+                # Clean and validate final results
+                results_df = clean_portfolio_data(results_df)
                 
                 # Update session state
                 st.session_state.smart_portfolio_results = results_df
@@ -747,7 +782,8 @@ def apply_smart_selection_changes(original_data, control_data):
             ].copy()
             
             if not unmanaged_customers.empty:
-                # Sort by distance (closest first) and take the requested count
+                # Clean and sort by distance (closest first) and take the requested count
+                unmanaged_customers = clean_portfolio_data(unmanaged_customers)
                 unmanaged_sorted = unmanaged_customers.sort_values('Distance').head(select_count)
                 selected_customers.append(unmanaged_sorted)
                 
@@ -756,13 +792,15 @@ def apply_smart_selection_changes(original_data, control_data):
             portfolio_customers = original_data[original_data['PORT_CODE'] == portfolio_id].copy()
             
             if not portfolio_customers.empty:
-                # Sort by distance (closest first) and take the requested count
+                # Clean and sort by distance (closest first) and take the requested count
+                portfolio_customers = clean_portfolio_data(portfolio_customers)
                 portfolio_sorted = portfolio_customers.sort_values('Distance').head(select_count)
                 selected_customers.append(portfolio_sorted)
     
     # Combine all selected customers for this AU
     if selected_customers:
         final_customers = pd.concat(selected_customers, ignore_index=True)
+        final_customers = clean_portfolio_data(final_customers)
         return final_customers
     else:
         # No customers selected for this AU
@@ -787,66 +825,8 @@ def display_smart_geographic_map(smart_portfolios_created, branch_data):
 
 # Additional helper functions for saving portfolios
 def prepare_portfolio_for_export(au_data, customer_data, branch_data):
-    """Prepare portfolio data in the required export format"""
-    from utils import haversine_distance
-    
-    if au_data.empty or customer_data.empty:
-        return pd.DataFrame()
-    
-    # Merge with customer_data to get all required fields
-    export_data = au_data.merge(
-        customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'TYPE', 'LAT_NUM', 'LON_NUM', 
-                      'BILLINGCITY', 'BILLINGSTATE', 'BANK_REVENUE', 'CG_GROSS_SALES', 
-                      'DEPOSIT_BAL', 'BANKER_FIRSTNAME', 'BANKER_LASTNAME', 
-                      'BILLINGSTREET', 'CG_NAME']],
-        on='CG_ECN',
-        how='left',
-        suffixes=('', '_orig')
-    )
-    
-    # Get AU information from branch_data
-    au_id = au_data['AU'].iloc[0]
-    au_info = branch_data[branch_data['AU'] == au_id]
-    
-    if not au_info.empty:
-        branch_lat = au_info.iloc[0]['BRANCH_LAT_NUM']
-        branch_lon = au_info.iloc[0]['BRANCH_LON_NUM']
-    else:
-        branch_lat = au_data['BRANCH_LAT_NUM'].iloc[0] if 'BRANCH_LAT_NUM' in au_data.columns else 0
-        branch_lon = au_data['BRANCH_LON_NUM'].iloc[0] if 'BRANCH_LON_NUM' in au_data.columns else 0
-    
-    # Calculate distance from customer to new AU
-    export_data['DISTANCE'] = export_data.apply(
-        lambda row: haversine_distance(
-            row['LAT_NUM'], row['LON_NUM'], 
-            branch_lat, branch_lon
-        ), axis=1
-    )
-    
-    # Prepare final export format
-    final_export = pd.DataFrame({
-        'CG_ECN': export_data['CG_ECN'],
-        'CG_PORTFOLIO_CD': export_data['CG_PORTFOLIO_CD'],
-        'TYPE': export_data['TYPE'],
-        'LAT_NUM': export_data['LAT_NUM'],
-        'LON_NUM': export_data['LON_NUM'],
-        'BILLINGCITY': export_data['BILLINGCITY'],
-        'BILLINGSTATE': export_data['BILLINGSTATE'],
-        'DISTANCE': export_data['DISTANCE'],
-        'AU_NBR': au_id,
-        'BRANCH_LAT_NUM': branch_lat,
-        'BRANCH_LON_NUM': branch_lon,
-        'BANK_REVENUE': export_data['BANK_REVENUE'],
-        'CG_GROSS_SALES': export_data['CG_GROSS_SALES'],
-        'DEPOSIT_BAL': export_data['DEPOSIT_BAL'],
-        'CURRENT_BANKER_FIRSTNAME': export_data['BANKER_FIRSTNAME'],
-        'CURRENT_BANKER_LASTNAME': export_data['BANKER_LASTNAME'],
-        'NAME': export_data['CG_NAME'],
-        'BILLINGSTREET': export_data['BILLINGSTREET'],
-        'BILLINGCITY': export_data['BILLINGCITY']
-    })
-    
-    return final_export
+    """Prepare portfolio data in the required export format with deduplication"""
+    return prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)
 
 def save_single_au_portfolio(au_id, portfolios_created, customer_data):
     """Save a single AU portfolio to CSV"""
@@ -868,6 +848,12 @@ def save_single_au_portfolio(au_id, portfolios_created, customer_data):
         if export_data.empty:
             st.error("No data to export")
             return
+        
+        # Validate no duplicates in export
+        is_clean, duplicate_ids = validate_no_duplicates(export_data, 'CG_ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from export")
+            export_data = export_data.drop_duplicates(subset=['CG_ECN'], keep='first')
         
         # Convert to CSV
         csv_data = export_data.to_csv(index=False)
@@ -915,6 +901,13 @@ def save_all_portfolios(portfolios_created, customer_data):
         # Combine all portfolios
         combined_data = pd.concat(all_portfolio_data, ignore_index=True)
         
+        # Final cleaning and validation
+        combined_data = clean_portfolio_data(combined_data)
+        is_clean, duplicate_ids = validate_no_duplicates(combined_data, 'CG_ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from combined export")
+            combined_data = combined_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+        
         # Convert to CSV
         csv_data = combined_data.to_csv(index=False)
         
@@ -961,6 +954,13 @@ def save_all_smart_portfolios(smart_portfolios_created, customer_data):
         # Combine all portfolios
         combined_data = pd.concat(all_portfolio_data, ignore_index=True)
         
+        # Final cleaning and validation
+        combined_data = clean_portfolio_data(combined_data)
+        is_clean, duplicate_ids = validate_no_duplicates(combined_data, 'CG_ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from smart portfolio export")
+            combined_data = combined_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+        
         # Convert to CSV
         csv_data = combined_data.to_csv(index=False)
         
@@ -980,7 +980,7 @@ def save_all_smart_portfolios(smart_portfolios_created, customer_data):
 
 # Global changes functions for smart portfolios
 def apply_global_changes_final(edited_df, customer_data, branch_data):
-    """Apply changes using the edited dataframe"""
+    """Apply changes using the edited dataframe with deduplication"""
     
     with st.spinner("Applying changes..."):
         try:
@@ -996,6 +996,9 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 current_filters['min_rev'], 
                 current_filters['min_deposit']
             )
+            
+            # Clean filtered customers
+            all_filtered_customers = clean_portfolio_data(all_filtered_customers)
             
             # Get current AU assignments to calculate distances
             current_results = st.session_state.get('smart_portfolio_results', pd.DataFrame())
@@ -1026,14 +1029,19 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                     ]
                 
                 if len(portfolio_customers) > 0:
+                    # Clean portfolio customers before selection
+                    portfolio_customers = clean_portfolio_data(portfolio_customers)
+                    
                     # Select closest customers to nearest AUs
                     selected = select_closest_customers_to_aus(
                         portfolio_customers, select_count, identified_aus, branch_data
                     )
-                    final_customers.append(selected)
                     
-                    # Track selected customers
-                    selected_customer_ecns.update(selected['CG_ECN'].tolist())
+                    if not selected.empty:
+                        final_customers.append(selected)
+                        
+                        # Track selected customers
+                        selected_customer_ecns.update(selected['CG_ECN'].tolist())
             
             # Add any remaining Unassigned/Unmanaged customers that weren't explicitly controlled
             unassigned_unmanaged = all_filtered_customers[
@@ -1042,13 +1050,17 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
             ]
             
             if not unassigned_unmanaged.empty:
+                unassigned_unmanaged = clean_portfolio_data(unassigned_unmanaged)
                 final_customers.append(unassigned_unmanaged)
             
             if final_customers:
                 combined_customers = pd.concat(final_customers, ignore_index=True)
                 
-                # Regenerate portfolios
-                smart_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+                # Clean combined customers
+                combined_customers = clean_portfolio_data(combined_customers)
+                
+                # Regenerate portfolios with cleaned data
+                smart_results = enhanced_customer_au_assignment_with_two_inmarket_iterations_deduplicated(
                     combined_customers, branch_data
                 )
                 
