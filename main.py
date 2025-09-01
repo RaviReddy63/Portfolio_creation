@@ -160,29 +160,34 @@ def portfolio_assignment_page(customer_data, banker_data, branch_data):
         create_au_filters, create_customer_filters, create_portfolio_button,
         display_summary_statistics, create_portfolio_editor, create_apply_changes_button
     )
+    from data_loader import clean_initial_data
     
-    # Store customer_data in session state for save functions
+    # Store RAW customer_data in session state for save functions
     st.session_state.customer_data = customer_data
     st.session_state.branch_data = branch_data
     
-    # Create AU filters
+    # Create AU filters - NO CALCULATIONS
     selected_aus = create_au_filters(branch_data)
     
-    # Create customer filters
+    # Create customer filters - NO CALCULATIONS  
     cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters(customer_data)
     
     # Create portfolio button
     button_clicked = create_portfolio_button()
     
-    # ONLY process when button is clicked - NOT on filter changes
+    # ONLY process when button is clicked - ALL CALCULATIONS HAPPEN HERE
     if button_clicked:
         if not selected_aus:
             st.error("Please select at least one AU")
         else:
             # Show loading message
-            with st.spinner("Creating portfolios..."):
+            with st.spinner("Processing data and creating portfolios..."):
+                # NOW do all the data processing that was skipped earlier
+                processed_customer_data = clean_initial_data(customer_data)
+                
+                # Create portfolios with processed data
                 portfolios_created, portfolio_summaries = process_portfolio_creation(
-                    selected_aus, customer_data, banker_data, branch_data,
+                    selected_aus, processed_customer_data, banker_data, branch_data,
                     role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
                 )
                 
@@ -299,10 +304,11 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
     # Import here to avoid circular imports
     from ui_components import create_customer_filters_for_mapping
+    from data_loader import clean_initial_data
     
     st.subheader("Smart Portfolio Mapping")
     
-    # Create customer filters (reuse from Portfolio Assignment)
+    # Create customer filters - NO CALCULATIONS
     cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
     
     # Create Smart Portfolio Generation button
@@ -312,10 +318,14 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     with col2:
         generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
     
-    # ONLY process when button is clicked - NOT on filter changes
+    # ONLY process when button is clicked - ALL CALCULATIONS HAPPEN HERE
     if generate_button:
-        # Show loading message and process
-        generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit)
+        with st.spinner("Processing data and generating smart portfolios..."):
+            # NOW do all the data processing that was skipped earlier
+            processed_customer_data = clean_initial_data(customer_data)
+            
+            # Generate smart portfolios with processed data
+            generate_smart_portfolios_processed(processed_customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit)
     
     # Display results ONLY if they exist in session state
     if 'smart_portfolio_results' in st.session_state and len(st.session_state.smart_portfolio_results) > 0:
@@ -363,7 +373,80 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     
     return filtered_data
 
-def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit):
+def generate_smart_portfolios_processed(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit):
+    """Generate smart portfolios using processed data - ALL CALCULATIONS HERE"""
+    
+    # Clear global data when generating new portfolios
+    if 'global_portfolio_df' in st.session_state:
+        del st.session_state.global_portfolio_df
+    
+    # Apply customer filters - NOW WE DO THE CALCULATIONS
+    filtered_customers = apply_customer_filters_for_mapping(
+        customer_data, cust_state, role, cust_portcd, min_rev, min_deposit
+    )
+    
+    if len(filtered_customers) == 0:
+        st.error("No customers found with the selected filters. Please adjust your criteria.")
+        return
+    
+    # Clean filtered customers to remove duplicates
+    filtered_customers = clean_portfolio_data(filtered_customers)
+    
+    st.info(f"Processing {len(filtered_customers):,} customers for smart portfolio generation...")
+    
+    # Create progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # Update progress
+        progress_bar.progress(10)
+        status_text.text("Initializing clustering algorithm...")
+        
+        # Run the enhanced clustering algorithm with deduplication
+        progress_bar.progress(30)
+        status_text.text("Running advanced clustering analysis...")
+        
+        # Use your existing clustering with input/output cleaning
+        smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+            filtered_customers, branch_data
+        )
+        
+        progress_bar.progress(80)
+        status_text.text("Processing and cleaning results...")
+        
+        # Clean the output from your clustering algorithm
+        smart_portfolio_results = clean_portfolio_data(smart_portfolio_results)
+        
+        # Validate results are clean
+        is_clean, duplicate_ids = validate_no_duplicates(smart_portfolio_results, 'ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers in final results")
+            smart_portfolio_results = smart_portfolio_results.drop_duplicates(subset=['ECN'], keep='first')
+        
+        # Store results in session state
+        st.session_state.smart_portfolio_results = smart_portfolio_results
+        st.session_state.filtered_customers_count = len(filtered_customers)
+        
+        # Clear any existing smart portfolio controls to force refresh
+        if 'smart_portfolio_controls' in st.session_state:
+            st.session_state.smart_portfolio_controls = {}
+        
+        progress_bar.progress(100)
+        status_text.text("Smart portfolios generated successfully!")
+        
+        # Clear progress indicators after a brief delay
+        import time
+        time.sleep(1)
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.success(f"Successfully generated smart portfolios for {len(smart_portfolio_results):,} customers!")
+        
+    except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"Error generating smart portfolios: {str(e)}")
     """Generate smart portfolios using advanced clustering with deduplication"""
     
     # Clear global data when generating new portfolios
