@@ -132,14 +132,9 @@ def create_header():
 
 def show_home_page():
     """Show Home page content with portfolio dashboard"""
-    # Get cached data from session state
-    if 'merged_data' not in st.session_state:
-        # Import here to avoid circular imports
-        from main import get_merged_data_cached
-        with st.spinner("Loading data for Home page..."):
-            st.session_state.merged_data = get_merged_data_cached()
+    from data_loader import get_merged_data
     
-    customer_data, banker_data, branch_data, _ = st.session_state.merged_data
+    customer_data, banker_data, branch_data, _ = get_merged_data()
     
     # Import and show home tab content
     try:
@@ -309,14 +304,10 @@ Currently, I'm in demonstration mode. Here's what I can help you with:
 
 def show_portfolio_assignment_page():
     """Show complete Portfolio Assignment functionality"""
-    # Get cached data from session state
-    if 'merged_data' not in st.session_state:
-        # Import here to avoid circular imports
-        from main import get_merged_data_cached
-        with st.spinner("Loading data for Portfolio Assignment..."):
-            st.session_state.merged_data = get_merged_data_cached()
+    from data_loader import get_merged_data
+    from main import portfolio_assignment_page
     
-    customer_data, banker_data, branch_data, data = st.session_state.merged_data
+    customer_data, banker_data, branch_data, data = get_merged_data()
     
     # Initialize session state variables
     initialize_session_state()
@@ -325,29 +316,19 @@ def show_portfolio_assignment_page():
     st.session_state.branch_data = branch_data
     st.session_state.customer_data = customer_data
     
-    # Import functions from main
-    from main import portfolio_assignment_page
-    
     # Call the main portfolio assignment logic
     portfolio_assignment_page(customer_data, banker_data, branch_data)
 
 def show_portfolio_mapping_page():
     """Show complete Portfolio Mapping functionality"""
-    # Get cached data from session state
-    if 'merged_data' not in st.session_state:
-        # Import here to avoid circular imports
-        from main import get_merged_data_cached
-        with st.spinner("Loading data for Portfolio Mapping..."):
-            st.session_state.merged_data = get_merged_data_cached()
+    from data_loader import get_merged_data
+    from main import portfolio_mapping_page
     
-    customer_data, banker_data, branch_data, data = st.session_state.merged_data
+    customer_data, banker_data, branch_data, data = get_merged_data()
     
     # Initialize session state variables
     initialize_session_state()
     st.session_state.customer_data = customer_data
-    
-    # Import functions from main
-    from main import portfolio_mapping_page
     
     # Call the main portfolio mapping logic
     portfolio_mapping_page(customer_data, banker_data, branch_data)
