@@ -362,7 +362,7 @@ def initialize_session_state():
     pass
 
 def create_au_filters(branch_data):
-    """Create AU selection filters"""
+    """Create AU selection filters - NO CALCULATIONS, just UI"""
     col_header1, col_clear1 = st.columns([9, 1])
     with col_header1:
         st.subheader("Select AUs for Portfolio Creation")
@@ -383,39 +383,50 @@ def create_au_filters(branch_data):
     with st.expander("Select AUs", expanded=True):
         col1, col2, col3 = st.columns(3)
         
-        with col1:
-            available_states = list(branch_data['STATECODE'].dropna().unique())
-            states = st.multiselect("State", available_states, key="states")
+        # Pre-calculate options ONCE and store in session state
+        if 'filter_options' not in st.session_state:
+            st.session_state.filter_options = {
+                'all_states': sorted(branch_data['STATECODE'].dropna().unique().tolist()),
+                'all_cities': sorted(branch_data['CITY'].dropna().unique().tolist()),
+                'all_aus': branch_data[['AU', 'NAME', 'STATECODE', 'CITY']].dropna().to_dict('records')
+            }
         
-        # Filter branch data based on selected states - NO EXPENSIVE OPERATIONS HERE
-        if states:
-            filtered_branch_data = branch_data[branch_data['STATECODE'].isin(states)]
-        else:
-            filtered_branch_data = branch_data
-            
+        with col1:
+            # Use pre-calculated states - NO CALCULATION HERE
+            states = st.multiselect("State", st.session_state.filter_options['all_states'], key="states")
+        
         with col2:
-            available_cities = list(filtered_branch_data['CITY'].dropna().unique())
+            # Filter cities based on selected states - MINIMAL CALCULATION
+            if states:
+                available_cities = [au['CITY'] for au in st.session_state.filter_options['all_aus'] 
+                                  if au['STATECODE'] in states]
+                available_cities = sorted(list(set(available_cities)))
+            else:
+                available_cities = st.session_state.filter_options['all_cities']
+            
             cities = st.multiselect("City", available_cities, key="cities")
         
-        # Filter further based on selected cities - NO EXPENSIVE OPERATIONS HERE
-        if cities:
-            filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
-        
         with col3:
-            # Create AU options with "Name - AU" format - LIGHTWEIGHT OPERATION
-            au_data = filtered_branch_data[['AU', 'NAME']].dropna()
-            au_options = []
-            au_mapping = {}  # To map display format back to AU number
+            # Filter AUs based on selected states and cities - MINIMAL CALCULATION
+            filtered_aus = st.session_state.filter_options['all_aus']
             
-            for _, row in au_data.iterrows():
-                au_number = row['AU']
-                au_name = row['NAME']
+            if states:
+                filtered_aus = [au for au in filtered_aus if au['STATECODE'] in states]
+            if cities:
+                filtered_aus = [au for au in filtered_aus if au['CITY'] in cities]
+            
+            # Create AU options - LIGHTWEIGHT OPERATION
+            au_options = []
+            au_mapping = {}
+            
+            for au in filtered_aus:
+                au_number = au['AU']
+                au_name = au['NAME']
                 display_text = f"{au_name} - {au_number}"
                 au_options.append(display_text)
                 au_mapping[display_text] = au_number
             
-            # Remove duplicates and sort - LIGHTWEIGHT OPERATION
-            au_options = sorted(list(set(au_options)))
+            au_options = sorted(au_options)
             
             selected_au_displays = st.multiselect("AU", au_options, key="selected_aus")
             
