@@ -17,8 +17,9 @@ from utils import (
     prepare_portfolio_for_export_deduplicated
 )
 
-def get_merged_data():
-    """Load and merge all data with initial cleanup"""
+@st.cache_data
+def get_merged_data_cached():
+    """Load and cache data - only runs once per session"""
     customer_data, banker_data, branch_data = load_data()
     
     # Initial data cleanup - remove conflicting portfolio assignments
@@ -26,6 +27,13 @@ def get_merged_data():
     
     data = merge_dfs(customer_data, banker_data, branch_data)
     return customer_data, banker_data, branch_data, data
+
+def get_merged_data():
+    """Get cached merged data from session state"""
+    if 'merged_data' not in st.session_state:
+        with st.spinner("Loading data for the first time..."):
+            st.session_state.merged_data = get_merged_data_cached()
+    return st.session_state.merged_data
 
 def clean_initial_data(customer_data):
     """Clean initial data by removing Unassigned/Unmanaged rows for customers who also have In-Market/Centralized assignments"""
@@ -67,28 +75,18 @@ def main():
     setup_page_config()
     add_logo()
     
-    # Create header and get current page
-    page = create_header()
+    # Create header and get current page (now handled in tabs)
+    create_header()
     
     # Initialize session state
     initialize_session_state()
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    # Store branch_data in session state for save functions
-    st.session_state.branch_data = branch_data
-    
-    if page == "Portfolio Assignment":
-        portfolio_assignment_page(customer_data, banker_data, branch_data)
-    elif page == "Portfolio Mapping":
-        portfolio_mapping_page(customer_data, banker_data, branch_data)
 
 def portfolio_assignment_page(customer_data, banker_data, branch_data):
     """Portfolio Assignment page logic"""
     
     # Store customer_data in session state for save functions
     st.session_state.customer_data = customer_data
+    st.session_state.branch_data = branch_data
     
     # Create AU filters
     selected_aus = create_au_filters(branch_data)
