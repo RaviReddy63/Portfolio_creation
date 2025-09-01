@@ -14,10 +14,12 @@ from utils import (
 def main():
     """Main application function"""
     # Import here to avoid circular imports
-    from ui_components import setup_page_config, add_logo, create_header, initialize_session_state
+    from ui_components import add_logo, create_header, initialize_session_state
+    
+    # Setup page config directly here
+    st.set_page_config("Portfolio Creation tool", layout="wide")
     
     # Setup page
-    setup_page_config()
     add_logo()
     
     # Create header and get current page (now handled in tabs)
