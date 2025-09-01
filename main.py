@@ -11,6 +11,19 @@ from utils import (
     prepare_portfolio_for_export_deduplicated
 )
 
+def main():
+    """Main application function"""
+    # Setup page directly
+    setup_page_config()
+    add_logo()
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    # Import and create header after setup
+    from ui_components import create_header
+    create_header()
+
 def setup_page_config():
     """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
