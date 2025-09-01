@@ -11,6 +11,38 @@ from utils import (
     prepare_portfolio_for_export_deduplicated
 )
 
+def create_header():
+    """Create the page header with tab navigation and content"""
+    from ui_components import (
+        show_home_page, show_my_requests_page, show_portfolio_assignment_page,
+        show_portfolio_mapping_page, show_ask_ai_page
+    )
+    
+    # Navigation tabs with all 5 pages
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
+    
+    with tab1:
+        # Home content
+        show_home_page()
+        
+    with tab2:
+        # My Requests content
+        show_my_requests_page()
+        
+    with tab3:
+        # Portfolio Assignment content
+        show_portfolio_assignment_page()
+        
+    with tab4:
+        # Portfolio Mapping content
+        show_portfolio_mapping_page()
+        
+    with tab5:
+        # Ask AI chat interface
+        show_ask_ai_page()
+    
+    return None
+
 def main():
     """Main application function"""
     # Setup page directly
@@ -20,8 +52,7 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    # Import and create header after setup
-    from ui_components import create_header
+    # Create header (no more import needed)
     create_header()
 
 def setup_page_config():
