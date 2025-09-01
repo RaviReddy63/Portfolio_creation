@@ -54,11 +54,9 @@ def clean_initial_data(customer_data):
 
 @st.cache_data
 def get_merged_data():
-    """Load and merge all data with initial cleanup - CACHED VERSION"""
+    """Load and cache RAW data only - NO PROCESSING"""
     customer_data, banker_data, branch_data = load_data()
     
-    # Initial data cleanup - remove conflicting portfolio assignments
-    customer_data = clean_initial_data(customer_data)
-    
+    # NO processing here - just return raw data
     data = merge_dfs(customer_data, banker_data, branch_data)
     return customer_data, banker_data, branch_data, data
