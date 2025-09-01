@@ -2,12 +2,6 @@ import streamlit as st
 import pandas as pd
 
 # Import custom modules
-from ui_components import (
-    add_logo, create_header, initialize_session_state,
-    create_au_filters, create_customer_filters, create_portfolio_button,
-    display_summary_statistics, create_portfolio_editor, create_apply_changes_button,
-    create_customer_filters_for_mapping, create_save_buttons, setup_page_config
-)
 from data_loader import load_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
 from map_visualization import create_combined_map, create_smart_portfolio_map
@@ -71,6 +65,9 @@ def clean_initial_data(customer_data):
 
 def main():
     """Main application function"""
+    # Import here to avoid circular imports
+    from ui_components import setup_page_config, add_logo, create_header, initialize_session_state
+    
     # Setup page
     setup_page_config()
     add_logo()
@@ -83,6 +80,11 @@ def main():
 
 def portfolio_assignment_page(customer_data, banker_data, branch_data):
     """Portfolio Assignment page logic"""
+    # Import here to avoid circular imports
+    from ui_components import (
+        create_au_filters, create_customer_filters, create_portfolio_button,
+        display_summary_statistics, create_portfolio_editor, create_apply_changes_button
+    )
     
     # Store customer_data in session state for save functions
     st.session_state.customer_data = customer_data
@@ -158,6 +160,9 @@ def display_portfolio_tables(portfolios_created, portfolio_summaries, branch_dat
 
 def display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, is_multi_au):
     """Display table for a single AU"""
+    # Import here to avoid circular imports
+    from ui_components import create_portfolio_editor, create_apply_changes_button, display_summary_statistics
+    
     if au_id in portfolio_summaries:
         portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
         portfolio_df = portfolio_df.sort_values('Available for this portfolio', ascending=False).reset_index(drop=True)
@@ -216,6 +221,9 @@ def display_geographic_map(portfolios_created, branch_data):
 
 def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
+    # Import here to avoid circular imports
+    from ui_components import create_customer_filters_for_mapping
+    
     st.subheader("Smart Portfolio Mapping")
     
     # Create customer filters (reuse from Portfolio Assignment)
