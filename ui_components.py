@@ -110,25 +110,25 @@ def create_header():
     with tab1:
         # Home content - Updated with new dashboard
         show_home_page()
-        return "Home"
         
     with tab2:
         # My Requests content
         show_my_requests_page()
-        return "My Requests"
         
     with tab3:
         # Portfolio Assignment content - all functionality inside tab
-        return "Portfolio Assignment"
+        show_portfolio_assignment_page()
         
     with tab4:
         # Portfolio Mapping content - all functionality inside tab
-        return "Portfolio Mapping"
+        show_portfolio_mapping_page()
         
     with tab5:
         # Ask AI chat interface
         show_ask_ai_page()
-        return "Ask AI"
+    
+    # Return None since all content is handled within tabs
+    return None
 
 def show_home_page():
     """Show Home page content with portfolio dashboard"""
@@ -173,7 +173,7 @@ def show_basic_home_content(customer_data, banker_data, branch_data):
 
 def show_my_requests_page():
     """Show My Requests page content"""
-    st.markdown("### My Requests")
+    st.markdown("### 📋 My Requests")
     st.info("My Requests functionality - content coming soon.")
 
 def show_ask_ai_page():
@@ -301,6 +301,37 @@ Currently, I'm in demonstration mode. Here's what I can help you with:
         # Clear the input and rerun
         st.session_state.chat_input = ""
         st.rerun()
+
+def show_portfolio_assignment_page():
+    """Show complete Portfolio Assignment functionality"""
+    from data_loader import get_merged_data
+    from main import portfolio_assignment_page
+    
+    customer_data, banker_data, branch_data, data = get_merged_data()
+    
+    # Initialize session state variables
+    initialize_session_state()
+    
+    # Store data in session state for save functions
+    st.session_state.branch_data = branch_data
+    st.session_state.customer_data = customer_data
+    
+    # Call the main portfolio assignment logic
+    portfolio_assignment_page(customer_data, banker_data, branch_data)
+
+def show_portfolio_mapping_page():
+    """Show complete Portfolio Mapping functionality"""
+    from data_loader import get_merged_data
+    from main import portfolio_mapping_page
+    
+    customer_data, banker_data, branch_data, data = get_merged_data()
+    
+    # Initialize session state variables
+    initialize_session_state()
+    st.session_state.customer_data = customer_data
+    
+    # Call the main portfolio mapping logic
+    portfolio_mapping_page(customer_data, banker_data, branch_data)
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
