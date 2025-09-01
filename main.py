@@ -11,22 +11,96 @@ from utils import (
     prepare_portfolio_for_export_deduplicated
 )
 
-def main():
-    """Main application function"""
-    # Import here to avoid circular imports
-    from ui_components import add_logo, create_header, initialize_session_state
-    
-    # Setup page config directly here
+def setup_page_config():
+    """Configure the Streamlit page"""
     st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Setup page
-    add_logo()
+    # Hide Streamlit's default header only
+    st.markdown("""
+    <style>
+        header[data-testid="stHeader"] {
+            display: none !important;
+        }
+        
+        /* Adjust main content area to account for hidden header */
+        .main .block-container {
+            padding-top: 1rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
+def add_logo():
+    """Add custom header with logo and text"""
+    import base64
     
-    # Create header and get current page (now handled in tabs)
-    create_header()
+    logo_html = ""
+    try:
+        with open("logo.svg", "rb") as f:
+            svg_data = f.read()
+            svg_base64 = base64.b64encode(svg_data).decode()
+            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
+    except:
+        try:
+            with open("logo.png", "rb") as f:
+                png_data = f.read()
+                png_base64 = base64.b64encode(png_data).decode()
+                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
+        except:
+            pass
+    
+    # Create custom header with logo and text that spans full width
+    st.markdown(f"""
+    <div style="
+        background-color: rgb(215, 30, 40);
+        color: white;
+        padding: 8px 20px;
+        margin: -1rem -1rem 2rem -1rem;
+        width: 100vw;
+        margin-left: calc(-50vw + 50%);
+        margin-right: calc(-50vw + 50%);
+        display: flex;
+        align-items: center;
+        border-bottom: 3px solid rgb(255, 205, 65);
+        box-sizing: border-box;
+    ">
+        {logo_html}
+        <span style="
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-left: 2px solid white;
+            padding-left: 15px;
+            margin-left: 10px;
+        ">Banker Placement Tool</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+def initialize_session_state():
+    """Initialize all session state variables"""
+    session_vars = {
+        'all_portfolios': {},
+        'portfolio_controls': {},
+        'recommend_reassignment': {},
+        'should_create_portfolios': False,
+        'should_generate_smart_portfolios': False,
+        'smart_portfolio_controls': {}
+    }
+    
+    for var, default_value in session_vars.items():
+        if var not in st.session_state:
+            st.session_state[var] = default_value
+
+def main():
+    """Main application function"""
+    # Setup page directly
+    setup_page_config()
+    add_logo()
     
     # Initialize session state
     initialize_session_state()
+    
+    # Import and create header (this should work now)
+    from ui_components import create_header
+    create_header()
 
 def clean_initial_data(customer_data):
     """Clean initial data - MOVED TO data_loader.py"""
