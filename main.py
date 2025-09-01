@@ -53,33 +53,34 @@ def portfolio_assignment_page(customer_data, banker_data, branch_data):
     # Create portfolio button
     button_clicked = create_portfolio_button()
     
-    # Handle button click
+    # ONLY process when button is clicked - NOT on filter changes
     if button_clicked:
         if not selected_aus:
             st.error("Please select at least one AU")
         else:
-            st.session_state.should_create_portfolios = True
+            # Show loading message
+            with st.spinner("Creating portfolios..."):
+                portfolios_created, portfolio_summaries = process_portfolio_creation(
+                    selected_aus, customer_data, banker_data, branch_data,
+                    role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
+                )
+                
+                if portfolios_created:
+                    st.session_state.portfolios_created = portfolios_created
+                    st.session_state.portfolio_summaries = portfolio_summaries
+                    st.success("Portfolios created successfully!")
+                else:
+                    st.warning("No customers found for the selected AUs with current filters.")
     
-    # Process portfolio creation
-    if st.session_state.should_create_portfolios:
-        if not selected_aus:
-            st.error("Please select at least one AU")
-            st.session_state.should_create_portfolios = False
+    # Display results ONLY if they exist in session state
+    if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
+        display_portfolio_results(branch_data)
+    else:
+        # Show helpful message when no portfolios exist yet
+        if selected_aus:
+            st.info(f"Selected {len(selected_aus)} AU(s). Click 'Create Portfolios' to generate customer assignments.")
         else:
-            portfolios_created, portfolio_summaries = process_portfolio_creation(
-                selected_aus, customer_data, banker_data, branch_data,
-                role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
-            )
-            
-            if portfolios_created:
-                st.session_state.portfolios_created = portfolios_created
-                st.session_state.portfolio_summaries = portfolio_summaries
-                st.session_state.should_create_portfolios = False
-            else:
-                st.session_state.should_create_portfolios = False
-    
-    # Display results
-    display_portfolio_results(branch_data)
+            st.info("Select AUs and set filters, then click 'Create Portfolios' to begin.")
 
 def display_portfolio_results(branch_data):
     """Display portfolio results if they exist"""
@@ -190,17 +191,17 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     with col2:
         generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
     
-    # Handle button click
+    # ONLY process when button is clicked - NOT on filter changes
     if generate_button:
-        st.session_state.should_generate_smart_portfolios = True
-    
-    # Process smart portfolio generation
-    if st.session_state.get('should_generate_smart_portfolios', False):
+        # Show loading message and process
         generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit)
-        st.session_state.should_generate_smart_portfolios = False
     
-    # Display results if they exist
-    display_smart_portfolio_results(customer_data, branch_data)
+    # Display results ONLY if they exist in session state
+    if 'smart_portfolio_results' in st.session_state and len(st.session_state.smart_portfolio_results) > 0:
+        display_smart_portfolio_results(customer_data, branch_data)
+    else:
+        # Show helpful message when no smart portfolios exist yet
+        st.info("Set your customer filters above, then click 'Generate Smart Portfolios' to create AI-optimized assignments.")
 
 def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Apply customer filters for Portfolio Mapping"""
