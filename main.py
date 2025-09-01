@@ -13,6 +13,7 @@ from utils import (
 
 def create_header():
     """Create the page header with tab navigation and content"""
+    # Import the tab functions from ui_components - NO MORE create_header import
     from ui_components import (
         show_home_page, show_my_requests_page, show_portfolio_assignment_page,
         show_portfolio_mapping_page, show_ask_ai_page
@@ -235,7 +236,7 @@ def display_portfolio_tables(portfolios_created, portfolio_summaries, branch_dat
 
 def display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, is_multi_au):
     """Display table for a single AU"""
-    # Import here to avoid circular imports
+    # Import here to avoid circular imports - REMOVED create_header import
     from ui_components import create_portfolio_editor, create_apply_changes_button, display_summary_statistics
     
     if au_id in portfolio_summaries:
