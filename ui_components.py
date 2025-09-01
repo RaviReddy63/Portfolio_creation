@@ -132,18 +132,52 @@ def create_header():
 
 def show_home_page():
     """Show Home page content with portfolio dashboard"""
-    from data_loader import get_merged_data
-    from home_tab import show_home_tab_content
+    # Get cached data from session state
+    if 'merged_data' not in st.session_state:
+        from main import get_merged_data_cached
+        with st.spinner("Loading data for Home page..."):
+            st.session_state.merged_data = get_merged_data_cached()
     
-    # Load data
-    customer_data, banker_data, branch_data, _ = get_merged_data()
+    customer_data, banker_data, branch_data, _ = st.session_state.merged_data
     
-    # Show the complete home tab content
-    show_home_tab_content(customer_data, banker_data, branch_data)
+    # Import and show home tab content
+    try:
+        from home_tab import show_home_tab_content
+        show_home_tab_content(customer_data, banker_data, branch_data)
+    except ImportError:
+        # Fallback if home_tab module doesn't exist
+        show_basic_home_content(customer_data, banker_data, branch_data)
+
+def show_basic_home_content(customer_data, banker_data, branch_data):
+    """Show basic home content if home_tab module is not available"""
+    st.markdown("### 🏠 Welcome to Banker Placement Tool")
+    st.markdown("*Optimize customer-banker assignments with advanced analytics*")
+    
+    # Basic statistics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Customers", f"{len(customer_data):,}")
+    
+    with col2:
+        st.metric("Active Bankers", f"{len(banker_data):,}")
+    
+    with col3:
+        st.metric("Banking Units", f"{len(branch_data):,}")
+    
+    with col4:
+        avg_revenue = customer_data['BANK_REVENUE'].mean()
+        if avg_revenue >= 1000000:
+            st.metric("Avg Customer Revenue", f"${avg_revenue/1000000:.1f}M")
+        else:
+            st.metric("Avg Customer Revenue", f"${avg_revenue/1000:.1f}K")
+    
+    st.markdown("---")
+    st.info("📊 Use the **Portfolio Assignment** tab to create custom portfolios, or try **Portfolio Mapping** for AI-optimized assignments.")
 
 def show_my_requests_page():
     """Show My Requests page content"""
-    st.markdown("### My Requests")
+    st.markdown("### 📋 My Requests")
     st.info("My Requests functionality - content coming soon.")
 
 def show_ask_ai_page():
@@ -274,112 +308,46 @@ Currently, I'm in demonstration mode. Here's what I can help you with:
 
 def show_portfolio_assignment_page():
     """Show complete Portfolio Assignment functionality"""
-    from data_loader import get_merged_data
-    from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
+    # Get cached data from session state
+    if 'merged_data' not in st.session_state:
+        from main import get_merged_data_cached
+        with st.spinner("Loading data for Portfolio Assignment..."):
+            st.session_state.merged_data = get_merged_data_cached()
+    
+    customer_data, banker_data, branch_data, data = st.session_state.merged_data
     
     # Initialize session state variables
     initialize_session_state()
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
     
     # Store data in session state for save functions
     st.session_state.branch_data = branch_data
     st.session_state.customer_data = customer_data
     
-    # Create AU filters
-    selected_aus = create_au_filters(branch_data)
+    # Import functions from main
+    from main import portfolio_assignment_page
     
-    # Create customer filters
-    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters(customer_data)
-    
-    # Create portfolio button
-    button_clicked = create_portfolio_button()
-    
-    # Handle button click
-    if button_clicked:
-        if not selected_aus:
-            st.error("Please select at least one AU")
-        else:
-            st.session_state.should_create_portfolios = True
-    
-    # Process portfolio creation
-    if st.session_state.should_create_portfolios:
-        if not selected_aus:
-            st.error("Please select at least one AU")
-            st.session_state.should_create_portfolios = False
-        else:
-            portfolios_created, portfolio_summaries = process_portfolio_creation(
-                selected_aus, customer_data, banker_data, branch_data,
-                role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
-            )
-            
-            if portfolios_created:
-                st.session_state.portfolios_created = portfolios_created
-                st.session_state.portfolio_summaries = portfolio_summaries
-                st.session_state.should_create_portfolios = False
-            else:
-                st.session_state.should_create_portfolios = False
-    
-    # Display results
-    display_portfolio_assignment_results(branch_data)
+    # Call the main portfolio assignment logic
+    portfolio_assignment_page(customer_data, banker_data, branch_data)
 
 def show_portfolio_mapping_page():
     """Show complete Portfolio Mapping functionality"""
-    from data_loader import get_merged_data
-    from main import generate_smart_portfolios, display_smart_portfolio_results
+    # Get cached data from session state
+    if 'merged_data' not in st.session_state:
+        from main import get_merged_data_cached
+        with st.spinner("Loading data for Portfolio Mapping..."):
+            st.session_state.merged_data = get_merged_data_cached()
+    
+    customer_data, banker_data, branch_data, data = st.session_state.merged_data
     
     # Initialize session state variables
     initialize_session_state()
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
     st.session_state.customer_data = customer_data
     
-    # Create customer filters
-    cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
+    # Import functions from main
+    from main import portfolio_mapping_page
     
-    # Create Smart Portfolio Generation button
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        st.write("")  # Empty space
-    with col2:
-        generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
-    
-    # Handle button click
-    if generate_button:
-        st.session_state.should_generate_smart_portfolios = True
-    
-    # Process smart portfolio generation
-    if st.session_state.get('should_generate_smart_portfolios', False):
-        generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit)
-        st.session_state.should_generate_smart_portfolios = False
-    
-    # Display results if they exist
-    display_smart_portfolio_results(customer_data, branch_data)
-
-def display_portfolio_assignment_results(branch_data):
-    """Display portfolio assignment results"""
-    if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
-        from main import display_portfolio_tables, display_geographic_map
-        portfolios_created = st.session_state.portfolios_created
-        portfolio_summaries = st.session_state.get('portfolio_summaries', {})
-        
-        # Show Portfolio Summary Tables and Geographic Distribution
-        st.markdown("----")
-        col1, col2 = st.columns([1, 1])
-        
-        with col1:
-            st.subheader("Portfolio Summary Tables")
-            display_portfolio_tables(portfolios_created, portfolio_summaries, branch_data)
-        
-        with col2:
-            st.subheader("Geographic Distribution")
-            display_geographic_map(portfolios_created, branch_data)
-    else:
-        # Show message when no portfolios exist
-        if st.session_state.get('portfolios_created') is not None:
-            st.warning("No customers found for the selected AUs with current filters.")
+    # Call the main portfolio mapping logic
+    portfolio_mapping_page(customer_data, banker_data, branch_data)
 
 def initialize_session_state():
     """Initialize all session state variables - avoid conflicting with widget keys"""
