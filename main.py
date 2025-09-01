@@ -11,30 +11,118 @@ from utils import (
     prepare_portfolio_for_export_deduplicated
 )
 
-def main():
-    """Main application function"""
-    # Import here to avoid circular imports
-    from ui_components import setup_page_config, add_logo, create_header, initialize_session_state
+def setup_page_config():
+    """Configure the Streamlit page"""
+    st.set_page_config("Portfolio Creation tool", layout="wide")
     
-    # Setup page
-    setup_page_config()
-    add_logo()
-    
-    # Create header and get current page (now handled in tabs)
-    create_header()
-    
-    # Initialize session state
-    initialize_session_state()
+    # Hide Streamlit's default header only
+    st.markdown("""
+    <style>
+        header[data-testid="stHeader"] {
+            display: none !important;
+        }
+        
+        /* Adjust main content area to account for hidden header */
+        .main .block-container {
+            padding-top: 1rem;
+        }
+    </style>
+    """, unsafe_allow_html=True)
 
-def clean_initial_data(customer_data):
-    """Clean initial data - MOVED TO data_loader.py"""
-    # This function has been moved to data_loader.py to avoid circular imports
-    from data_loader import clean_initial_data as clean_func
-    return clean_func(customer_data)
+def add_logo():
+    """Add custom header with logo and text"""
+    import base64
+    
+    logo_html = ""
+    try:
+        with open("logo.svg", "rb") as f:
+            svg_data = f.read()
+            svg_base64 = base64.b64encode(svg_data).decode()
+            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
+    except:
+        try:
+            with open("logo.png", "rb") as f:
+                png_data = f.read()
+                png_base64 = base64.b64encode(png_data).decode()
+                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
+        except:
+            pass
+    
+    # Create custom header with logo and text that spans full width
+    st.markdown(f"""
+    <div style="
+        background-color: rgb(215, 30, 40);
+        color: white;
+        padding: 8px 20px;
+        margin: -1rem -1rem 2rem -1rem;
+        width: 100vw;
+        margin-left: calc(-50vw + 50%);
+        margin-right: calc(-50vw + 50%);
+        display: flex;
+        align-items: center;
+        border-bottom: 3px solid rgb(255, 205, 65);
+        box-sizing: border-box;
+    ">
+        {logo_html}
+        <span style="
+            font-size: 1.2rem;
+            font-weight: bold;
+            border-left: 2px solid white;
+            padding-left: 15px;
+            margin-left: 10px;
+        ">Banker Placement Tool</span>
+    </div>
+    """, unsafe_allow_html=True)
+
+def initialize_session_state():
+    """Initialize all session state variables"""
+    session_vars = {
+        'all_portfolios': {},
+        'portfolio_controls': {},
+        'recommend_reassignment': {},
+        'should_create_portfolios': False,
+        'should_generate_smart_portfolios': False,
+        'smart_portfolio_controls': {}
+    }
+    
+    for var, default_value in session_vars.items():
+        if var not in st.session_state:
+            st.session_state[var] = default_value
+
+def create_header():
+    """Create the page header with tab navigation and content"""
+    from ui_components import (
+        show_home_page, show_my_requests_page, show_portfolio_assignment_page,
+        show_portfolio_mapping_page, show_ask_ai_page
+    )
+    
+    # Navigation tabs with all 5 pages
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
+    
+    with tab1:
+        # Home content
+        show_home_page()
+        
+    with tab2:
+        # My Requests content
+        show_my_requests_page()
+        
+    with tab3:
+        # Portfolio Assignment content
+        show_portfolio_assignment_page()
+        
+    with tab4:
+        # Portfolio Mapping content
+        show_portfolio_mapping_page()
+        
+    with tab5:
+        # Ask AI chat interface
+        show_ask_ai_page()
+    
+    return None
 
 def portfolio_assignment_page(customer_data, banker_data, branch_data):
     """Portfolio Assignment page logic"""
-    # Import here to avoid circular imports
     from ui_components import (
         create_au_filters, create_customer_filters, create_portfolio_button,
         display_summary_statistics, create_portfolio_editor, create_apply_changes_button
@@ -47,39 +135,40 @@ def portfolio_assignment_page(customer_data, banker_data, branch_data):
     # Create AU filters
     selected_aus = create_au_filters(branch_data)
     
-    # Create customer filters
+    # Create customer filters  
     cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters(customer_data)
     
     # Create portfolio button
     button_clicked = create_portfolio_button()
     
-    # Handle button click
+    # ONLY process when button is clicked
     if button_clicked:
         if not selected_aus:
             st.error("Please select at least one AU")
         else:
-            st.session_state.should_create_portfolios = True
+            # Show loading message
+            with st.spinner("Creating portfolios..."):
+                portfolios_created, portfolio_summaries = process_portfolio_creation(
+                    selected_aus, customer_data, banker_data, branch_data,
+                    role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
+                )
+                
+                if portfolios_created:
+                    st.session_state.portfolios_created = portfolios_created
+                    st.session_state.portfolio_summaries = portfolio_summaries
+                    st.success("Portfolios created successfully!")
+                else:
+                    st.warning("No customers found for the selected AUs with current filters.")
     
-    # Process portfolio creation
-    if st.session_state.should_create_portfolios:
-        if not selected_aus:
-            st.error("Please select at least one AU")
-            st.session_state.should_create_portfolios = False
+    # Display results ONLY if they exist in session state
+    if 'portfolios_created' in st.session_state and st.session_state.portfolios_created:
+        display_portfolio_results(branch_data)
+    else:
+        # Show helpful message when no portfolios exist yet
+        if selected_aus:
+            st.info(f"Selected {len(selected_aus)} AU(s). Click 'Create Portfolios' to generate customer assignments.")
         else:
-            portfolios_created, portfolio_summaries = process_portfolio_creation(
-                selected_aus, customer_data, banker_data, branch_data,
-                role, cust_state, cust_portcd, max_dist, min_rev, min_deposit
-            )
-            
-            if portfolios_created:
-                st.session_state.portfolios_created = portfolios_created
-                st.session_state.portfolio_summaries = portfolio_summaries
-                st.session_state.should_create_portfolios = False
-            else:
-                st.session_state.should_create_portfolios = False
-    
-    # Display results
-    display_portfolio_results(branch_data)
+            st.info("Select AUs and set filters, then click 'Create Portfolios' to begin.")
 
 def display_portfolio_results(branch_data):
     """Display portfolio results if they exist"""
@@ -105,7 +194,7 @@ def display_portfolio_results(branch_data):
 
 def display_portfolio_tables(portfolios_created, portfolio_summaries, branch_data):
     """Display portfolio summary tables - Always use tabs"""
-    # Always use tabs regardless of number of AUs (removed conditional logic)
+    # Always use tabs regardless of number of AUs
     au_tabs = st.tabs([f"AU {au_id}" for au_id in portfolios_created.keys()])
     
     for tab_idx, (au_id, tab) in enumerate(zip(portfolios_created.keys(), au_tabs)):
@@ -114,7 +203,6 @@ def display_portfolio_tables(portfolios_created, portfolio_summaries, branch_dat
 
 def display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, is_multi_au):
     """Display table for a single AU"""
-    # Import here to avoid circular imports
     from ui_components import create_portfolio_editor, create_apply_changes_button, display_summary_statistics
     
     if au_id in portfolio_summaries:
@@ -175,12 +263,11 @@ def display_geographic_map(portfolios_created, branch_data):
 
 def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
-    # Import here to avoid circular imports
     from ui_components import create_customer_filters_for_mapping
     
     st.subheader("Smart Portfolio Mapping")
     
-    # Create customer filters (reuse from Portfolio Assignment)
+    # Create customer filters
     cust_state, role, cust_portcd, max_dist, min_rev, min_deposit = create_customer_filters_for_mapping(customer_data)
     
     # Create Smart Portfolio Generation button
@@ -190,17 +277,17 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     with col2:
         generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
     
-    # Handle button click
+    # ONLY process when button is clicked
     if generate_button:
-        st.session_state.should_generate_smart_portfolios = True
-    
-    # Process smart portfolio generation
-    if st.session_state.get('should_generate_smart_portfolios', False):
+        # Show loading message and process
         generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, min_rev, min_deposit)
-        st.session_state.should_generate_smart_portfolios = False
     
-    # Display results if they exist
-    display_smart_portfolio_results(customer_data, branch_data)
+    # Display results ONLY if they exist in session state
+    if 'smart_portfolio_results' in st.session_state and len(st.session_state.smart_portfolio_results) > 0:
+        display_smart_portfolio_results(customer_data, branch_data)
+    else:
+        # Show helpful message when no smart portfolios exist yet
+        st.info("Set your customer filters above, then click 'Generate Smart Portfolios' to create AI-optimized assignments.")
 
 def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, min_rev, min_deposit):
     """Apply customer filters for Portfolio Mapping"""
@@ -406,7 +493,7 @@ def display_smart_portfolio_results(customer_data, branch_data):
 
 def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
     """Display smart portfolio summary tables - Always use tabs"""
-    # Always use tabs regardless of number of AUs (removed conditional logic)
+    # Always use tabs regardless of number of AUs
     au_tabs = st.tabs([f"AU {au_id}" for au_id in smart_portfolios_created.keys()])
     
     for tab_idx, (au_id, tab) in enumerate(zip(smart_portfolios_created.keys(), au_tabs)):
@@ -452,6 +539,7 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
                 save_all_smart_portfolios(smart_portfolios_created, st.session_state.get('customer_data'))
             
             # Display summary statistics (same as Portfolio Assignment)
+            from ui_components import display_summary_statistics
             display_summary_statistics(au_data)
 
 def display_global_portfolio_control_component(results_df, customer_data, branch_data):
@@ -596,7 +684,6 @@ def generate_global_portfolio_summary(results_df, customer_data):
     
     return summary_list
 
-# Helper functions for smart portfolios
 def create_smart_portfolio_summary(au_data, au_id):
     """Create portfolio summary for smart portfolios matching Portfolio Assignment format"""
     portfolio_summary = []
@@ -785,108 +872,6 @@ def display_smart_geographic_map(smart_portfolios_created, branch_data):
     else:
         st.info("No customers selected for map display")
 
-# Additional helper functions for saving portfolios
-def prepare_portfolio_for_export(au_data, customer_data, branch_data):
-    """Prepare portfolio data in the required export format with deduplication"""
-    return prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)
-
-def save_single_au_portfolio(au_id, portfolios_created, customer_data):
-    """Save a single AU portfolio to CSV"""
-    if au_id not in portfolios_created or customer_data is None:
-        st.error("No data available to save")
-        return
-    
-    try:
-        # Get branch_data from session state or reload
-        branch_data = st.session_state.get('branch_data')
-        if branch_data is None:
-            from data_loader import load_data
-            _, _, branch_data = load_data()
-        
-        # Prepare data for export
-        au_data = portfolios_created[au_id]
-        export_data = prepare_portfolio_for_export(au_data, customer_data, branch_data)
-        
-        if export_data.empty:
-            st.error("No data to export")
-            return
-        
-        # Validate no duplicates in export
-        is_clean, duplicate_ids = validate_no_duplicates(export_data, 'CG_ECN')
-        if not is_clean:
-            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from export")
-            export_data = export_data.drop_duplicates(subset=['CG_ECN'], keep='first')
-        
-        # Convert to CSV
-        csv_data = export_data.to_csv(index=False)
-        
-        # Create download button
-        st.download_button(
-            label=f"Download AU {au_id} Portfolio CSV",
-            data=csv_data,
-            file_name=f"portfolio_au_{au_id}.csv",
-            mime="text/csv",
-            key=f"download_au_{au_id}"
-        )
-        
-        st.success(f"Portfolio for AU {au_id} prepared for download ({len(export_data):,} customers)")
-        
-    except Exception as e:
-        st.error(f"Error saving portfolio: {str(e)}")
-
-def save_all_portfolios(portfolios_created, customer_data):
-    """Save all portfolios to a single CSV"""
-    if not portfolios_created or customer_data is None:
-        st.error("No data available to save")
-        return
-    
-    try:
-        # Get branch_data from session state or reload
-        branch_data = st.session_state.get('branch_data')
-        if branch_data is None:
-            from data_loader import load_data
-            _, _, branch_data = load_data()
-        
-        all_portfolio_data = []
-        
-        # Process each AU portfolio
-        for au_id, au_data in portfolios_created.items():
-            if not au_data.empty:
-                export_data = prepare_portfolio_for_export(au_data, customer_data, branch_data)
-                if not export_data.empty:
-                    all_portfolio_data.append(export_data)
-        
-        if not all_portfolio_data:
-            st.error("No data to export")
-            return
-        
-        # Combine all portfolios
-        combined_data = pd.concat(all_portfolio_data, ignore_index=True)
-        
-        # Final cleaning and validation
-        combined_data = clean_portfolio_data(combined_data)
-        is_clean, duplicate_ids = validate_no_duplicates(combined_data, 'CG_ECN')
-        if not is_clean:
-            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from combined export")
-            combined_data = combined_data.drop_duplicates(subset=['CG_ECN'], keep='first')
-        
-        # Convert to CSV
-        csv_data = combined_data.to_csv(index=False)
-        
-        # Create download button
-        st.download_button(
-            label="Download All Portfolios CSV",
-            data=csv_data,
-            file_name="all_portfolios.csv",
-            mime="text/csv",
-            key="download_all_portfolios"
-        )
-        
-        st.success(f"All portfolios prepared for download ({len(combined_data):,} customers across {len(portfolios_created):,} AUs)")
-        
-    except Exception as e:
-        st.error(f"Error saving all portfolios: {str(e)}")
-
 def save_all_smart_portfolios(smart_portfolios_created, customer_data):
     """Save all smart portfolios to a single CSV"""
     if not smart_portfolios_created or customer_data is None:
@@ -894,18 +879,17 @@ def save_all_smart_portfolios(smart_portfolios_created, customer_data):
         return
     
     try:
-        # Get branch_data from session state or reload
+        # Get branch_data from session state
         branch_data = st.session_state.get('branch_data')
         if branch_data is None:
-            from data_loader import load_data
-            _, _, branch_data = load_data()
+            customer_data, banker_data, branch_data, _ = get_merged_data()
         
         all_portfolio_data = []
         
         # Process each AU portfolio
         for au_id, au_data in smart_portfolios_created.items():
             if not au_data.empty:
-                export_data = prepare_portfolio_for_export(au_data, customer_data, branch_data)
+                export_data = prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)
                 if not export_data.empty:
                     all_portfolio_data.append(export_data)
         
@@ -940,7 +924,6 @@ def save_all_smart_portfolios(smart_portfolios_created, customer_data):
     except Exception as e:
         st.error(f"Error saving all smart portfolios: {str(e)}")
 
-# Global changes functions for smart portfolios
 def apply_global_changes_final(edited_df, customer_data, branch_data):
     """Apply changes using the edited dataframe with deduplication"""
     
@@ -1098,7 +1081,173 @@ def select_closest_customers_to_aus(portfolio_customers, select_count, identifie
     customers_with_min_distance.sort(key=lambda x: x['min_distance'])
     selected_indices = [item['index'] for item in customers_with_min_distance[:select_count]]
     
-    return portfolio_customers.loc[selected_indices].copy()
+# Helper functions for saving portfolios
+def prepare_portfolio_for_export(au_data, customer_data, branch_data):
+    """Prepare portfolio data in the required export format with deduplication"""
+    return prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)
+        au_data = results_df[results_df['ASSIGNED_AU'] == au].copy()
+        
+        # Clean AU data
+        au_data = clean_portfolio_data(au_data)
+        
+        # Add required columns for Portfolio Assignment format
+        au_data['AU'] = au
+        
+        # Get AU coordinates from branch_data
+        au_branch = branch_data[branch_data['AU'] == au]
+        if not au_branch.empty:
+            au_data['BRANCH_LAT_NUM'] = au_branch.iloc[0]['BRANCH_LAT_NUM']
+            au_data['BRANCH_LON_NUM'] = au_branch.iloc[0]['BRANCH_LON_NUM']
+        
+        # Rename columns to match Portfolio Assignment format
+        au_data = au_data.rename(columns={
+            'ECN': 'CG_ECN',
+            'DISTANCE_TO_AU': 'Distance'
+        })
+        
+        # Merge with original customer_data to get financial information
+        customer_data_subset = customer_data[['CG_ECN', 'CG_PORTFOLIO_CD', 'BANK_REVENUE', 'DEPOSIT_BAL', 'TYPE']].copy()
+        customer_data_subset = clean_portfolio_data(customer_data_subset)  # Clean before merge
+        
+        au_data = au_data.merge(customer_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
+        
+        # Clean after merge
+        au_data = clean_portfolio_data(au_data)
+        
+        # Use original portfolio code if available, otherwise use N/A
+        au_data['PORT_CODE'] = au_data['CG_PORTFOLIO_CD'].fillna('N/A')
+        
+        # Use original financial data
+        au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
+        au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
+        
+        # Use original TYPE if different from smart assignment
+        au_data['TYPE'] = au_data['TYPE_orig'].fillna(au_data['TYPE'])
+        
+        # Clean up duplicate columns
+        au_data = au_data.drop(['CG_PORTFOLIO_CD', 'TYPE_orig'], axis=1, errors='ignore')
+        
+        smart_portfolios_created[au] = au_data
+    
+    st.markdown("----")
+    
+    # Display results in two sections with equal column width
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("Smart Portfolio Summary")
+        display_smart_portfolio_tables(smart_portfolios_created, branch_data)
+    
+    with col2:
+        st.subheader("Global Portfolio Control")
+        display_global_portfolio_control_component(results_df, customer_data, branch_data)
+    
+    # Geographic Distribution below with full width
+    st.markdown("----")
+    st.subheader("Geographic Distribution")
+    display_smart_geographic_map(smart_portfolios_created, branch_data)
+
+# Helper functions for saving portfolios
+def save_single_au_portfolio(au_id, portfolios_created, customer_data):
+    """Save a single AU portfolio to CSV"""
+    if au_id not in portfolios_created or customer_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        # Get branch_data from session state
+        branch_data = st.session_state.get('branch_data')
+        if branch_data is None:
+            customer_data, banker_data, branch_data, _ = get_merged_data()
+        
+        # Prepare data for export
+        au_data = portfolios_created[au_id]
+        export_data = prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)
+        
+        if export_data.empty:
+            st.error("No data to export")
+            return
+        
+        # Convert to CSV
+        csv_data = export_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label=f"Download AU {au_id} Portfolio CSV",
+            data=csv_data,
+            file_name=f"portfolio_au_{au_id}.csv",
+            mime="text/csv",
+            key=f"download_au_{au_id}"
+        )
+        
+        st.success(f"Portfolio for AU {au_id} prepared for download ({len(export_data):,} customers)")
+        
+    except Exception as e:
+        st.error(f"Error saving portfolio: {str(e)}")
+
+def save_all_portfolios(portfolios_created, customer_data):
+    """Save all portfolios to a single CSV"""
+    if not portfolios_created or customer_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        # Get branch_data from session state
+        branch_data = st.session_state.get('branch_data')
+        if branch_data is None:
+            customer_data, banker_data, branch_data, _ = get_merged_data()
+        
+        all_portfolio_data = []
+        
+        # Process each AU portfolio
+        for au_id, au_data in portfolios_created.items():
+            if not au_data.empty:
+                export_data = prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)
+                if not export_data.empty:
+                    all_portfolio_data.append(export_data)
+        
+        if not all_portfolio_data:
+            st.error("No data to export")
+            return
+        
+        # Combine all portfolios
+        combined_data = pd.concat(all_portfolio_data, ignore_index=True)
+        
+        # Final cleaning and validation
+        combined_data = clean_portfolio_data(combined_data)
+        is_clean, duplicate_ids = validate_no_duplicates(combined_data, 'CG_ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from combined export")
+            combined_data = combined_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+        
+        # Convert to CSV
+        csv_data = combined_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label="Download All Portfolios CSV",
+            data=csv_data,
+            file_name="all_portfolios.csv",
+            mime="text/csv",
+            key="download_all_portfolios"
+        )
+        
+        st.success(f"All portfolios prepared for download ({len(combined_data):,} customers across {len(portfolios_created):,} AUs)")
+        
+    except Exception as e:
+        st.error(f"Error saving all portfolios: {str(e)}")
+
+def main():
+    """Main application function"""
+    # Setup page directly
+    setup_page_config()
+    add_logo()
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    # Create header
+    create_header()
 
 if __name__ == "__main__":
     main()
