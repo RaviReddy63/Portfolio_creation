@@ -2,93 +2,47 @@ import streamlit as st
 import pandas as pd
 
 # Import custom modules
-from ui_components import (
-    add_logo, create_header, initialize_session_state,
-    create_au_filters, create_customer_filters, create_portfolio_button,
-    display_summary_statistics, create_portfolio_editor, create_apply_changes_button,
-    create_customer_filters_for_mapping, create_save_buttons, setup_page_config
-)
-from data_loader import load_data
+from data_loader import get_merged_data
 from portfolio_creation import process_portfolio_creation, apply_portfolio_changes
 from map_visualization import create_combined_map, create_smart_portfolio_map
 from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
 from utils import (
-    merge_dfs, clean_portfolio_data, remove_customer_duplicates, validate_no_duplicates,
+    clean_portfolio_data, remove_customer_duplicates, validate_no_duplicates,
     prepare_portfolio_for_export_deduplicated
 )
 
-def get_merged_data():
-    """Load and merge all data with initial cleanup"""
-    customer_data, banker_data, branch_data = load_data()
-    
-    # Initial data cleanup - remove conflicting portfolio assignments
-    customer_data = clean_initial_data(customer_data)
-    
-    data = merge_dfs(customer_data, banker_data, branch_data)
-    return customer_data, banker_data, branch_data, data
-
-def clean_initial_data(customer_data):
-    """Clean initial data by removing Unassigned/Unmanaged rows for customers who also have In-Market/Centralized assignments"""
-    
-    if customer_data.empty:
-        return customer_data
-    
-    original_count = len(customer_data)
-    
-    # Step 1: Priority Conflict Resolution
-    # Find customers (ECNs) who have In-Market/Centralized assignments
-    priority_customers = customer_data[
-        customer_data['TYPE'].str.lower().str.strip().isin(['in-market', 'inmarket', 'centralized'])
-    ]['CG_ECN'].unique()
-    
-    # Remove Unassigned/Unmanaged rows for these priority customers
-    mask_to_remove = (
-        customer_data['CG_ECN'].isin(priority_customers) & 
-        customer_data['TYPE'].str.lower().str.strip().isin(['unassigned', 'unmanaged'])
-    )
-    
-    cleaned_data = customer_data[~mask_to_remove].copy()
-    priority_removed = original_count - len(cleaned_data)
-    
-    # Step 2: Comprehensive deduplication using new function
-    final_data = clean_portfolio_data(cleaned_data)
-    duplicate_removed = len(cleaned_data) - len(final_data)
-    
-    # Log cleanup results
-    total_removed = original_count - len(final_data)
-    if total_removed > 0:
-        print(f"Data cleanup: Removed {priority_removed} priority conflicts and {duplicate_removed} duplicate ECNs. Total removed: {total_removed}")
-    
-    return final_data
-
 def main():
     """Main application function"""
+    # Import here to avoid circular imports
+    from ui_components import setup_page_config, add_logo, create_header, initialize_session_state
+    
     # Setup page
     setup_page_config()
     add_logo()
     
-    # Create header and get current page
-    page = create_header()
+    # Create header and get current page (now handled in tabs)
+    create_header()
     
     # Initialize session state
     initialize_session_state()
-    
-    # Load data
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    # Store branch_data in session state for save functions
-    st.session_state.branch_data = branch_data
-    
-    if page == "Portfolio Assignment":
-        portfolio_assignment_page(customer_data, banker_data, branch_data)
-    elif page == "Portfolio Mapping":
-        portfolio_mapping_page(customer_data, banker_data, branch_data)
+
+def clean_initial_data(customer_data):
+    """Clean initial data - MOVED TO data_loader.py"""
+    # This function has been moved to data_loader.py to avoid circular imports
+    from data_loader import clean_initial_data as clean_func
+    return clean_func(customer_data)
 
 def portfolio_assignment_page(customer_data, banker_data, branch_data):
     """Portfolio Assignment page logic"""
+    # Import here to avoid circular imports
+    from ui_components import (
+        create_au_filters, create_customer_filters, create_portfolio_button,
+        display_summary_statistics, create_portfolio_editor, create_apply_changes_button
+    )
     
     # Store customer_data in session state for save functions
     st.session_state.customer_data = customer_data
+    st.session_state.branch_data = branch_data
     
     # Create AU filters
     selected_aus = create_au_filters(branch_data)
@@ -160,6 +114,9 @@ def display_portfolio_tables(portfolios_created, portfolio_summaries, branch_dat
 
 def display_single_au_table(au_id, portfolio_summaries, portfolios_created, branch_data, is_multi_au):
     """Display table for a single AU"""
+    # Import here to avoid circular imports
+    from ui_components import create_portfolio_editor, create_apply_changes_button, display_summary_statistics
+    
     if au_id in portfolio_summaries:
         portfolio_df = pd.DataFrame(portfolio_summaries[au_id])
         portfolio_df = portfolio_df.sort_values('Available for this portfolio', ascending=False).reset_index(drop=True)
@@ -218,6 +175,9 @@ def display_geographic_map(portfolios_created, branch_data):
 
 def portfolio_mapping_page(customer_data, banker_data, branch_data):
     """Portfolio Mapping page logic with advanced clustering"""
+    # Import here to avoid circular imports
+    from ui_components import create_customer_filters_for_mapping
+    
     st.subheader("Smart Portfolio Mapping")
     
     # Create customer filters (reuse from Portfolio Assignment)
@@ -977,7 +937,7 @@ def save_all_smart_portfolios(smart_portfolios_created, customer_data):
         
         st.success(f"All smart portfolios prepared for download ({len(combined_data):,} customers across {len(smart_portfolios_created):,} AUs)")
         
-    except Exception e:
+    except Exception as e:
         st.error(f"Error saving all smart portfolios: {str(e)}")
 
 # Global changes functions for smart portfolios
