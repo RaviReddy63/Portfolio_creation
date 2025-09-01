@@ -363,12 +363,11 @@ def create_au_filters(branch_data):
             for key in ["states", "cities", "selected_aus"]:
                 if key in st.session_state:
                     del st.session_state[key]
-            # Clear created portfolios
-            if 'portfolios_created' in st.session_state:
-                del st.session_state.portfolios_created
-            if 'portfolio_summaries' in st.session_state:
-                del st.session_state.portfolio_summaries
-            st.session_state.portfolio_controls = {}
+            # Clear created portfolios when filters change
+            for key in ['portfolios_created', 'portfolio_summaries', 'portfolio_controls']:
+                if key in st.session_state:
+                    del st.session_state[key]
+            st.rerun()
     
     # Multi-select for AUs with expander
     with st.expander("Select AUs", expanded=True):
@@ -378,7 +377,7 @@ def create_au_filters(branch_data):
             available_states = list(branch_data['STATECODE'].dropna().unique())
             states = st.multiselect("State", available_states, key="states")
         
-        # Filter branch data based on selected states
+        # Filter branch data based on selected states - NO EXPENSIVE OPERATIONS HERE
         if states:
             filtered_branch_data = branch_data[branch_data['STATECODE'].isin(states)]
         else:
@@ -388,12 +387,12 @@ def create_au_filters(branch_data):
             available_cities = list(filtered_branch_data['CITY'].dropna().unique())
             cities = st.multiselect("City", available_cities, key="cities")
         
-        # Filter further based on selected cities
+        # Filter further based on selected cities - NO EXPENSIVE OPERATIONS HERE
         if cities:
             filtered_branch_data = filtered_branch_data[filtered_branch_data['CITY'].isin(cities)]
         
         with col3:
-            # Create AU options with "Name - AU" format
+            # Create AU options with "Name - AU" format - LIGHTWEIGHT OPERATION
             au_data = filtered_branch_data[['AU', 'NAME']].dropna()
             au_options = []
             au_mapping = {}  # To map display format back to AU number
@@ -405,12 +404,12 @@ def create_au_filters(branch_data):
                 au_options.append(display_text)
                 au_mapping[display_text] = au_number
             
-            # Remove duplicates and sort
+            # Remove duplicates and sort - LIGHTWEIGHT OPERATION
             au_options = sorted(list(set(au_options)))
             
             selected_au_displays = st.multiselect("AU", au_options, key="selected_aus")
             
-            # Convert back to AU numbers for the rest of the functionality
+            # Convert back to AU numbers - LIGHTWEIGHT OPERATION
             selected_aus = [au_mapping[display] for display in selected_au_displays if display in au_mapping]
     
     return selected_aus
