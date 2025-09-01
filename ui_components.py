@@ -134,6 +134,7 @@ def show_home_page():
     """Show Home page content with portfolio dashboard"""
     # Get cached data from session state
     if 'merged_data' not in st.session_state:
+        # Import here to avoid circular imports
         from main import get_merged_data_cached
         with st.spinner("Loading data for Home page..."):
             st.session_state.merged_data = get_merged_data_cached()
@@ -310,6 +311,7 @@ def show_portfolio_assignment_page():
     """Show complete Portfolio Assignment functionality"""
     # Get cached data from session state
     if 'merged_data' not in st.session_state:
+        # Import here to avoid circular imports
         from main import get_merged_data_cached
         with st.spinner("Loading data for Portfolio Assignment..."):
             st.session_state.merged_data = get_merged_data_cached()
@@ -333,6 +335,7 @@ def show_portfolio_mapping_page():
     """Show complete Portfolio Mapping functionality"""
     # Get cached data from session state
     if 'merged_data' not in st.session_state:
+        # Import here to avoid circular imports
         from main import get_merged_data_cached
         with st.spinner("Loading data for Portfolio Mapping..."):
             st.session_state.merged_data = get_merged_data_cached()
