@@ -1081,12 +1081,10 @@ def select_closest_customers_to_aus(portfolio_customers, select_count, identifie
     customers_with_min_distance.sort(key=lambda x: x['min_distance'])
     selected_indices = [item['index'] for item in customers_with_min_distance[:select_count]]
     
-    return portfolio_customers.loc[selected_indices].copy()
-
 # Helper functions for saving portfolios
 def prepare_portfolio_for_export(au_data, customer_data, branch_data):
     """Prepare portfolio data in the required export format with deduplication"""
-    return prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)AU'].unique():
+    return prepare_portfolio_for_export_deduplicated(au_data, customer_data, branch_data)
         au_data = results_df[results_df['ASSIGNED_AU'] == au].copy()
         
         # Clean AU data
