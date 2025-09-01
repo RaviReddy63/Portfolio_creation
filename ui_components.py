@@ -150,6 +150,164 @@ Just ask me anything about your customers, portfolios, or market opportunities!"
             "content": user_input
         })
         
+        # AI response
+        ai_response = f"""I understand you're asking about: **"{user_input}"**
+
+Currently, I'm in demonstration mode. Here's what I can help you with:
+
+🔍 **Customer Analytics**: "How many customers are in Portfolio ABC?" or "Show me customers in Dallas area"
+📊 **Portfolio Insights**: "What's the average revenue in my portfolios?" or "Which areas have the most customers?"
+💰 **Revenue Analysis**: "What are the top revenue-generating customer segments?"
+🎯 **Opportunities**: "Where should I focus my next banking expansion?"
+📍 **Geographic Data**: "Show me customer density by region"
+📋 **Product Details**: "What products do customers in Portfolio XYZ use most?"
+
+*Full AI capabilities coming soon! This will connect to your customer database for real-time insights.*"""
+        
+        st.session_state.chat_messages.append({
+            "role": "assistant",
+            "content": ai_response
+        })
+        
+        # Clear the input and rerun
+        st.session_state.chat_input = ""
+        st.rerun()
+
+def show_basic_home_content(customer_data, banker_data, branch_data):
+    """Show basic home content if home_tab module is not available"""
+    st.markdown("### 🏠 Welcome to Banker Placement Tool")
+    st.markdown("*Optimize customer-banker assignments with advanced analytics*")
+    
+    # Basic statistics
+    col1, col2, col3, col4 = st.columns(4)
+    
+    with col1:
+        st.metric("Total Customers", f"{len(customer_data):,}")
+    
+    with col2:
+        st.metric("Active Bankers", f"{len(banker_data):,}")
+    
+    with col3:
+        st.metric("Banking Units", f"{len(branch_data):,}")
+    
+    with col4:
+        avg_revenue = customer_data['BANK_REVENUE'].mean()
+        if avg_revenue >= 1000000:
+            st.metric("Avg Customer Revenue", f"${avg_revenue/1000000:.1f}M")
+        else:
+            st.metric("Avg Customer Revenue", f"${avg_revenue/1000:.1f}K")
+    
+    st.markdown("---")
+    st.info("📊 Use the **Portfolio Assignment** tab to create custom portfolios, or try **Portfolio Mapping** for AI-optimized assignments.")
+
+def show_my_requests_page():
+    """Show My Requests page content"""
+    st.markdown("### 📋 My Requests")
+    st.info("My Requests functionality - content coming soon.")
+
+def show_ask_ai_page():
+    """Show Ask AI chat interface"""
+    # Initialize session state for chat
+    if 'chat_messages' not in st.session_state:
+        st.session_state.chat_messages = []
+        # Add initial AI message
+        ai_intro = """👋 Hello! I'm your AI Assistant for the Banker Placement Tool.
+
+I can help you analyze customer information and portfolios:
+
+🔍 **Customer Analytics**: Get counts of customers in portfolios or specific areas
+📊 **Portfolio Insights**: Analyze customer distributions and demographics  
+💰 **Revenue Analysis**: Break down customer revenue and deposit patterns
+🎯 **Opportunities**: Identify growth opportunities and market gaps
+📍 **Geographic Data**: Understand customer locations and coverage areas
+📋 **Product Details**: Get information about customer products and services
+
+Just ask me anything about your customers, portfolios, or market opportunities!"""
+        
+        st.session_state.chat_messages.append({
+            "role": "assistant", 
+            "content": ai_intro
+        })
+    
+    st.markdown("### 🤖 Ask AI Assistant")
+    st.markdown("*Get insights about your customers, portfolios, and market opportunities*")
+    st.markdown("---")
+    
+    # Custom CSS for chat styling
+    st.markdown("""
+    <style>
+        .chat-container {
+            max-height: 500px;
+            overflow-y: auto;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .user-message {
+            background-color: #007bff;
+            color: white;
+            padding: 12px 16px;
+            border-radius: 18px;
+            margin: 10px 0;
+            margin-left: 20%;
+            text-align: right;
+        }
+        .ai-message {
+            background-color: white;
+            color: #333;
+            padding: 12px 16px;
+            border-radius: 18px;
+            margin: 10px 0;
+            margin-right: 20%;
+            border: 1px solid #dee2e6;
+        }
+        .message-header {
+            font-size: 12px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Chat container with custom styling
+    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
+    
+    # Display chat messages
+    for message in st.session_state.chat_messages:
+        if message["role"] == "assistant":
+            st.markdown(f"""
+            <div class="ai-message">
+                <div class="message-header">🤖 AI Assistant</div>
+                {message["content"]}
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.markdown(f"""
+            <div class="user-message">
+                <div class="message-header">👤 You</div>
+                {message["content"]}
+            </div>
+            """, unsafe_allow_html=True)
+    
+    st.markdown('</div>', unsafe_allow_html=True)
+    
+    # Chat input using text_input and button
+    col1, col2 = st.columns([4, 1])
+    
+    with col1:
+        user_input = st.text_input("Ask me about customers, portfolios, or opportunities...", key="chat_input", placeholder="Type your question here...")
+    
+    with col2:
+        send_button = st.button("Send", type="primary")
+    
+    if send_button and user_input:
+        # Add user message to chat
+        st.session_state.chat_messages.append({
+            "role": "user",
+            "content": user_input
+        })
+        
         # For now, respond with the same introduction
         ai_response = f"""I understand you're asking about: **"{user_input}"**
 
