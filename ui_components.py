@@ -1,135 +1,6 @@
 import streamlit as st
 import pandas as pd
 
-def setup_page_config():
-    """Configure the Streamlit page"""
-    st.set_page_config("Portfolio Creation tool", layout="wide")
-    
-    # Create .streamlit/config.toml programmatically
-    import os
-    try:
-        os.makedirs('.streamlit', exist_ok=True)
-        
-        config_content = '''[theme]
-primaryColor="#D71E28"
-backgroundColor="#FFFFFF"
-secondaryBackgroundColor="#F0F2F6"
-textColor="#262730"
-font="sans serif"
-'''
-        
-        with open('.streamlit/config.toml', 'w') as f:
-            f.write(config_content)
-    except:
-        pass  # Fallback if file creation doesn't work
-    
-    # Hide Streamlit's default header only
-    st.markdown("""
-    <style>
-        header[data-testid="stHeader"] {
-            display: none !important;
-        }
-        
-        /* Adjust main content area to account for hidden header */
-        .main .block-container {
-            padding-top: 1rem;
-        }
-        
-        /* Style for clear filters buttons to look like header text */
-        div[data-testid="column"] button[kind="secondary"] {
-            background: none !important;
-            border: none !important;
-            padding: 0 !important;
-            color: #1f77b4 !important;
-            text-decoration: underline !important;
-            font-size: 1.25rem !important;
-            font-weight: 600 !important;
-            cursor: pointer !important;
-            box-shadow: none !important;
-            height: auto !important;
-            margin-top: 0.5rem !important;
-        }
-        div[data-testid="column"] button[kind="secondary"]:hover {
-            color: #0d47a1 !important;
-            background: none !important;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-
-def add_logo():
-    """Add custom header with logo and text"""
-    # Create a custom header section instead of modifying Streamlit's header
-    import base64
-    
-    logo_html = ""
-    try:
-        with open("logo.svg", "rb") as f:
-            svg_data = f.read()
-            svg_base64 = base64.b64encode(svg_data).decode()
-            logo_html = f'<img src="data:image/svg+xml;base64,{svg_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
-    except:
-        try:
-            with open("logo.png", "rb") as f:
-                png_data = f.read()
-                png_base64 = base64.b64encode(png_data).decode()
-                logo_html = f'<img src="data:image/png;base64,{png_base64}" style="height: 40px; width: 250px; margin-right: 15px; object-fit: contain;">'
-        except:
-            pass
-    
-    # Create custom header with logo and text that spans full width
-    st.markdown(f"""
-    <div style="
-        background-color: rgb(215, 30, 40);
-        color: white;
-        padding: 8px 20px;
-        margin: -1rem -1rem 2rem -1rem;
-        width: 100vw;
-        margin-left: calc(-50vw + 50%);
-        margin-right: calc(-50vw + 50%);
-        display: flex;
-        align-items: center;
-        border-bottom: 3px solid rgb(255, 205, 65);
-        box-sizing: border-box;
-    ">
-        {logo_html}
-        <span style="
-            font-size: 1.2rem;
-            font-weight: bold;
-            border-left: 2px solid white;
-            padding-left: 15px;
-            margin-left: 10px;
-        ">Banker Placement Tool</span>
-    </div>
-    """, unsafe_allow_html=True)
-
-def create_header():
-    """Create the page header with tab navigation and content"""
-    # Navigation tabs with all 5 pages
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
-    
-    with tab1:
-        # Home content - Updated with new dashboard
-        show_home_page()
-        
-    with tab2:
-        # My Requests content
-        show_my_requests_page()
-        
-    with tab3:
-        # Portfolio Assignment content - all functionality inside tab
-        show_portfolio_assignment_page()
-        
-    with tab4:
-        # Portfolio Mapping content - all functionality inside tab
-        show_portfolio_mapping_page()
-        
-    with tab5:
-        # Ask AI chat interface
-        show_ask_ai_page()
-    
-    # Return None since all content is handled within tabs
-    return None
-
 def show_home_page():
     """Show Home page content with portfolio dashboard"""
     from data_loader import get_merged_data
@@ -309,9 +180,6 @@ def show_portfolio_assignment_page():
     
     customer_data, banker_data, branch_data, data = get_merged_data()
     
-    # Initialize session state variables
-    initialize_session_state()
-    
     # Store data in session state for save functions
     st.session_state.branch_data = branch_data
     st.session_state.customer_data = customer_data
@@ -326,30 +194,14 @@ def show_portfolio_mapping_page():
     
     customer_data, banker_data, branch_data, data = get_merged_data()
     
-    # Initialize session state variables
-    initialize_session_state()
     st.session_state.customer_data = customer_data
     
     # Call the main portfolio mapping logic
     portfolio_mapping_page(customer_data, banker_data, branch_data)
 
 def initialize_session_state():
-    """Initialize all session state variables - avoid conflicting with widget keys"""
-    session_vars = {
-        # Portfolio Assignment variables
-        'all_portfolios': {},
-        'portfolio_controls': {},
-        'recommend_reassignment': {},
-        'should_create_portfolios': False,
-        
-        # Portfolio Mapping variables
-        'should_generate_smart_portfolios': False,
-        'smart_portfolio_controls': {}
-    }
-    
-    for var, default_value in session_vars.items():
-        if var not in st.session_state:
-            st.session_state[var] = default_value
+    """Initialize all session state variables - REMOVED, now in main.py"""
+    pass
 
 def create_au_filters(branch_data):
     """Create AU selection filters"""
