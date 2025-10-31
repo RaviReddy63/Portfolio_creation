@@ -325,14 +325,15 @@ def create_customer_filters(customer_data):
         col4, col5, col6, col7 = st.columns(4)
         
         with col4:
-            # CS_NEW_NS Filter
+            # CS_NEW_NS Filter (multiselect)
             if 'CS_NEW_NS' in customer_data.columns:
-                cs_new_ns = st.selectbox(
+                cs_new_ns_options = [0, 1, 2, 3, 4]
+                cs_new_ns = st.multiselect(
                     "CS NEW NS", 
-                    options=["All", 0, 1, 2, 3, 4],
+                    options=cs_new_ns_options,
                     key="cs_new_ns"
                 )
-                if cs_new_ns == "All":
+                if not cs_new_ns:
                     cs_new_ns = None
             else:
                 cs_new_ns = None
@@ -495,14 +496,15 @@ def create_customer_filters_for_mapping(customer_data):
         col4, col5, col6 = st.columns(3)
         
         with col4:
-            # CS_NEW_NS Filter
+            # CS_NEW_NS Filter (multiselect)
             if 'CS_NEW_NS' in customer_data.columns:
-                cs_new_ns = st.selectbox(
+                cs_new_ns_options = [0, 1, 2, 3, 4]
+                cs_new_ns = st.multiselect(
                     "CS NEW NS", 
-                    options=["All", 0, 1, 2, 3, 4],
+                    options=cs_new_ns_options,
                     key="mapping_cs_new_ns"
                 )
-                if cs_new_ns == "All":
+                if not cs_new_ns:
                     cs_new_ns = None
             else:
                 cs_new_ns = None
