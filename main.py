@@ -325,7 +325,7 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     # Apply CS_NEW_NS filter
     if cs_new_ns is not None:
         if 'CS_NEW_NS' in filtered_data.columns:
-            filtered_data = filtered_data[filtered_data['CS_NEW_NS'] == cs_new_ns]
+            filtered_data = filtered_data[filtered_data['CS_NEW_NS'].isin(cs_new_ns)]
     
     # Apply other filters
     filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
