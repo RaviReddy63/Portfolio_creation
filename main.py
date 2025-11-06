@@ -93,11 +93,11 @@ def create_header():
     """Create the page header with tab navigation and content"""
     from ui_components import (
         show_home_page, show_my_requests_page, show_portfolio_assignment_page,
-        show_portfolio_mapping_page, show_ask_ai_page
+        show_portfolio_mapping_page, show_ask_ai_page, show_q1_2026_move_page
     )
     
-    # Navigation tabs with all 5 pages
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
+    # Navigation tabs with all 6 pages
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI", "Q1_2026_Move"])
     
     with tab1:
         # Home content
@@ -118,6 +118,10 @@ def create_header():
     with tab5:
         # Ask AI chat interface
         show_ask_ai_page()
+    
+    with tab6:
+        # Q1 2026 Move content
+        show_q1_2026_move_page()
     
     return None
 
@@ -290,7 +294,7 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
         # Show helpful message when no smart portfolios exist yet
         st.info("Set your customer filters above, then click 'Generate Smart Portfolios' to create AI-optimized assignments.")
 
-  def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit):
+def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit):
     """Apply customer filters for Portfolio Mapping"""
     filtered_data = customer_data.copy()
     
@@ -1230,6 +1234,320 @@ def save_all_portfolios(portfolios_created, customer_data):
         
     except Exception as e:
         st.error(f"Error saving all portfolios: {str(e)}")
+
+# ============================================================================
+# Q1 2026 MOVE TAB FUNCTIONS
+# ============================================================================
+
+def q1_2026_move_page(hh_customer_data, branch_data):
+    """Q1 2026 Move page logic - Similar to Portfolio Mapping but with HH_DF.csv data"""
+    from ui_components import create_customer_filters_for_q1_2026
+    
+    st.subheader("Q1 2026 Move - Smart Portfolio Mapping")
+    
+    # Create customer filters - NO ROLE OR PORTFOLIO CODE filters
+    cust_state, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius = create_customer_filters_for_q1_2026(hh_customer_data)
+    
+    # Create Smart Portfolio Generation button
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.write("")  # Empty space
+    with col2:
+        generate_button = st.button("Generate Smart Portfolios", key="generate_q1_2026_portfolios", type="primary")
+    
+    # ONLY process when button is clicked
+    if generate_button:
+        # Show loading message and process
+        generate_q1_2026_portfolios(hh_customer_data, branch_data, cust_state, cs_new_ns, min_rev, min_deposit, 
+                                    min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius)
+    
+    # Display results ONLY if they exist in session state
+    if 'q1_2026_portfolio_results' in st.session_state and len(st.session_state.q1_2026_portfolio_results) > 0:
+        display_q1_2026_results(hh_customer_data, branch_data)
+    else:
+        # Show helpful message when no smart portfolios exist yet
+        st.info("Set your customer filters above, then click 'Generate Smart Portfolios' to create AI-optimized assignments for Q1 2026 move.")
+
+def apply_customer_filters_for_q1_2026(hh_customer_data, cust_state, cs_new_ns, min_rev, min_deposit):
+    """Apply customer filters for Q1 2026 Move - NO ROLE OR PORTFOLIO CODE"""
+    filtered_data = hh_customer_data.copy()
+    
+    # Ensure CG_ECN is preserved (already mapped from HH_ECN)
+    if 'CG_ECN' not in filtered_data.columns:
+        st.error("CG_ECN column missing from customer data!")
+        return pd.DataFrame()
+    
+    # Apply Customer State filter
+    if cust_state is not None:
+        filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
+    
+    # Apply CS_NEW_NS filter (mapped from NEW_SEGMENT)
+    if cs_new_ns is not None:
+        if 'CS_NEW_NS' in filtered_data.columns:
+            filtered_data = filtered_data[filtered_data['CS_NEW_NS'].isin(cs_new_ns)]
+    
+    # Apply other filters
+    filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
+    filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
+    
+    return filtered_data
+
+def generate_q1_2026_portfolios(hh_customer_data, branch_data, cust_state, cs_new_ns, min_rev, min_deposit,
+                                min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius):
+    """Generate Q1 2026 portfolios using advanced clustering - Similar to generate_smart_portfolios"""
+    
+    # Clear global data when generating new portfolios
+    if 'q1_2026_portfolio_df' in st.session_state:
+        del st.session_state.q1_2026_portfolio_df
+    
+    # Apply customer filters
+    filtered_customers = apply_customer_filters_for_q1_2026(
+        hh_customer_data, cust_state, cs_new_ns, min_rev, min_deposit
+    )
+    
+    if len(filtered_customers) == 0:
+        st.error("No customers found with the selected filters. Please adjust your criteria.")
+        return
+    
+    # Clean filtered customers to remove duplicates
+    filtered_customers = clean_portfolio_data(filtered_customers)
+    
+    st.info(f"Processing {len(filtered_customers):,} customers for Q1 2026 portfolio generation...")
+    
+    # Create progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # Update progress
+        progress_bar.progress(10)
+        status_text.text("Initializing clustering algorithm...")
+        
+        # CALCULATE DERIVED VALUES BASED ON USER INPUT
+        min_size = min_portfolio_size
+        max_size_proximity = max_portfolio_size
+        max_size_inmarket = max_portfolio_size - 10
+        max_size_centralized = max_portfolio_size - 10
+        
+        # RADIUS VALUES from sliders
+        radius_inmarket_first = inmarket_radius
+        radius_inmarket_second = inmarket_radius * 2
+        radius_centralized = centralized_radius
+        
+        # Run the enhanced clustering algorithm
+        progress_bar.progress(30)
+        status_text.text("Running advanced clustering analysis...")
+        
+        q1_2026_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+            filtered_customers, 
+            branch_data,
+            min_size=min_size,
+            max_inmarket_size=max_size_inmarket,
+            max_centralized_size=max_size_centralized,
+            max_proximity_size=max_size_proximity,
+            inmarket_radius_first=radius_inmarket_first,
+            inmarket_radius_second=radius_inmarket_second,
+            centralized_radius=radius_centralized
+        )
+        
+        progress_bar.progress(80)
+        status_text.text("Processing and cleaning results...")
+        
+        # Clean the output
+        q1_2026_results = clean_portfolio_data(q1_2026_results)
+        
+        # Validate results are clean
+        is_clean, duplicate_ids = validate_no_duplicates(q1_2026_results, 'ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers in final results")
+            q1_2026_results = q1_2026_results.drop_duplicates(subset=['ECN'], keep='first')
+        
+        # Store results in session state
+        st.session_state.q1_2026_portfolio_results = q1_2026_results
+        st.session_state.q1_2026_filtered_customers_count = len(filtered_customers)
+        
+        progress_bar.progress(100)
+        status_text.text("Q1 2026 portfolios generated successfully!")
+        
+        # Clear progress indicators after a brief delay
+        import time
+        time.sleep(1)
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.success(f"Successfully generated Q1 2026 portfolios for {len(q1_2026_results):,} customers!")
+        
+    except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"Error generating Q1 2026 portfolios: {str(e)}")
+
+def display_q1_2026_results(hh_customer_data, branch_data):
+    """Display Q1 2026 portfolio results - SIMPLIFIED VERSION (No Global Control, No Tables)"""
+    
+    # Store customer_data in session state for save functions
+    st.session_state.hh_customer_data = hh_customer_data
+    
+    if 'q1_2026_portfolio_results' not in st.session_state or len(st.session_state.q1_2026_portfolio_results) == 0:
+        st.info("Click 'Generate Smart Portfolios' to create optimized customer assignments for Q1 2026.")
+        return
+    
+    # Always use the current results from session state and clean them
+    results_df = st.session_state.q1_2026_portfolio_results
+    results_df = clean_portfolio_data(results_df)
+    
+    # Validate and show cleaning stats
+    is_clean, duplicate_ids = validate_no_duplicates(results_df, 'ECN')
+    if not is_clean:
+        st.warning(f"Cleaned {len(duplicate_ids)} duplicate customers from display")
+        results_df = results_df.drop_duplicates(subset=['ECN'], keep='first')
+        st.session_state.q1_2026_portfolio_results = results_df
+    
+    # Convert results to portfolio format
+    q1_2026_portfolios_created = {}
+    
+    # Group by AU
+    for au in results_df['ASSIGNED_AU'].unique():
+        au_data = results_df[results_df['ASSIGNED_AU'] == au].copy()
+        
+        # Clean AU data
+        au_data = clean_portfolio_data(au_data)
+        
+        # Add required columns
+        au_data['AU'] = au
+        
+        # Get AU coordinates from branch_data
+        au_branch = branch_data[branch_data['AU'] == au]
+        if not au_branch.empty:
+            au_data['BRANCH_LAT_NUM'] = au_branch.iloc[0]['BRANCH_LAT_NUM']
+            au_data['BRANCH_LON_NUM'] = au_branch.iloc[0]['BRANCH_LON_NUM']
+        
+        # Rename columns to match expected format
+        au_data = au_data.rename(columns={
+            'ECN': 'CG_ECN',
+            'DISTANCE_TO_AU': 'Distance'
+        })
+        
+        # Merge with original HH data to get financial information
+        hh_data_subset = hh_customer_data[['CG_ECN', 'BANK_REVENUE', 'DEPOSIT_BAL']].copy()
+        hh_data_subset = clean_portfolio_data(hh_data_subset)
+        
+        au_data = au_data.merge(hh_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
+        
+        # Clean after merge
+        au_data = clean_portfolio_data(au_data)
+        
+        # Use original financial data
+        au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
+        au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
+        
+        q1_2026_portfolios_created[au] = au_data
+    
+    st.markdown("----")
+    
+    # Display ONLY AU Summary Statistics - NO TABLES, NO GLOBAL CONTROL
+    col1, col2 = st.columns([1, 1])
+    
+    with col1:
+        st.subheader("Smart Portfolio Summary")
+        display_q1_2026_portfolio_summary(q1_2026_portfolios_created, branch_data)
+    
+    with col2:
+        st.subheader("Save Portfolios")
+        # Add save button
+        if st.button("Save All Q1 2026 Portfolios", key="save_all_q1_2026", type="primary"):
+            save_all_q1_2026_portfolios(q1_2026_portfolios_created, hh_customer_data, branch_data)
+    
+    # Geographic Distribution below with full width
+    st.markdown("----")
+    st.subheader("Geographic Distribution")
+    display_q1_2026_geographic_map(q1_2026_portfolios_created, branch_data)
+
+def display_q1_2026_portfolio_summary(q1_2026_portfolios_created, branch_data):
+    """Display Q1 2026 portfolio summary - ONLY AU SUMMARY STATISTICS (No tables)"""
+    # Always use tabs regardless of number of AUs
+    au_tabs = st.tabs([f"AU {au_id}" for au_id in q1_2026_portfolios_created.keys()])
+    
+    for tab_idx, (au_id, tab) in enumerate(zip(q1_2026_portfolios_created.keys(), au_tabs)):
+        with tab:
+            display_single_q1_2026_au_summary(au_id, q1_2026_portfolios_created)
+
+def display_single_q1_2026_au_summary(au_id, q1_2026_portfolios_created):
+    """Display summary statistics for a single Q1 2026 AU - ONLY STATISTICS"""
+    if au_id in q1_2026_portfolios_created:
+        au_data = q1_2026_portfolios_created[au_id]
+        
+        # Display summary statistics ONLY (same as Portfolio Assignment)
+        from ui_components import display_summary_statistics
+        display_summary_statistics(au_data)
+
+def display_q1_2026_geographic_map(q1_2026_portfolios_created, branch_data):
+    """Display the geographic distribution map for Q1 2026 portfolios"""
+    # Convert to format expected by create_combined_map
+    preview_portfolios = {}
+    
+    for au_id, au_data in q1_2026_portfolios_created.items():
+        if not au_data.empty:
+            preview_portfolios[f"AU_{au_id}_Q1_2026"] = au_data
+    
+    # Display the map
+    if preview_portfolios:
+        combined_map = create_combined_map(preview_portfolios, branch_data)
+        if combined_map:
+            st.plotly_chart(combined_map, use_container_width=True)
+    else:
+        st.info("No customers selected for map display")
+
+def save_all_q1_2026_portfolios(q1_2026_portfolios_created, hh_customer_data, branch_data):
+    """Save all Q1 2026 portfolios to a single CSV"""
+    if not q1_2026_portfolios_created or hh_customer_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        all_portfolio_data = []
+        
+        # Process each AU portfolio
+        for au_id, au_data in q1_2026_portfolios_created.items():
+            if not au_data.empty:
+                export_data = prepare_portfolio_for_export_deduplicated(au_data, hh_customer_data, branch_data)
+                if not export_data.empty:
+                    all_portfolio_data.append(export_data)
+        
+        if not all_portfolio_data:
+            st.error("No data to export")
+            return
+        
+        # Combine all portfolios
+        combined_data = pd.concat(all_portfolio_data, ignore_index=True)
+        
+        # Final cleaning and validation
+        combined_data = clean_portfolio_data(combined_data)
+        is_clean, duplicate_ids = validate_no_duplicates(combined_data, 'CG_ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from Q1 2026 export")
+            combined_data = combined_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+        
+        # Convert to CSV
+        csv_data = combined_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label="Download Q1 2026 Portfolios CSV",
+            data=csv_data,
+            file_name="q1_2026_portfolios.csv",
+            mime="text/csv",
+            key="download_q1_2026_portfolios"
+        )
+        
+        st.success(f"Q1 2026 portfolios prepared for download ({len(combined_data):,} customers across {len(q1_2026_portfolios_created):,} AUs)")
+        
+    except Exception as e:
+        st.error(f"Error saving Q1 2026 portfolios: {str(e)}")
+
+# ============================================================================
+# END Q1 2026 MOVE TAB FUNCTIONS
+# ============================================================================
 
 def main():
     """Main application function"""
