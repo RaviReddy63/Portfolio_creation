@@ -1,56 +1,58 @@
-import streamlit as st
 import pandas as pd
-from utils import merge_dfs, clean_portfolio_data
+import streamlit as st
+from utils import clean_portfolio_data
 
+@st.cache_data
 def load_data():
-    """Load customer, banker, and branch data from files"""
-    # This function should contain your existing data loading logic
-    # Replace with your actual data loading implementation
-    
-    # Example implementation - replace with your actual file paths and loading logic
+    """Load customer, banker, and branch data from CSV files"""
     try:
         customer_data = pd.read_csv('customer_data.csv')
-        banker_data = pd.read_csv('banker_data.csv') 
+        banker_data = pd.read_csv('banker_data.csv')
         branch_data = pd.read_csv('branch_data.csv')
-        
         return customer_data, banker_data, branch_data
     except FileNotFoundError as e:
-        st.error(f"Data file not found: {e}")
-        return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
+        st.error(f"Error loading data files: {e}")
+        st.stop()
+    except Exception as e:
+        st.error(f"Error reading CSV files: {e}")
+        st.stop()
 
 def clean_initial_data(customer_data):
-    """Clean initial data by removing Unassigned/Unmanaged rows for customers who also have In-Market/Centralized assignments"""
+    """Clean initial customer data by removing conflicting portfolio assignments"""
+    # Remove customers assigned to multiple portfolios
+    duplicate_mask = customer_data.duplicated(subset=['CG_ECN'], keep=False)
+    duplicates = customer_data[duplicate_mask]
     
-    if customer_data.empty:
-        return customer_data
+    if len(duplicates) > 0:
+        unique_customers = duplicates['CG_ECN'].nunique()
+        total_removed = len(duplicates)
+        
+        # Keep only first occurrence of each customer
+        customer_data = customer_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+        
+        st.info(f"ℹ️ Data Cleanup: Removed {total_removed} conflicting portfolio assignments for {unique_customers} customers. Kept first assignment for each.")
     
-    original_count = len(customer_data)
-    
-    # Step 1: Priority Conflict Resolution
-    # Find customers (ECNs) who have In-Market/Centralized assignments
-    priority_customers = customer_data[
-        customer_data['TYPE'].str.lower().str.strip().isin(['in-market', 'inmarket', 'centralized'])
-    ]['CG_ECN'].unique()
-    
-    # Remove Unassigned/Unmanaged rows for these priority customers
-    mask_to_remove = (
-        customer_data['CG_ECN'].isin(priority_customers) & 
-        customer_data['TYPE'].str.lower().str.strip().isin(['unassigned', 'unmanaged'])
+    return customer_data
+
+def merge_dfs(customer_data, banker_data, branch_data):
+    """Merge customer, banker, and branch dataframes"""
+    # Merge customer and banker data
+    data = customer_data.merge(
+        banker_data[['PORT_CODE', 'EM', 'BANKER_NAME', 'AU']], 
+        left_on='CG_PORTFOLIO_CD', 
+        right_on='PORT_CODE', 
+        how='left'
     )
     
-    cleaned_data = customer_data[~mask_to_remove].copy()
-    priority_removed = original_count - len(cleaned_data)
+    # Merge with branch data
+    data = data.merge(
+        branch_data[['AU', 'LAT', 'LON', 'BRANCH_NAME']], 
+        on='AU', 
+        how='left',
+        suffixes=('', '_BRANCH')
+    )
     
-    # Step 2: Comprehensive deduplication using new function
-    final_data = clean_portfolio_data(cleaned_data)
-    duplicate_removed = len(cleaned_data) - len(final_data)
-    
-    # Log cleanup results
-    total_removed = original_count - len(final_data)
-    if total_removed > 0:
-        print(f"Data cleanup: Removed {priority_removed} priority conflicts and {duplicate_removed} duplicate ECNs. Total removed: {total_removed}")
-    
-    return final_data
+    return data
 
 @st.cache_data
 def get_merged_data():
@@ -68,8 +70,8 @@ def load_hh_data():
     """Load HH_DF.csv and map columns to match standard format - CACHED VERSION
     
     Column Mapping:
-    - HH_ECN → CG_ECN (to match clustering algorithm)
-    - NEW_SEGMENT → CS_NEW_NS (to match clustering algorithm)
+    - HH_ECN → CG_ECN
+    - NEW_SEGMENT → CS_NEW_NS
     - Keep all other columns as-is
     """
     try:
@@ -115,6 +117,7 @@ def load_hh_data():
     except Exception as e:
         st.error(f"Error loading HH_DF.csv: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
+
 def validate_hh_data(hh_df):
     """Validate HH_DF data quality"""
     issues = []
