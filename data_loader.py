@@ -68,15 +68,25 @@ def load_hh_data():
     """Load HH_DF.csv and map columns to match standard format - CACHED VERSION
     
     Column Mapping:
-    - HH_ECN → CG_ECN
-    - NEW_SEGMENT → CS_NEW_NS
+    - HH_ECN → CG_ECN (to match clustering algorithm)
+    - NEW_SEGMENT → CS_NEW_NS (to match clustering algorithm)
     - Keep all other columns as-is
     """
     try:
         # Load HH_DF.csv
         hh_df = pd.read_csv('HH_DF.csv')
         
-        # Column mapping
+        # Verify ORIGINAL columns exist in HH_DF.csv
+        required_original_columns = ['HH_ECN', 'NEW_SEGMENT', 'BILLINGSTREET', 'BILLINGCITY', 
+                                    'BILLINGSTATE', 'BILLINGPOSTALCODE', 'DEPOSIT_BAL', 
+                                    'CG_GROSS_SALES', 'BANK_REVENUE', 'LON_NUM', 'LAT_NUM']
+        
+        missing_columns = [col for col in required_original_columns if col not in hh_df.columns]
+        if missing_columns:
+            st.error(f"Missing required columns in HH_DF.csv: {missing_columns}")
+            return pd.DataFrame(), pd.DataFrame()
+        
+        # Column mapping to match customer_data.csv format
         column_mapping = {
             'HH_ECN': 'CG_ECN',
             'NEW_SEGMENT': 'CS_NEW_NS'
@@ -85,18 +95,12 @@ def load_hh_data():
         # Rename columns
         hh_df = hh_df.rename(columns=column_mapping)
         
-        # Verify required columns exist
-        required_columns = ['CG_ECN', 'CS_NEW_NS', 'BILLINGSTREET', 'BILLINGCITY', 'BILLINGSTATE', 
-                          'BILLINGPOSTALCODE', 'DEPOSIT_BAL', 'CG_GROSS_SALES', 'BANK_REVENUE', 
-                          'LON_NUM', 'LAT_NUM']
+        # Simple HH data cleanup - NO TYPE column needed
+        # Remove duplicates based on CG_ECN
+        hh_df = hh_df.drop_duplicates(subset=['CG_ECN'], keep='first')
         
-        missing_columns = [col for col in required_columns if col not in hh_df.columns]
-        if missing_columns:
-            st.error(f"Missing required columns in HH_DF.csv: {missing_columns}")
-            return pd.DataFrame(), pd.DataFrame()
-        
-        # Clean HH data
-        hh_df = clean_portfolio_data(hh_df)
+        # Remove rows with missing ECN or coordinates
+        hh_df = hh_df.dropna(subset=['CG_ECN', 'LAT_NUM', 'LON_NUM'])
         
         # Load branch data (needed for portfolio creation)
         _, _, branch_data = load_data()
@@ -111,7 +115,6 @@ def load_hh_data():
     except Exception as e:
         st.error(f"Error loading HH_DF.csv: {str(e)}")
         return pd.DataFrame(), pd.DataFrame()
-
 def validate_hh_data(hh_df):
     """Validate HH_DF data quality"""
     issues = []
