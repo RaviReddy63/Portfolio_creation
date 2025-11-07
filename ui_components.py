@@ -116,13 +116,12 @@ def show_q1_2026_move_page():
             q1_2026_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
                 filtered_data, 
                 branch_data,
-                min_size=min_size,
-                max_inmarket_size=max_size_inmarket,
-                max_centralized_size=max_size_centralized,
-                max_proximity_size=max_size_proximity,
-                inmarket_radius_first=radius_inmarket_first,
-                inmarket_radius_second=radius_inmarket_second,
-                centralized_radius=radius_centralized
+                min_portfolio_size=min_size,
+                max_portfolio_size_inmarket=max_size_inmarket,
+                max_portfolio_size_centralized=max_size_centralized,
+                max_portfolio_size_proximity=max_size_proximity,
+                inmarket_radius_miles=radius_inmarket_first,
+                centralized_radius_miles=radius_centralized
             )
             
             progress_bar.progress(80)
@@ -376,7 +375,7 @@ def create_customer_filters_for_mapping(customer_data):
             # Clear all filter-related session state
             filter_keys = [
                 'mapping_cust_state', 'mapping_role', 'mapping_cust_portcd', 'mapping_cs_new_ns',
-                'mapping_min_revenue', 'mapping_min_deposit', 'mapping_max_dist',
+                'mapping_min_revenue', 'mapping_min_deposit',
                 'min_portfolio_size', 'max_portfolio_size',
                 'inmarket_radius', 'centralized_radius'
             ]
@@ -409,16 +408,6 @@ def create_customer_filters_for_mapping(customer_data):
             options=role_options,
             default=None,
             key='mapping_role'
-        )
-        
-        # Max distance filter
-        max_dist = st.slider(
-            "Maximum Distance (miles)",
-            min_value=0,
-            max_value=500,
-            value=100,
-            step=10,
-            key='mapping_max_dist'
         )
         
         # Minimum revenue filter
@@ -510,7 +499,7 @@ def create_customer_filters_for_mapping(customer_data):
             key='centralized_radius'
         )
     
-    return cust_state, role, cust_portcd, cs_new_ns, max_dist, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius
+    return cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius
 
 def create_customer_filters_for_q1_2026(hh_customer_data):
     """Create customer filter UI for Q1 2026 Move - NO Role and NO Portfolio filters"""
