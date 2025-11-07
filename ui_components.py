@@ -3,8 +3,11 @@ import pandas as pd
 
 def show_home_page():
     """Display home page content"""
+    from data_loader import get_merged_data
     from home_tab import show_home_tab_content
-    show_home_tab_content()
+    
+    customer_data, banker_data, branch_data, _ = get_merged_data()
+    show_home_tab_content(customer_data, banker_data, branch_data)
 
 def show_my_requests_page():
     """Display My Requests page"""
