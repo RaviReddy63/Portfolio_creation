@@ -271,8 +271,8 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     
     st.subheader("Smart Portfolio Mapping")
     
-    # Create customer filters - NOW RETURNS 11 VALUES (added min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius)
-    cust_state, role, cust_portcd, cs_new_ns, max_dist, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius = create_customer_filters_for_mapping(customer_data)
+    # Create customer filters - NOW RETURNS 10 VALUES (removed max_dist)
+    cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius = create_customer_filters_for_mapping(customer_data)
     
     # Create Smart Portfolio Generation button
     col1, col2 = st.columns([5, 1])
