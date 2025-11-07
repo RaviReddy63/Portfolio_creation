@@ -1,714 +1,495 @@
 import streamlit as st
 import pandas as pd
+from data_loader import get_merged_data, load_hh_data
+from portfolio_creation_8 import enhanced_customer_au_assignment_with_two_inmarket_iterations
+from utils import clean_portfolio_data, validate_no_duplicates, prepare_portfolio_for_export_deduplicated
+from map_visualization import create_combined_map
 
 def show_home_page():
-    """Show Home page content with portfolio dashboard"""
-    from data_loader import get_merged_data
-    
-    customer_data, banker_data, branch_data, _ = get_merged_data()
-    
-    # Import and show home tab content
-    try:
-        from home_tab import show_home_tab_content
-        show_home_tab_content(customer_data, banker_data, branch_data)
-    except ImportError:
-        # Fallback if home_tab module doesn't exist
-        show_basic_home_content(customer_data, banker_data, branch_data)
-
-def show_basic_home_content(customer_data, banker_data, branch_data):
-    """Show basic home content if home_tab module is not available"""
-    st.markdown("### 🏠 Welcome to Banker Placement Tool")
-    st.markdown("*Optimize customer-banker assignments with advanced analytics*")
-    
-    # Basic statistics
-    col1, col2, col3, col4 = st.columns(4)
-    
-    with col1:
-        st.metric("Total Customers", f"{len(customer_data):,}")
-    
-    with col2:
-        st.metric("Active Bankers", f"{len(banker_data):,}")
-    
-    with col3:
-        st.metric("Banking Units", f"{len(branch_data):,}")
-    
-    with col4:
-        avg_revenue = customer_data['BANK_REVENUE'].mean()
-        if avg_revenue >= 1000000:
-            st.metric("Avg Customer Revenue", f"${avg_revenue/1000000:.1f}M")
-        else:
-            st.metric("Avg Customer Revenue", f"${avg_revenue/1000:.1f}K")
-    
-    st.markdown("---")
-    st.info("📊 Use the **Portfolio Assignment** tab to create custom portfolios, or try **Portfolio Mapping** for AI-optimized assignments.")
+    """Display home page content"""
+    from home_tab import show_home_tab_content
+    show_home_tab_content()
 
 def show_my_requests_page():
-    """Show My Requests page content"""
-    st.markdown("### 📋 My Requests")
-    st.info("My Requests functionality - content coming soon.")
-
-def show_ask_ai_page():
-    """Show Ask AI chat interface"""
-    # Initialize session state for chat
-    if 'chat_messages' not in st.session_state:
-        st.session_state.chat_messages = []
-        # Add initial AI message
-        ai_intro = """👋 Hello! I'm your AI Assistant for the Banker Placement Tool.
-
-I can help you analyze customer information and portfolios:
-
-🔍 **Customer Analytics**: Get counts of customers in portfolios or specific areas
-📊 **Portfolio Insights**: Analyze customer distributions and demographics  
-💰 **Revenue Analysis**: Break down customer revenue and deposit patterns
-🎯 **Opportunities**: Identify growth opportunities and market gaps
-📍 **Geographic Data**: Understand customer locations and coverage areas
-📋 **Product Details**: Get information about customer products and services
-
-Just ask me anything about your customers, portfolios, or market opportunities!"""
-        
-        st.session_state.chat_messages.append({
-            "role": "assistant", 
-            "content": ai_intro
-        })
-    
-    st.markdown("### 🤖 Ask AI Assistant")
-    st.markdown("*Get insights about your customers, portfolios, and market opportunities*")
-    st.markdown("---")
-    
-    # Custom CSS for chat styling
-    st.markdown("""
-    <style>
-        .chat-container {
-            max-height: 500px;
-            overflow-y: auto;
-            padding: 20px;
-            background-color: #f8f9fa;
-            border-radius: 10px;
-            margin-bottom: 20px;
-        }
-        .user-message {
-            background-color: #007bff;
-            color: white;
-            padding: 12px 16px;
-            border-radius: 18px;
-            margin: 10px 0;
-            margin-left: 20%;
-            text-align: right;
-        }
-        .ai-message {
-            background-color: white;
-            color: #333;
-            padding: 12px 16px;
-            border-radius: 18px;
-            margin: 10px 0;
-            margin-right: 20%;
-            border: 1px solid #dee2e6;
-        }
-        .message-header {
-            font-size: 12px;
-            font-weight: bold;
-            margin-bottom: 5px;
-        }
-    </style>
-    """, unsafe_allow_html=True)
-    
-    # Chat container with custom styling
-    st.markdown('<div class="chat-container">', unsafe_allow_html=True)
-    
-    # Display chat messages
-    for message in st.session_state.chat_messages:
-        if message["role"] == "assistant":
-            st.markdown(f"""
-            <div class="ai-message">
-                <div class="message-header">🤖 AI Assistant</div>
-                {message["content"]}
-            </div>
-            """, unsafe_allow_html=True)
-        else:
-            st.markdown(f"""
-            <div class="user-message">
-                <div class="message-header">👤 You</div>
-                {message["content"]}
-            </div>
-            """, unsafe_allow_html=True)
-    
-    st.markdown('</div>', unsafe_allow_html=True)
-    
-    # Chat input using text_input and button
-    col1, col2 = st.columns([4, 1])
-    
-    with col1:
-        user_input = st.text_input("Ask me about customers, portfolios, or opportunities...", key="chat_input", placeholder="Type your question here...")
-    
-    with col2:
-        send_button = st.button("Send", type="primary")
-    
-    if send_button and user_input:
-        # Add user message to chat
-        st.session_state.chat_messages.append({
-            "role": "user",
-            "content": user_input
-        })
-        
-        # AI response
-        ai_response = f"""I understand you're asking about: **"{user_input}"**
-
-Currently, I'm in demonstration mode. Here's what I can help you with:
-
-🔍 **Customer Analytics**: "How many customers are in Portfolio ABC?" or "Show me customers in Dallas area"
-📊 **Portfolio Insights**: "What's the average revenue in my portfolios?" or "Which areas have the most customers?"
-💰 **Revenue Analysis**: "What are the top revenue-generating customer segments?"
-🎯 **Opportunities**: "Where should I focus my next banking expansion?"
-📍 **Geographic Data**: "Show me customer density by region"
-📋 **Product Details**: "What products do customers in Portfolio XYZ use most?"
-
-*Full AI capabilities coming soon! This will connect to your customer database for real-time insights.*"""
-        
-        st.session_state.chat_messages.append({
-            "role": "assistant",
-            "content": ai_response
-        })
-        
-        # Clear the input and rerun
-        st.session_state.chat_input = ""
-        st.rerun()
+    """Display My Requests page"""
+    st.subheader("My Requests")
+    st.info("This section is under development. Portfolio assignment requests will appear here.")
 
 def show_portfolio_assignment_page():
-    """Show complete Portfolio Assignment functionality"""
-    from data_loader import get_merged_data
+    """Display Portfolio Assignment page"""
     from main import portfolio_assignment_page
-    
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    # Store data in session state for save functions
-    st.session_state.branch_data = branch_data
-    st.session_state.customer_data = customer_data
-    
-    # Call the main portfolio assignment logic
-    portfolio_assignment_page(customer_data, banker_data, branch_data)
+    portfolio_assignment_page()
 
 def show_portfolio_mapping_page():
-    """Show complete Portfolio Mapping functionality"""
-    from data_loader import get_merged_data
+    """Display Portfolio Mapping page"""
     from main import portfolio_mapping_page
-    
-    customer_data, banker_data, branch_data, data = get_merged_data()
-    
-    st.session_state.customer_data = customer_data
-    
-    # Call the main portfolio mapping logic
-    portfolio_mapping_page(customer_data, banker_data, branch_data)
+    portfolio_mapping_page()
 
-def initialize_session_state():
-    """Initialize all session state variables - REMOVED, now in main.py"""
-    pass
+def show_ask_ai_page():
+    """Display Ask AI page"""
+    st.subheader("Ask AI")
+    st.info("AI-powered insights coming soon!")
 
-def create_au_filters(branch_data):
-    """Create AU selection filters - NO CALCULATIONS, just UI"""
-    col_header1, col_clear1 = st.columns([9, 1])
-    with col_header1:
-        st.subheader("Select AUs for Portfolio Creation")
-    with col_clear1:
-        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
-        if st.button("Clear filters", key="clear_au_filters", help="Clear AU selection filters", type="secondary"):
-            # Clear AU filters by clearing the widget keys
-            for key in ["states", "cities", "selected_aus"]:
-                if key in st.session_state:
-                    del st.session_state[key]
-            # Clear created portfolios when filters change
-            for key in ['portfolios_created', 'portfolio_summaries', 'portfolio_controls']:
+def create_customer_filters(customer_data, branch_data):
+    """Create customer filter UI with portfolio size and radius sliders"""
+    
+    st.subheader("Customer Selection Filters")
+    
+    # Create two-column layout for header and clear button
+    col_header, col_clear = st.columns([9, 1])
+    
+    with col_header:
+        st.write("Filter customers by various criteria:")
+    
+    with col_clear:
+        if st.button("Clear", key="clear_filters_mapping"):
+            # Clear all filter-related session state
+            filter_keys = [
+                'cust_role', 'cust_portfolio', 'cust_state', 'cs_new_ns',
+                'min_revenue', 'min_deposit', 'min_portfolio_size', 'max_portfolio_size',
+                'inmarket_radius', 'centralized_radius'
+            ]
+            for key in filter_keys:
                 if key in st.session_state:
                     del st.session_state[key]
             st.rerun()
     
-    # Multi-select for AUs with expander
-    with st.expander("Select AUs", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        
-        # Pre-calculate options ONCE and store in session state
-        if 'filter_options' not in st.session_state:
-            st.session_state.filter_options = {
-                'all_states': sorted(branch_data['STATECODE'].dropna().unique().tolist()),
-                'all_cities': sorted(branch_data['CITY'].dropna().unique().tolist()),
-                'all_aus': branch_data[['AU', 'NAME', 'STATECODE', 'CITY']].dropna().to_dict('records')
-            }
-        
-        with col1:
-            # Use pre-calculated states - NO CALCULATION HERE
-            states = st.multiselect("State", st.session_state.filter_options['all_states'], key="states")
-        
-        with col2:
-            # Filter cities based on selected states - MINIMAL CALCULATION
-            if states:
-                available_cities = [au['CITY'] for au in st.session_state.filter_options['all_aus'] 
-                                  if au['STATECODE'] in states]
-                available_cities = sorted(list(set(available_cities)))
-            else:
-                available_cities = st.session_state.filter_options['all_cities']
-            
-            cities = st.multiselect("City", available_cities, key="cities")
-        
-        with col3:
-            # Filter AUs based on selected states and cities - MINIMAL CALCULATION
-            filtered_aus = st.session_state.filter_options['all_aus']
-            
-            if states:
-                filtered_aus = [au for au in filtered_aus if au['STATECODE'] in states]
-            if cities:
-                filtered_aus = [au for au in filtered_aus if au['CITY'] in cities]
-            
-            # Create AU options - LIGHTWEIGHT OPERATION
-            au_options = []
-            au_mapping = {}
-            
-            for au in filtered_aus:
-                au_number = au['AU']
-                au_name = au['NAME']
-                display_text = f"{au_name} - {au_number}"
-                au_options.append(display_text)
-                au_mapping[display_text] = au_number
-            
-            au_options = sorted(au_options)
-            
-            selected_au_displays = st.multiselect("AU", au_options, key="selected_aus")
-            
-            # Convert back to AU numbers - LIGHTWEIGHT OPERATION
-            selected_aus = [au_mapping[display] for display in selected_au_displays if display in au_mapping]
+    # Get unique values for dropdowns
+    role_options = ['All'] + sorted(list(customer_data['TYPE'].dropna().unique()))
+    portfolio_options = ['All'] + sorted(list(customer_data['CG_PORTFOLIO_CD'].dropna().unique()))
+    state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
+    cs_new_ns_options = sorted(list(customer_data['CS_NEW_NS'].dropna().unique()))
     
-    return selected_aus
+    # Create filter columns
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # Role filter
+        cust_role = st.selectbox(
+            "Customer Role",
+            options=role_options,
+            key='cust_role'
+        )
+        
+        # State filter
+        cust_state = st.multiselect(
+            "Customer State",
+            options=state_options,
+            default=None,
+            key='cust_state'
+        )
+        
+        # Minimum revenue filter
+        min_rev = st.slider(
+            "Minimum Revenue ($)",
+            min_value=0,
+            max_value=int(customer_data['BANK_REVENUE'].max()),
+            value=0,
+            step=1000,
+            key='min_revenue'
+        )
+    
+    with col2:
+        # Portfolio filter
+        cust_portfolio = st.selectbox(
+            "Portfolio Code",
+            options=portfolio_options,
+            key='cust_portfolio'
+        )
+        
+        # CS_NEW_NS filter
+        cs_new_ns = st.multiselect(
+            "CS NEW NS",
+            options=cs_new_ns_options,
+            default=None,
+            key='cs_new_ns'
+        )
+        
+        # Minimum deposit filter
+        min_deposit = st.slider(
+            "Minimum Deposit ($)",
+            min_value=0,
+            max_value=int(customer_data['DEPOSIT_BAL'].max()),
+            value=0,
+            step=1000,
+            key='min_deposit'
+        )
+    
+    # Portfolio size configuration section
+    st.subheader("Portfolio Size Configuration")
+    col3, col4 = st.columns(2)
+    
+    with col3:
+        min_portfolio_size = st.slider(
+            "Minimum Portfolio Size",
+            min_value=50,
+            max_value=300,
+            value=200,
+            step=10,
+            help="Minimum number of customers per portfolio",
+            key='min_portfolio_size'
+        )
+    
+    with col4:
+        max_portfolio_size = st.slider(
+            "Maximum Portfolio Size",
+            min_value=100,
+            max_value=500,
+            value=250,
+            step=10,
+            help="Maximum number of customers per portfolio",
+            key='max_portfolio_size'
+        )
+    
+    # Radius configuration section
+    st.subheader("Radius Configuration")
+    col5, col6 = st.columns(2)
+    
+    with col5:
+        inmarket_radius = st.slider(
+            "In-Market Radius (miles)",
+            min_value=5,
+            max_value=100,
+            value=20,
+            step=5,
+            help="Radius for in-market portfolio assignments (first pass uses this, second pass uses 2x this value)",
+            key='inmarket_radius'
+        )
+    
+    with col6:
+        centralized_radius = st.slider(
+            "Centralized Radius (miles)",
+            min_value=50,
+            max_value=1000,
+            value=100,
+            step=10,
+            help="Radius for centralized portfolio assignments",
+            key='centralized_radius'
+        )
+    
+    return cust_role, cust_portfolio, cust_state, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius
 
-def create_customer_filters(customer_data):
-    """Create customer selection criteria filters"""
+def create_customer_filters_for_q1_2026(hh_customer_data, branch_data):
+    """Create customer filter UI for Q1 2026 Move - REMOVED Role and Portfolio filters"""
+    
+    st.subheader("Customer Selection Filters")
+    
+    # Create two-column layout for header and clear button - FIXED: Added comma
     col_header2, col_clear2 = st.columns([9, 1])
+    
     with col_header2:
-        st.subheader("Customer Selection Criteria")
+        st.write("Filter customers by various criteria:")
+    
     with col_clear2:
-        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
-        if st.button("Clear filters", key="clear_customer_filters", help="Clear customer selection filters", type="secondary"):
-            # Clear customer filters by clearing widget keys
-            filter_keys = ["cust_state", "role", "cust_portcd", "cs_new_ns", "max_distance", "min_revenue", "min_deposit"]
+        if st.button("Clear", key="clear_filters_q1_2026"):
+            # Clear all filter-related session state
+            filter_keys = [
+                'q1_2026_cust_state', 'q1_2026_cs_new_ns',
+                'q1_2026_min_revenue', 'q1_2026_min_deposit', 
+                'q1_2026_min_portfolio_size', 'q1_2026_max_portfolio_size',
+                'q1_2026_inmarket_radius', 'q1_2026_centralized_radius'
+            ]
             for key in filter_keys:
                 if key in st.session_state:
                     del st.session_state[key]
-            # Clear created portfolios
-            if 'portfolios_created' in st.session_state:
-                del st.session_state.portfolios_created
-            if 'portfolio_summaries' in st.session_state:
-                del st.session_state.portfolio_summaries
-            st.session_state.portfolio_controls = {}
+            st.rerun()
     
-    with st.expander("Customer Filters", expanded=True):
-        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
-        
-        with col1:
-            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="cust_state")
-            if not cust_state:
-                cust_state = None
-        
-        with col2:
-            role_options = list(customer_data['TYPE'].dropna().unique())
-            role = st.multiselect("Role", role_options, key="role")
-            if not role:
-                role = None
-        
-        with col2_or:
-            st.markdown("<div style='text-align: center; padding-top: 8px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
-        
-        with col3:
-            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
-            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="cust_portcd")
-            if not cust_portcd:
-                cust_portcd = None
-        
-        col4, col5, col6, col7 = st.columns(4)
-        
-        with col4:
-            # CS_NEW_NS Filter (multiselect)
-            if 'CS_NEW_NS' in customer_data.columns:
-                cs_new_ns_options = [0, 1, 2, 3, 4]
-                cs_new_ns = st.multiselect(
-                    "CS NEW NS", 
-                    options=cs_new_ns_options,
-                    key="cs_new_ns"
-                )
-                if not cs_new_ns:
-                    cs_new_ns = None
-            else:
-                cs_new_ns = None
-                st.info("CS_NEW_NS not in data")
-        
-        with col5:
-            max_dist = st.slider("Max Distance (miles)", 1, 100, value=20, key="max_distance")
-        
-        with col6:
-            min_rev = st.select_slider("Minimum Revenue", 
-                                     options=[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 
-                                            11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000],
-                                     value=5000,
-                                     format_func=lambda x: f"${x:,}",
-                                     key="min_revenue")
-        with col7:
-            min_deposit = st.select_slider("Minimum Deposit",
-                                         options=[0, 25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000],
-                                         value=100000,
-                                         format_func=lambda x: f"${x:,}",
-                                         key="min_deposit")
+    # Get unique values for dropdowns
+    cust_state_options = list(hh_customer_data['BILLINGSTATE'].dropna().unique())
+    cs_new_ns_options = sorted(list(hh_customer_data['CS_NEW_NS'].dropna().unique()))
     
-    return cust_state, role, cust_portcd, cs_new_ns, max_dist, min_rev, min_deposit
-
-def create_portfolio_button():
-    """Create the right-aligned Create Portfolios button"""
-    col1, col2 = st.columns([5, 1])
-    with col1:
-        st.write("")  # Empty space
-    with col2:
-        return st.button("Create Portfolios", key="create_portfolios", type="primary")
-
-def display_summary_statistics(au_filtered_data):
-    """Display summary statistics for an AU"""
-    if not au_filtered_data.empty:
-        st.subheader("AU Summary Statistics")
-        col_a, col_b, col_c, col_d = st.columns(4)
-        with col_a:
-            st.metric("Total Customers", f"{len(au_filtered_data):,}")
-        with col_b:
-            st.metric("Avg Distance (Miles)", f"{au_filtered_data['Distance'].mean():.1f}")
-        with col_c:
-            avg_revenue = au_filtered_data['BANK_REVENUE'].mean()
-            if avg_revenue >= 1000000:
-                st.metric("Average Revenue", f"${avg_revenue/1000000:.1f}M")
-            else:
-                st.metric("Average Revenue", f"${avg_revenue/1000:.1f}K")
-        with col_d:
-            avg_deposit = au_filtered_data['DEPOSIT_BAL'].mean()
-            if avg_deposit >= 1000000:
-                st.metric("Average Deposits", f"${avg_deposit/1000000:.1f}M")
-            else:
-                st.metric("Average Deposits", f"${avg_deposit/1000:.1f}K")
-
-def create_portfolio_editor(portfolio_df, au_id, is_multi_au=False):
-    """Create an editable portfolio dataframe"""
-    if is_multi_au:
-        column_config = {
-            "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
-            "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
-            "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True, format="%d"),
-            "Available for all new portfolios": st.column_config.NumberColumn("Available for all new portfolios", disabled=True, format="%d"),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True, format="%d"),
-            "Select": st.column_config.NumberColumn(
-                "Select",
-                help="Number of customers to select from this portfolio",
-                min_value=0,
-                step=1,
-                format="%d"
-            )
-        }
-    else:
-        column_config = {
-            "Include": st.column_config.CheckboxColumn("Include", help="Check to include this portfolio in selection"),
-            "Portfolio ID": st.column_config.TextColumn("Portfolio ID", disabled=True),
-            "Portfolio Type": st.column_config.TextColumn("Portfolio Type", disabled=True),
-            "Total Customers": st.column_config.NumberColumn("Total Customers", disabled=True, format="%d"),
-            "Available for this portfolio": st.column_config.NumberColumn("Available for this portfolio", disabled=True, format="%d"),
-            "Select": st.column_config.NumberColumn(
-                "Select",
-                help="Number of customers to select from this portfolio",
-                min_value=0,
-                step=1,
-                format="%d"
-            )
-        }
-    
-    return st.data_editor(
-        portfolio_df,
-        column_config=column_config,
-        hide_index=True,
-        use_container_width=True,
-        key=f"portfolio_editor_{au_id}"
-    )
-
-def create_apply_changes_button(au_id, is_single_au=False):
-    """Create Apply Changes button for an AU"""
-    key_suffix = "_single" if is_single_au else ""
-    return st.button(f"Apply Changes for AU {au_id}", key=f"apply_changes_{au_id}{key_suffix}")
-
-def create_save_buttons(au_id, is_single_au=False):
-    """Create Save buttons for an AU"""
-    col1, col2, col3 = st.columns([2, 1, 1])
+    # Create filter columns
+    col1, col2 = st.columns(2)
     
     with col1:
-        st.write("")  # Empty space
+        # State filter
+        cust_state = st.multiselect(
+            "Customer State",
+            options=cust_state_options,
+            default=None,
+            key='q1_2026_cust_state'
+        )
+        
+        # Minimum revenue filter
+        min_rev = st.slider(
+            "Minimum Revenue ($)",
+            min_value=0,
+            max_value=int(hh_customer_data['BANK_REVENUE'].max()),
+            value=0,
+            step=1000,
+            key='q1_2026_min_revenue'
+        )
     
     with col2:
-        key_suffix = "_single" if is_single_au else ""
-        save_au = st.button(f"Save AU {au_id}", key=f"save_au_{au_id}{key_suffix}", type="secondary")
+        # CS_NEW_NS filter
+        cs_new_ns = st.multiselect(
+            "CS NEW NS",
+            options=cs_new_ns_options,
+            default=None,
+            key='q1_2026_cs_new_ns'
+        )
+        
+        # Minimum deposit filter
+        min_deposit = st.slider(
+            "Minimum Deposit ($)",
+            min_value=0,
+            max_value=int(hh_customer_data['DEPOSIT_BAL'].max()),
+            value=0,
+            step=1000,
+            key='q1_2026_min_deposit'
+        )
+    
+    # Portfolio size configuration section
+    st.subheader("Portfolio Size Configuration")
+    col3, col4 = st.columns(2)
     
     with col3:
-        save_all = st.button("Save All", key=f"save_all_{au_id}{key_suffix}", type="secondary")
+        min_portfolio_size = st.slider(
+            "Minimum Portfolio Size",
+            min_value=50,
+            max_value=300,
+            value=200,
+            step=10,
+            help="Minimum number of customers per portfolio",
+            key='q1_2026_min_portfolio_size'
+        )
     
-    return save_au, save_all
-
-def create_customer_filters_for_mapping(customer_data):
-    """Create customer selection criteria filters for Portfolio Mapping"""
-    col_header2, col_clear2 = st.columns([9, 1])
-    with col_header2:
-        st.subheader("Customer Selection Criteria")
-    with col_clear2:
-        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
-        if st.button("Clear filters", key="clear_mapping_filters", help="Clear customer selection filters", type="secondary"):
-            # Clear customer filters for mapping by clearing widget keys
-            mapping_filter_keys = ["mapping_cust_state", "mapping_role", "mapping_cust_portcd", "mapping_cs_new_ns", 
-                                  "mapping_min_revenue", "mapping_min_deposit", "min_portfolio_size", "max_portfolio_size",
-                                  "inmarket_radius", "centralized_radius"]
-            for key in mapping_filter_keys:
-                if key in st.session_state:
-                    del st.session_state[key]
-            # Clear smart portfolio results
-            if 'smart_portfolio_results' in st.session_state:
-                del st.session_state.smart_portfolio_results
+    with col4:
+        max_portfolio_size = st.slider(
+            "Maximum Portfolio Size",
+            min_value=100,
+            max_value=500,
+            value=250,
+            step=10,
+            help="Maximum number of customers per portfolio",
+            key='q1_2026_max_portfolio_size'
+        )
     
-    with st.expander("Customer Filters", expanded=True):
-        col1, col2, col2_or, col3 = st.columns([1, 1, 0.1, 1])
-        
-        with col1:
-            cust_state_options = list(customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="mapping_cust_state")
-            if not cust_state:
-                cust_state = None
-        
-        with col2:
-            role_options = list(customer_data['TYPE'].dropna().unique())
-            role = st.multiselect("Role", role_options, key="mapping_role")
-            if not role:
-                role = None
-        
-        with col2_or:
-            st.markdown("<div style='text-align: center; padding-top: 8px; font-weight: bold;'>-OR-</div>", unsafe_allow_html=True)
-        
-        with col3:
-            customer_data_temp = customer_data.rename(columns={'CG_PORTFOLIO_CD': 'PORT_CODE'})
-            portfolio_options = list(customer_data_temp['PORT_CODE'].dropna().unique())
-            cust_portcd = st.multiselect("Portfolio Code", portfolio_options, key="mapping_cust_portcd")
-            if not cust_portcd:
-                cust_portcd = None
-        
-        col4, col5, col6 = st.columns(3)
-        
-        with col4:
-            # CS_NEW_NS Filter (multiselect)
-            if 'CS_NEW_NS' in customer_data.columns:
-                cs_new_ns_options = [0, 1, 2, 3, 4]
-                cs_new_ns = st.multiselect(
-                    "CS NEW NS", 
-                    options=cs_new_ns_options,
-                    key="mapping_cs_new_ns"
-                )
-                if not cs_new_ns:
-                    cs_new_ns = None
-            else:
-                cs_new_ns = None
-                st.info("CS_NEW_NS not in data")
-        
-        with col5:
-            min_rev = st.select_slider("Minimum Revenue", 
-                                     options=[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 
-                                            11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000],
-                                     value=5000,
-                                     format_func=lambda x: f"${x:,}",
-                                     key="mapping_min_revenue")
-        with col6:
-            min_deposit = st.select_slider("Minimum Deposit",
-                                         options=[0, 25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000],
-                                         value=100000,
-                                         format_func=lambda x: f"${x:,}",
-                                         key="mapping_min_deposit")
-        
-        # NEW: Portfolio Size Constraints
-        st.markdown("---")
-        st.markdown("**Portfolio Size Constraints**")
-        col_min, col_max = st.columns(2)
-        
-        with col_min:
-            min_portfolio_size = st.slider(
-                "Minimum Portfolio Size", 
-                min_value=50, 
-                max_value=300, 
-                value=200, 
-                step=10,
-                key="min_portfolio_size",
-                help="Minimum number of customers in a portfolio"
-            )
-        
-        with col_max:
-            max_portfolio_size = st.slider(
-                "Maximum Portfolio Size", 
-                min_value=100, 
-                max_value=500, 
-                value=250, 
-                step=10,
-                key="max_portfolio_size",
-                help="Maximum number of customers in a portfolio"
-            )
-        
-        # NEW: Portfolio Radius Constraints
-        st.markdown("---")
-        st.markdown("**Portfolio Radius Constraints**")
-        col_inmarket_radius, col_centralized_radius = st.columns(2)
-        
-        with col_inmarket_radius:
-            inmarket_radius = st.slider(
-                "In-Market Radius (miles)", 
-                min_value=5, 
-                max_value=100, 
-                value=20, 
-                step=5,
-                key="inmarket_radius",
-                help="Maximum radius for in-market portfolios (2nd iteration will use 2x this value)"
-            )
-        
-        with col_centralized_radius:
-            centralized_radius = st.slider(
-                "Centralized Radius (miles)", 
-                min_value=50, 
-                max_value=1000, 
-                value=100, 
-                step=10,
-                key="centralized_radius",
-                help="Maximum radius for centralized portfolios"
-            )
+    # Radius configuration section
+    st.subheader("Radius Configuration")
+    col5, col6 = st.columns(2)
     
-    return cust_state, role, cust_portcd, cs_new_ns, None, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius
+    with col5:
+        inmarket_radius = st.slider(
+            "In-Market Radius (miles)",
+            min_value=5,
+            max_value=100,
+            value=20,
+            step=5,
+            help="Radius for in-market portfolio assignments (first pass uses this, second pass uses 2x this value)",
+            key='q1_2026_inmarket_radius'
+        )
+    
+    with col6:
+        centralized_radius = st.slider(
+            "Centralized Radius (miles)",
+            min_value=50,
+            max_value=1000,
+            value=100,
+            step=10,
+            help="Radius for centralized portfolio assignments",
+            key='q1_2026_centralized_radius'
+        )
+    
+    return cust_state, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius
 
 def show_q1_2026_move_page():
-    """Show complete Q1 2026 Move functionality"""
-    from data_loader import load_hh_data
-    from main import q1_2026_move_page
+    """Show complete Q1 2026 Move functionality - All logic here to avoid circular import"""
     
     # Load HH customer data (already mapped columns)
     hh_customer_data, branch_data = load_hh_data()
     
+    if hh_customer_data.empty:
+        st.error("Failed to load HH_DF.csv. Please check the file and try again.")
+        return
+    
     st.session_state.hh_customer_data = hh_customer_data
     st.session_state.branch_data = branch_data
     
-    # Call the main Q1 2026 move logic
-    q1_2026_move_page(hh_customer_data, branch_data)
+    # Main page content
+    st.subheader("Q1 2026 Move - Smart Portfolio Mapping")
+    
+    # Create customer filters (NO Role, NO Portfolio Code)
+    cust_state, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius = create_customer_filters_for_q1_2026(hh_customer_data, branch_data)
+    
+    # Generate button
+    col1, col2 = st.columns([5, 1])
+    with col2:
+        generate_button = st.button("Generate Smart Portfolios", key="generate_q1_2026_portfolios_btn", type="primary")
+    
+    if generate_button:
+        # Clear previous results
+        if 'q1_2026_portfolio_df' in st.session_state:
+            del st.session_state.q1_2026_portfolio_df
+        
+        # Apply filters
+        filtered_customers = apply_customer_filters_for_q1_2026(
+            hh_customer_data, cust_state, cs_new_ns, min_rev, min_deposit
+        )
+        
+        if len(filtered_customers) == 0:
+            st.error("No customers found with the selected filters.")
+            return
+        
+        # Generate portfolios
+        generate_q1_2026_portfolios(
+            filtered_customers, branch_data,
+            min_portfolio_size, max_portfolio_size,
+            inmarket_radius, centralized_radius
+        )
+    
+    # Display results
+    if st.session_state.q1_2026_portfolio_results is not None:
+        display_q1_2026_results(st.session_state.q1_2026_portfolio_results, branch_data)
 
-def create_customer_filters_for_q1_2026(hh_customer_data):
-    """Create customer selection criteria filters for Q1 2026 Move - NO ROLE OR PORTFOLIO CODE"""
-    col_header2, col_clear2 = st.columns([9, 1])
-    with col_header2:
-        st.subheader("Customer Selection Criteria")
-    with col_clear2:
-        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
-        if st.button("Clear filters", key="clear_q1_2026_filters", help="Clear customer selection filters", type="secondary"):
-            # Clear customer filters for Q1 2026 by clearing widget keys
-            q1_2026_filter_keys = ["q1_2026_cust_state", "q1_2026_cs_new_ns", 
-                                  "q1_2026_min_revenue", "q1_2026_min_deposit", 
-                                  "q1_2026_min_portfolio_size", "q1_2026_max_portfolio_size",
-                                  "q1_2026_inmarket_radius", "q1_2026_centralized_radius"]
-            for key in q1_2026_filter_keys:
-                if key in st.session_state:
-                    del st.session_state[key]
-            # Clear Q1 2026 portfolio results
-            if 'q1_2026_portfolio_results' in st.session_state:
-                del st.session_state.q1_2026_portfolio_results
+def apply_customer_filters_for_q1_2026(hh_customer_data, state, cs_new_ns, min_rev, min_deposit):
+    """Apply customer filters for Q1 2026 Move - NO Role or Portfolio filters"""
+    filtered = hh_customer_data.copy()
     
-    with st.expander("Customer Filters", expanded=True):
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            cust_state_options = list(hh_customer_data['BILLINGSTATE'].dropna().unique())
-            cust_state = st.multiselect("Customer State", cust_state_options, key="q1_2026_cust_state")
-            if not cust_state:
-                cust_state = None
-        
-        with col2:
-            # CS_NEW_NS Filter (multiselect) - mapped from NEW_SEGMENT
-            if 'CS_NEW_NS' in hh_customer_data.columns:
-                cs_new_ns_options = [0, 1, 2, 3, 4]
-                cs_new_ns = st.multiselect(
-                    "CS NEW NS", 
-                    options=cs_new_ns_options,
-                    key="q1_2026_cs_new_ns"
-                )
-                if not cs_new_ns:
-                    cs_new_ns = None
-            else:
-                cs_new_ns = None
-                st.info("CS_NEW_NS not in data")
-        
-        with col3:
-            min_rev = st.select_slider("Minimum Revenue", 
-                                     options=[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 
-                                            11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000],
-                                     value=5000,
-                                     format_func=lambda x: f"${x:,}",
-                                     key="q1_2026_min_revenue")
-        
-        col4, col5 = st.columns(2)
-        
-        with col4:
-            min_deposit = st.select_slider("Minimum Deposit",
-                                         options=[0, 25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000],
-                                         value=100000,
-                                         format_func=lambda x: f"${x:,}",
-                                         key="q1_2026_min_deposit")
-        
-        # Portfolio Size Constraints
-        st.markdown("---")
-        st.markdown("**Portfolio Size Constraints**")
-        col_min, col_max = st.columns(2)
-        
-        with col_min:
-            min_portfolio_size = st.slider(
-                "Minimum Portfolio Size", 
-                min_value=50, 
-                max_value=300, 
-                value=200, 
-                step=10,
-                key="q1_2026_min_portfolio_size",
-                help="Minimum number of customers in a portfolio"
-            )
-        
-        with col_max:
-            max_portfolio_size = st.slider(
-                "Maximum Portfolio Size", 
-                min_value=100, 
-                max_value=500, 
-                value=250, 
-                step=10,
-                key="q1_2026_max_portfolio_size",
-                help="Maximum number of customers in a portfolio"
-            )
-        
-        # Portfolio Radius Constraints
-        st.markdown("---")
-        st.markdown("**Portfolio Radius Constraints**")
-        col_inmarket_radius, col_centralized_radius = st.columns(2)
-        
-        with col_inmarket_radius:
-            inmarket_radius = st.slider(
-                "In-Market Radius (miles)", 
-                min_value=5, 
-                max_value=100, 
-                value=20, 
-                step=5,
-                key="q1_2026_inmarket_radius",
-                help="Maximum radius for in-market portfolios (2nd iteration will use 2x this value)"
-            )
-        
-        with col_centralized_radius:
-            centralized_radius = st.slider(
-                "Centralized Radius (miles)", 
-                min_value=50, 
-                max_value=1000, 
-                value=100, 
-                step=10,
-                key="q1_2026_centralized_radius",
-                help="Maximum radius for centralized portfolios"
-            )
+    if state:
+        filtered = filtered[filtered['BILLINGSTATE'].isin(state)]
     
-    return cust_state, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius
+    if cs_new_ns:
+        filtered = filtered[filtered['CS_NEW_NS'].isin(cs_new_ns)]
+    
+    if min_rev > 0:
+        filtered = filtered[filtered['BANK_REVENUE'] >= min_rev]
+    
+    if min_deposit > 0:
+        filtered = filtered[filtered['DEPOSIT_BAL'] >= min_deposit]
+    
+    return filtered
+
+def generate_q1_2026_portfolios(customer_data, branch_data, min_size, max_size, inmarket_radius, centralized_radius):
+    """Generate Q1 2026 portfolios using clustering algorithm"""
+    
+    with st.spinner("Generating Q1 2026 portfolios..."):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        status_text.text("Running portfolio assignment algorithm...")
+        progress_bar.progress(30)
+        
+        # Run the clustering algorithm
+        results_df = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+            customer_data,
+            branch_data,
+            min_portfolio_size=min_size,
+            max_portfolio_size_inmarket=max_size - 10,
+            max_portfolio_size_proximity=max_size,
+            max_portfolio_size_centralized=max_size - 10,
+            inmarket_radius_miles=inmarket_radius,
+            centralized_radius_miles=centralized_radius
+        )
+        
+        progress_bar.progress(70)
+        status_text.text("Processing results...")
+        
+        # Store results
+        st.session_state.q1_2026_portfolio_results = results_df
+        st.session_state.q1_2026_filtered_customers_count = len(customer_data)
+        
+        progress_bar.progress(100)
+        status_text.text("Complete!")
+        
+        st.success(f"✅ Successfully created Q1 2026 portfolios for {len(results_df):,} customers")
+
+def display_q1_2026_results(results_df, branch_data):
+    """Display Q1 2026 results - SIMPLIFIED version (NO Global Control, NO tables)"""
+    st.subheader("Smart Portfolio Summary")
+    
+    # Get unique AUs
+    assigned_aus = sorted(results_df['ASSIGNED_AU'].dropna().unique())
+    
+    if len(assigned_aus) == 0:
+        st.warning("No portfolios were created")
+        return
+    
+    # Display ONLY AU summary statistics (NO tables)
+    display_q1_2026_portfolio_summary(results_df, assigned_aus, branch_data)
+    
+    # Geographic visualization
+    st.subheader("Geographic Distribution")
+    display_q1_2026_geographic_map(results_df, branch_data)
+    
+    # Save button
+    if st.button("Save All Q1 2026 Portfolios", key="save_all_q1_2026_portfolios_btn"):
+        save_all_q1_2026_portfolios(results_df, st.session_state.hh_customer_data, branch_data)
+
+def display_q1_2026_portfolio_summary(results_df, assigned_aus, branch_data):
+    """Display Q1 2026 portfolio summary in tabs - SIMPLIFIED"""
+    tabs = st.tabs([f"AU {au}" for au in assigned_aus])
+    
+    for i, au in enumerate(assigned_aus):
+        with tabs[i]:
+            display_single_q1_2026_au_summary(results_df, au, branch_data)
+
+def display_single_q1_2026_au_summary(results_df, au, branch_data):
+    """Display summary for a single AU - ONLY statistics, NO table"""
+    au_data = results_df[results_df['ASSIGNED_AU'] == au]
+    
+    # Get branch info
+    branch_info = branch_data[branch_data['AU'] == au].iloc[0] if len(branch_data[branch_data['AU'] == au]) > 0 else None
+    
+    if branch_info is not None:
+        st.write(f"**Branch:** {branch_info['BRANCH_NAME']}")
+        st.write(f"**Location:** {branch_info['LAT']:.4f}, {branch_info['LON']:.4f}")
+    
+    # Display ONLY statistics (NO table)
+    display_summary_statistics(au_data)
+
+def display_q1_2026_geographic_map(results_df, branch_data):
+    """Display Q1 2026 geographic map"""
+    fig = create_combined_map(results_df, branch_data)
+    st.plotly_chart(fig, use_container_width=True)
+
+def save_all_q1_2026_portfolios(results_df, hh_customer_data, branch_data):
+    """Save all Q1 2026 portfolios to CSV"""
+    try:
+        assigned_aus = sorted(results_df['ASSIGNED_AU'].dropna().unique())
+        all_portfolios = []
+        
+        for au in assigned_aus:
+            au_data = results_df[results_df['ASSIGNED_AU'] == au]
+            portfolio_export = prepare_portfolio_for_export_deduplicated(au_data, hh_customer_data, branch_data)
+            all_portfolios.append(portfolio_export)
+        
+        combined_data = pd.concat(all_portfolios, ignore_index=True)
+        
+        # Check for duplicates
+        if combined_data['CG_ECN'].duplicated().any():
+            duplicate_ids = combined_data[combined_data['CG_ECN'].duplicated(keep=False)]['CG_ECN'].unique()
+            st.warning(f"Found {len(duplicate_ids)} duplicate customers in export. Keeping first occurrence.")
+            combined_data = combined_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+        
+        csv_data = combined_data.to_csv(index=False)
+        
+        st.download_button(
+            label="Download Q1 2026 Portfolios CSV",
+            data=csv_data,
+            file_name="q1_2026_portfolios.csv",
+            mime="text/csv",
+            key="download_q1_2026_portfolios_csv"
+        )
+        
+        st.success(f"Q1 2026 portfolios prepared for download ({len(combined_data):,} customers)")
+        
+    except Exception as e:
+        st.error(f"Error saving Q1 2026 portfolios: {str(e)}")
+
+def display_summary_statistics(portfolio_data):
+    """Display summary statistics for a portfolio"""
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        st.metric("Total Customers", f"{len(portfolio_data):,}")
+        st.metric("Avg Revenue", f"${portfolio_data['BANK_REVENUE'].mean():,.0f}")
+    
+    with col2:
+        st.metric("Total Revenue", f"${portfolio_data['BANK_REVENUE'].sum():,.0f}")
+        st.metric("Avg Deposit", f"${portfolio_data['DEPOSIT_BAL'].mean():,.0f}")
+    
+    with col3:
+        st.metric("Total Deposits", f"${portfolio_data['DEPOSIT_BAL'].sum():,.0f}")
+        if 'CG_GROSS_SALES' in portfolio_data.columns:
+            st.metric("Total Gross Sales", f"${portfolio_data['CG_GROSS_SALES'].sum():,.0f}")
