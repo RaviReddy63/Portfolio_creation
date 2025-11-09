@@ -1046,7 +1046,10 @@ def get_current_mapping_filters():
         'cust_portcd': st.session_state.get('mapping_cust_portcd'),
         'cs_new_ns': st.session_state.get('mapping_cs_new_ns'),
         'min_rev': st.session_state.get('mapping_min_revenue', 5000),
-        'min_deposit': st.session_state.get('mapping_min_deposit', 100000)
+        'min_deposit': st.session_state.get('mapping_min_deposit', 100000),
+        'inmarket_radius_1': st.session_state.get('mapping_inmarket_radius_1', 20),
+        'inmarket_radius_2': st.session_state.get('mapping_inmarket_radius_1', 20) + 20,  # Calculate automatically
+        'centralized_radius': st.session_state.get('mapping_centralized_radius', 100)
     }
 
 def select_closest_customers_to_aus(portfolio_customers, select_count, identified_aus, branch_data):
