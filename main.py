@@ -268,7 +268,8 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     st.subheader("Smart Portfolio Mapping")
     
     # Create customer filters - NOW RETURNS RADIUS VALUES
-    cust_state, role, cust_portcd, cs_new_ns, max_dist, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius = create_customer_filters_for_mapping(customer_data)
+    cust_state, role, cust_portcd, cs_new_ns, max_dist, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size = create_customer_filters_for_mapping(customer_data)
+
     
     # Create Smart Portfolio Generation button
     col1, col2 = st.columns([5, 1])
@@ -280,7 +281,8 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     # ONLY process when button is clicked
     if generate_button:
         # Show loading message and process - PASS RADIUS VALUES
-        generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius)
+        generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, 
+                         inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size)
     
     # Display results ONLY if they exist in session state
     if 'smart_portfolio_results' in st.session_state and len(st.session_state.smart_portfolio_results) > 0:
@@ -369,7 +371,7 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         
         # Use your existing clustering with input/output cleaning - PASS RADIUS PARAMETERS
         smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
-            filtered_customers, branch_data, inmarket_radius_1, inmarket_radius_2, centralized_radius
+            filtered_customers, branch_data, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size
         )
         
         progress_bar.progress(80)
@@ -1015,7 +1017,9 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                     combined_customers, branch_data,
                     current_filters['inmarket_radius_1'],
                     current_filters['inmarket_radius_2'],
-                    current_filters['centralized_radius']
+                    current_filters['centralized_radius'],
+                    current_filters['min_size'],
+                    current_filters['max_size']
                 )
                 
                 # Clean the output from your clustering algorithm
@@ -1048,8 +1052,10 @@ def get_current_mapping_filters():
         'min_rev': st.session_state.get('mapping_min_revenue', 5000),
         'min_deposit': st.session_state.get('mapping_min_deposit', 100000),
         'inmarket_radius_1': st.session_state.get('mapping_inmarket_radius_1', 20),
-        'inmarket_radius_2': st.session_state.get('mapping_inmarket_radius_1', 20) + 20,  # Calculate automatically
-        'centralized_radius': st.session_state.get('mapping_centralized_radius', 100)
+        'inmarket_radius_2': st.session_state.get('mapping_inmarket_radius_1', 20) + 20,
+        'centralized_radius': st.session_state.get('mapping_centralized_radius', 100),
+        'min_size': st.session_state.get('mapping_min_size', 200),
+        'max_size': st.session_state.get('mapping_max_size', 225)
     }
 
 def select_closest_customers_to_aus(portfolio_customers, select_count, identified_aus, branch_data):
