@@ -555,4 +555,5 @@ def create_customer_filters_for_mapping(customer_data):
         # Display info about the calculated 2nd iteration radius
         st.info(f"ℹ️ 2nd INMARKET iteration radius will be: **{inmarket_radius_2} miles** (INMARKET Radius + 20)")
     
+    # CRITICAL: Return 10 values including the radius parameters
     return cust_state, role, cust_portcd, cs_new_ns, None, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius
