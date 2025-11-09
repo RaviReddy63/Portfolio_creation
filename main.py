@@ -93,11 +93,11 @@ def create_header():
     """Create the page header with tab navigation and content"""
     from ui_components import (
         show_home_page, show_my_requests_page, show_portfolio_assignment_page,
-        show_portfolio_mapping_page, show_ask_ai_page, show_q1_2026_move_page
+        show_portfolio_mapping_page, show_ask_ai_page
     )
     
-    # Navigation tabs with all 6 pages
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI", "Q1_2026_Move"])
+    # Navigation tabs with all 5 pages
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
     
     with tab1:
         # Home content
@@ -118,10 +118,6 @@ def create_header():
     with tab5:
         # Ask AI chat interface
         show_ask_ai_page()
-    
-    with tab6:
-        # Q1 2026 Move content
-        show_q1_2026_move_page()
     
     return None
 
@@ -266,13 +262,13 @@ def display_geographic_map(portfolios_created, branch_data):
         st.info("No customers selected for map display")
 
 def portfolio_mapping_page(customer_data, banker_data, branch_data):
-    """Portfolio Mapping page logic with advanced clustering - MODIFIED to capture portfolio size AND radius parameters"""
+    """Portfolio Mapping page logic with advanced clustering"""
     from ui_components import create_customer_filters_for_mapping
     
     st.subheader("Smart Portfolio Mapping")
     
-    # Create customer filters - NOW RETURNS 10 VALUES (removed max_dist)
-    cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius = create_customer_filters_for_mapping(customer_data)
+    # Create customer filters - NOW RETURNS RADIUS VALUES
+    cust_state, role, cust_portcd, cs_new_ns, max_dist, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius = create_customer_filters_for_mapping(customer_data)
     
     # Create Smart Portfolio Generation button
     col1, col2 = st.columns([5, 1])
@@ -281,11 +277,10 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
     with col2:
         generate_button = st.button("Generate Smart Portfolios", key="generate_smart_portfolios", type="primary")
     
-    # ONLY process when button is clicked - PASS NEW PARAMETERS INCLUDING RADIUS
+    # ONLY process when button is clicked
     if generate_button:
-        # Show loading message and process
-        generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, 
-                                 min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius)
+        # Show loading message and process - PASS RADIUS VALUES
+        generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius)
     
     # Display results ONLY if they exist in session state
     if 'smart_portfolio_results' in st.session_state and len(st.session_state.smart_portfolio_results) > 0:
@@ -338,9 +333,8 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     
     return filtered_data
 
-def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit,
-                              min_portfolio_size, max_portfolio_size, inmarket_radius, centralized_radius):
-    """Generate smart portfolios using advanced clustering with deduplication - MODIFIED to accept and apply portfolio size AND radius parameters"""
+def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius):
+    """Generate smart portfolios using advanced clustering with deduplication"""
     
     # Clear global data when generating new portfolios
     if 'global_portfolio_df' in st.session_state:
@@ -369,30 +363,13 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         progress_bar.progress(10)
         status_text.text("Initializing clustering algorithm...")
         
-        # CALCULATE DERIVED VALUES BASED ON USER INPUT
-        min_size = min_portfolio_size  # Use slider value directly
-        max_size_proximity = max_portfolio_size  # Maximum after proximity = slider value
-        max_size_inmarket = max_portfolio_size - 10  # Maximum in-market = slider value - 10
-        max_size_centralized = max_portfolio_size - 10  # Maximum centralized = slider value - 10
-        
-        # RADIUS VALUES from sliders
-        radius_inmarket_first = inmarket_radius  # First iteration radius (e.g., 20 miles)
-        radius_centralized = centralized_radius  # Centralized radius (e.g., 100 miles)
-        
-        # Run the enhanced clustering algorithm with deduplication - PASS CALCULATED VALUES INCLUDING RADIUS
+        # Run the enhanced clustering algorithm with deduplication
         progress_bar.progress(30)
         status_text.text("Running advanced clustering analysis...")
         
-        # Use your existing clustering with input/output cleaning and CORRECTED PARAMETER NAMES
+        # Use your existing clustering with input/output cleaning - PASS RADIUS PARAMETERS
         smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
-            filtered_customers, 
-            branch_data,
-            min_portfolio_size=min_size,
-            max_portfolio_size_inmarket=max_size_inmarket,
-            max_portfolio_size_centralized=max_size_centralized,
-            max_portfolio_size_proximity=max_size_proximity,
-            inmarket_radius_miles=radius_inmarket_first,
-            centralized_radius_miles=radius_centralized
+            filtered_customers, branch_data, inmarket_radius_1, inmarket_radius_2, centralized_radius
         )
         
         progress_bar.progress(80)
@@ -1033,34 +1010,12 @@ def apply_global_changes_final(edited_df, customer_data, branch_data):
                 # Clean combined customers
                 combined_customers = clean_portfolio_data(combined_customers)
                 
-                # Get portfolio size parameters from session state
-                min_portfolio_size = st.session_state.get('min_portfolio_size', 200)
-                max_portfolio_size = st.session_state.get('max_portfolio_size', 250)
-                
-                # Get radius parameters from session state
-                inmarket_radius = st.session_state.get('inmarket_radius', 20)
-                centralized_radius = st.session_state.get('centralized_radius', 100)
-                
-                # Calculate derived values
-                min_size = min_portfolio_size
-                max_size_proximity = max_portfolio_size
-                max_size_inmarket = max_portfolio_size - 10
-                max_size_centralized = max_portfolio_size - 10
-                
-                # Calculate radius values
-                radius_inmarket_first = inmarket_radius
-                radius_centralized = centralized_radius
-                
-                # Regenerate portfolios with cleaned data using your existing clustering with CORRECTED PARAMETER NAMES
+                # Regenerate portfolios with cleaned data using your existing clustering - PASS RADIUS PARAMETERS
                 smart_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
-                    combined_customers, 
-                    branch_data,
-                    min_portfolio_size=min_size,
-                    max_portfolio_size_inmarket=max_size_inmarket,
-                    max_portfolio_size_centralized=max_size_centralized,
-                    max_portfolio_size_proximity=max_size_proximity,
-                    inmarket_radius_miles=radius_inmarket_first,
-                    centralized_radius_miles=radius_centralized
+                    combined_customers, branch_data,
+                    current_filters['inmarket_radius_1'],
+                    current_filters['inmarket_radius_2'],
+                    current_filters['centralized_radius']
                 )
                 
                 # Clean the output from your clustering algorithm
