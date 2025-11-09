@@ -460,7 +460,7 @@ def create_customer_filters_for_mapping(customer_data):
         st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
         if st.button("Clear filters", key="clear_mapping_filters", help="Clear customer selection filters", type="secondary"):
             # Clear customer filters for mapping by clearing widget keys
-            mapping_filter_keys = ["mapping_cust_state", "mapping_role", "mapping_cust_portcd", "mapping_cs_new_ns", "mapping_min_revenue", "mapping_min_deposit", "mapping_inmarket_radius_1", "mapping_centralized_radius"]
+            mapping_filter_keys = ["mapping_cust_state", "mapping_role", "mapping_cust_portcd", "mapping_cs_new_ns", "mapping_min_revenue", "mapping_min_deposit", "mapping_inmarket_radius_1", "mapping_centralized_radius", "mapping_min_size", "mapping_max_size"]
             for key in mapping_filter_keys:
                 if key in st.session_state:
                     del st.session_state[key]
@@ -554,6 +554,33 @@ def create_customer_filters_for_mapping(customer_data):
         
         # Display info about the calculated 2nd iteration radius
         st.info(f"ℹ️ 2nd INMARKET iteration radius will be: **{inmarket_radius_2} miles** (INMARKET Radius + 20)")
+        
+        # Add Portfolio Size Configuration
+        st.markdown("---")
+        st.markdown("**Portfolio Size Configuration**")
+        
+        col_s1, col_s2 = st.columns(2)
+        
+        with col_s1:
+            min_size = st.slider(
+                "Minimum Portfolio Size", 
+                150, 250, 
+                value=200, 
+                key="mapping_min_size",
+                help="Minimum number of customers per portfolio"
+            )
+        
+        with col_s2:
+            max_size = st.slider(
+                "Maximum Portfolio Size", 
+                200, 300, 
+                value=225, 
+                key="mapping_max_size",
+                help="Maximum number of customers per portfolio"
+            )
+        
+        # Display calculated values
+        max_customers_per_branch = max_size - 25
+        st.info(f"ℹ️ Max customers per branch will be: **{max_customers_per_branch}** (Max Size - 25)")
     
-    # CRITICAL: Return 10 values including the radius parameters
-    return cust_state, role, cust_portcd, cs_new_ns, None, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius
+    return cust_state, role, cust_portcd, cs_new_ns, None, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size
