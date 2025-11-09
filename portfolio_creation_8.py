@@ -492,7 +492,7 @@ def create_centralized_clusters_with_radius_and_assign(unassigned_customers_df, 
     
     return centralized_results, final_unassigned
 
-def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, branch_df, inmarket_radius_1=20, inmarket_radius_2=40, centralized_radius=100):
+def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, branch_df, inmarket_radius_1=20, inmarket_radius_2=40, centralized_radius=100, min_size=200, max_size=225):
     """Enhanced main function with two INMARKET iterations and centralized portfolios
     
     Args:
@@ -501,11 +501,18 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         inmarket_radius_1: Radius for first INMARKET iteration (default: 20 miles)
         inmarket_radius_2: Radius for second INMARKET iteration (default: 40 miles)
         centralized_radius: Maximum radius for CENTRALIZED portfolios (default: 100 miles)
+        min_size: Minimum portfolio size (default: 200)
+        max_size: Maximum portfolio size (default: 225)
     """
     
-    # Step 1: Create first INMARKET clusters (using inmarket_radius_1)
+    # Calculate derived size parameters
+    max_customers_per_branch = max_size - 25
+    max_portfolio_size = max_size + 25  # For proximity assignments
+    centralized_max_size = max_size + 15  # For centralized portfolios
+    
+    # Step 1: Create first INMARKET clusters (using inmarket_radius_1 and size params)
     clustered_customers, cluster_info = constrained_clustering_optimized(
-        customer_df, min_size=200, max_size=225, max_radius=inmarket_radius_1
+        customer_df, min_size=min_size, max_size=max_size, max_radius=inmarket_radius_1
     )
     
     inmarket_results = []
@@ -515,7 +522,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         cluster_assignments = assign_clusters_to_branches_vectorized(cluster_info, branch_df)
         
         customer_assignments, unassigned = greedy_assign_customers_to_branches(
-            clustered_customers, cluster_assignments, branch_df
+            clustered_customers, cluster_assignments, branch_df, max_customers_per_branch=max_customers_per_branch
         )
         
         for branch_au, customers in customer_assignments.items():
@@ -568,7 +575,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         
         proximity_results, unassigned_after_proximity, updated_customer_assignments = assign_proximity_customers_to_existing_portfolios(
             unassigned_customers_df, customer_assignments, branch_df, 
-            proximity_threshold=inmarket_radius_1, max_portfolio_size=250
+            proximity_threshold=inmarket_radius_1, max_portfolio_size=max_portfolio_size
         )
     
     # Step 3: Create second INMARKET clusters (using inmarket_radius_2)
@@ -579,14 +586,14 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         remaining_customers_df = customer_df.loc[unassigned_after_proximity]
         
         clustered_customers_2, cluster_info_2 = constrained_clustering_optimized(
-            remaining_customers_df, min_size=200, max_size=225, max_radius=inmarket_radius_2
+            remaining_customers_df, min_size=min_size, max_size=max_size, max_radius=inmarket_radius_2
         )
         
         if len(cluster_info_2) > 0:
             cluster_assignments_2 = assign_clusters_to_branches_vectorized(cluster_info_2, branch_df)
             
             customer_assignments_2, unassigned_2 = greedy_assign_customers_to_branches(
-                clustered_customers_2, cluster_assignments_2, branch_df
+                clustered_customers_2, cluster_assignments_2, branch_df, max_customers_per_branch=max_customers_per_branch
             )
             
             for branch_au, customers in customer_assignments_2.items():
@@ -620,7 +627,7 @@ def enhanced_customer_au_assignment_with_two_inmarket_iterations(customer_df, br
         remaining_unassigned_df = customer_df.loc[unassigned_after_second_inmarket]
         
         centralized_results, final_unassigned = create_centralized_clusters_with_radius_and_assign(
-            remaining_unassigned_df, branch_df, min_size=200, max_size=240, max_radius=centralized_radius
+            remaining_unassigned_df, branch_df, min_size=min_size, max_size=centralized_max_size, max_radius=centralized_radius
         )
     
     # Combine all results
