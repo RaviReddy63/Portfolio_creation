@@ -335,7 +335,7 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     
     return filtered_data
 
-def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius):
+def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size):
     """Generate smart portfolios using advanced clustering with deduplication"""
     
     # Clear global data when generating new portfolios
