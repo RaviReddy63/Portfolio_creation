@@ -93,11 +93,11 @@ def create_header():
     """Create the page header with tab navigation and content"""
     from ui_components import (
         show_home_page, show_my_requests_page, show_portfolio_assignment_page,
-        show_portfolio_mapping_page, show_ask_ai_page
+        show_portfolio_mapping_page, show_ask_ai_page, show_q1_2024_move_page
     )
     
-    # Navigation tabs with all 5 pages
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Ask AI"])
+    # Navigation tabs with all 6 pages
+    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["Home", "My Requests", "Portfolio Assignment", "Portfolio Mapping", "Q1_2024_MOVE", "Ask AI"])
     
     with tab1:
         # Home content
@@ -114,10 +114,15 @@ def create_header():
     with tab4:
         # Portfolio Mapping content
         show_portfolio_mapping_page()
-        
+
     with tab5:
+        # Q1_2024_MOVE content
+        show_q1_2024_move_page()
+        
+    with tab6:
         # Ask AI chat interface
         show_ask_ai_page()
+        
     
     return None
 
@@ -291,6 +296,35 @@ def portfolio_mapping_page(customer_data, banker_data, branch_data):
         # Show helpful message when no smart portfolios exist yet
         st.info("Set your customer filters above, then click 'Generate Smart Portfolios' to create AI-optimized assignments.")
 
+def q1_2024_move_page(hh_data, branch_data):
+    """Q1 2024 Move page logic with advanced clustering - No Role/Portfolio filters, No Global Control"""
+    from ui_components import create_customer_filters_for_q1_move
+    
+    st.subheader("Q1 2024 Move - Smart Portfolio Mapping")
+    
+    # Create customer filters - Returns 10 values (no role, no portfolio code)
+    cust_state, cs_new_ns, max_dist, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size = create_customer_filters_for_q1_move(hh_data)
+    
+    # Create Smart Portfolio Generation button
+    col1, col2 = st.columns([5, 1])
+    with col1:
+        st.write("")  # Empty space
+    with col2:
+        generate_button = st.button("Generate Smart Portfolios", key="generate_q1_smart_portfolios", type="primary")
+    
+    # ONLY process when button is clicked
+    if generate_button:
+        # Show loading message and process - PASS RADIUS VALUES
+        generate_q1_smart_portfolios(hh_data, branch_data, cust_state, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size)
+    
+    # Display results ONLY if they exist in session state
+    if 'q1_smart_portfolio_results' in st.session_state and len(st.session_state.q1_smart_portfolio_results) > 0:
+        display_q1_smart_portfolio_results(hh_data, branch_data)
+    else:
+        # Show helpful message when no smart portfolios exist yet
+        st.info("Set your customer filters above, then click 'Generate Smart Portfolios' to create AI-optimized assignments for Q1 2024 Move.")
+
+
 def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit):
     """Apply customer filters for Portfolio Mapping"""
     filtered_data = customer_data.copy()
@@ -334,6 +368,31 @@ def apply_customer_filters_for_mapping(customer_data, cust_state, role, cust_por
     filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
     
     return filtered_data
+
+def apply_q1_customer_filters(hh_data, cust_state, cs_new_ns, min_rev, min_deposit):
+    """Apply customer filters for Q1 2024 Move - No Role or Portfolio Code filters"""
+    filtered_data = hh_data.copy()
+    
+    # Ensure CG_ECN is preserved
+    if 'CG_ECN' not in filtered_data.columns:
+        st.error("CG_ECN column missing from HH data!")
+        return pd.DataFrame()
+    
+    # Apply Customer State filter
+    if cust_state is not None:
+        filtered_data = filtered_data[filtered_data['BILLINGSTATE'].isin(cust_state)]
+    
+    # Apply CS_NEW_NS filter
+    if cs_new_ns is not None:
+        if 'CS_NEW_NS' in filtered_data.columns:
+            filtered_data = filtered_data[filtered_data['CS_NEW_NS'].isin(cs_new_ns)]
+    
+    # Apply other filters
+    filtered_data = filtered_data[filtered_data['BANK_REVENUE'] >= min_rev]
+    filtered_data = filtered_data[filtered_data['DEPOSIT_BAL'] >= min_deposit]
+    
+    return filtered_data
+
 
 def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust_portcd, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size):
     """Generate smart portfolios using advanced clustering with deduplication"""
@@ -409,6 +468,83 @@ def generate_smart_portfolios(customer_data, branch_data, cust_state, role, cust
         progress_bar.empty()
         status_text.empty()
         st.error(f"Error generating smart portfolios: {str(e)}")
+
+def generate_q1_smart_portfolios(hh_data, branch_data, cust_state, cs_new_ns, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size):
+    """Generate smart portfolios for Q1 2024 Move using advanced clustering with deduplication"""
+    
+    # Clear previous Q1 data when generating new portfolios
+    if 'q1_global_portfolio_df' in st.session_state:
+        del st.session_state.q1_global_portfolio_df
+    
+    # Apply customer filters (no role, no portfolio code)
+    filtered_customers = apply_q1_customer_filters(
+        hh_data, cust_state, cs_new_ns, min_rev, min_deposit
+    )
+    
+    if len(filtered_customers) == 0:
+        st.error("No customers found with the selected filters. Please adjust your criteria.")
+        return
+    
+    # Clean filtered customers to remove duplicates
+    filtered_customers = clean_portfolio_data(filtered_customers)
+    
+    st.info(f"Processing {len(filtered_customers):,} customers for Q1 2024 Move smart portfolio generation...")
+    
+    # Create progress bar
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    try:
+        # Update progress
+        progress_bar.progress(10)
+        status_text.text("Initializing clustering algorithm...")
+        
+        # Run the enhanced clustering algorithm with deduplication
+        progress_bar.progress(30)
+        status_text.text("Running advanced clustering analysis...")
+        
+        # Use the same clustering with input/output cleaning - PASS ALL PARAMETERS
+        q1_smart_portfolio_results = enhanced_customer_au_assignment_with_two_inmarket_iterations(
+            filtered_customers, branch_data, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size
+        )
+        
+        progress_bar.progress(80)
+        status_text.text("Processing and cleaning results...")
+        
+        # Clean the output from clustering algorithm
+        q1_smart_portfolio_results = clean_portfolio_data(q1_smart_portfolio_results)
+        
+        # Validate results are clean
+        is_clean, duplicate_ids = validate_no_duplicates(q1_smart_portfolio_results, 'ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers in final results")
+            q1_smart_portfolio_results = q1_smart_portfolio_results.drop_duplicates(subset=['ECN'], keep='first')
+        
+        # Store results in session state
+        st.session_state.q1_smart_portfolio_results = q1_smart_portfolio_results
+        st.session_state.q1_filtered_customers_count = len(filtered_customers)
+        
+        # Clear any existing smart portfolio controls to force refresh
+        if 'q1_smart_portfolio_controls' in st.session_state:
+            st.session_state.q1_smart_portfolio_controls = {}
+        
+        progress_bar.progress(100)
+        status_text.text("Q1 2024 Move smart portfolios generated successfully!")
+        
+        # Clear progress indicators after a brief delay
+        import time
+        time.sleep(1)
+        progress_bar.empty()
+        status_text.empty()
+        
+        st.success(f"Successfully generated Q1 2024 Move smart portfolios for {len(q1_smart_portfolio_results):,} customers!")
+        
+    except Exception as e:
+        progress_bar.empty()
+        status_text.empty()
+        st.error(f"Error generating Q1 smart portfolios: {str(e)}")
+
+
 
 def display_smart_portfolio_results(customer_data, branch_data):
     """Display smart portfolio results like Portfolio Assignment with deduplication"""
@@ -498,6 +634,79 @@ def display_smart_portfolio_results(customer_data, branch_data):
     st.subheader("Geographic Distribution")
     display_smart_geographic_map(smart_portfolios_created, branch_data)
 
+def display_q1_smart_portfolio_results(hh_data, branch_data):
+    """Display Q1 smart portfolio results - NO Global Portfolio Control, NO portfolio tables"""
+    
+    # Store hh_data in session state for save functions
+    st.session_state.q1_hh_data = hh_data
+    
+    if 'q1_smart_portfolio_results' not in st.session_state or len(st.session_state.q1_smart_portfolio_results) == 0:
+        st.info("Click 'Generate Smart Portfolios' to create optimized customer assignments for Q1 2024 Move.")
+        return
+    
+    # Always use the current results from session state and clean them
+    results_df = st.session_state.q1_smart_portfolio_results
+    results_df = clean_portfolio_data(results_df)  # Clean on display
+    
+    # Validate and show cleaning stats
+    is_clean, duplicate_ids = validate_no_duplicates(results_df, 'ECN')
+    if not is_clean:
+        st.warning(f"Cleaned {len(duplicate_ids)} duplicate customers from display")
+        results_df = results_df.drop_duplicates(subset=['ECN'], keep='first')
+        st.session_state.q1_smart_portfolio_results = results_df  # Update session state
+    
+    # Convert smart portfolio results to Portfolio Assignment format - regenerate every time
+    q1_smart_portfolios_created = {}
+    
+    # Group by AU
+    for au in results_df['ASSIGNED_AU'].unique():
+        au_data = results_df[results_df['ASSIGNED_AU'] == au].copy()
+        
+        # Clean AU data
+        au_data = clean_portfolio_data(au_data)
+        
+        # Add required columns for Portfolio Assignment format
+        au_data['AU'] = au
+        
+        # Get AU coordinates from branch_data
+        au_branch = branch_data[branch_data['AU'] == au]
+        if not au_branch.empty:
+            au_data['BRANCH_LAT_NUM'] = au_branch.iloc[0]['BRANCH_LAT_NUM']
+            au_data['BRANCH_LON_NUM'] = au_branch.iloc[0]['BRANCH_LON_NUM']
+        
+        # Rename columns to match Portfolio Assignment format
+        au_data = au_data.rename(columns={
+            'ECN': 'CG_ECN',
+            'DISTANCE_TO_AU': 'Distance'
+        })
+        
+        # Add financial information from HH data
+        hh_data_subset = hh_data[['CG_ECN', 'BANK_REVENUE', 'DEPOSIT_BAL']].copy()
+        hh_data_subset = clean_portfolio_data(hh_data_subset)  # Clean before merge
+        
+        au_data = au_data.merge(hh_data_subset, on='CG_ECN', how='left', suffixes=('', '_orig'))
+        
+        # Clean after merge
+        au_data = clean_portfolio_data(au_data)
+        
+        # Use financial data
+        au_data['BANK_REVENUE'] = au_data['BANK_REVENUE'].fillna(0)
+        au_data['DEPOSIT_BAL'] = au_data['DEPOSIT_BAL'].fillna(0)
+        
+        q1_smart_portfolios_created[au] = au_data
+    
+    st.markdown("----")
+    
+    # Display only Smart Portfolio Summary (no Global Control)
+    st.subheader("Q1 2024 Move - Smart Portfolio Summary")
+    display_q1_smart_portfolio_tables(q1_smart_portfolios_created, branch_data)
+    
+    # Geographic Distribution below with full width
+    st.markdown("----")
+    st.subheader("Geographic Distribution")
+    display_q1_geographic_map(q1_smart_portfolios_created, branch_data)
+
+
 def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
     """Display smart portfolio summary tables - Always use tabs"""
     # Always use tabs regardless of number of AUs
@@ -506,6 +715,16 @@ def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
     for tab_idx, (au_id, tab) in enumerate(zip(smart_portfolios_created.keys(), au_tabs)):
         with tab:
             display_single_smart_au_table(au_id, smart_portfolios_created, branch_data)
+
+def display_q1_smart_portfolio_tables(q1_smart_portfolios_created, branch_data):
+    """Display Q1 smart portfolio summary - ONLY statistics, NO portfolio breakdown tables"""
+    # Always use tabs regardless of number of AUs
+    au_tabs = st.tabs([f"AU {au_id}" for au_id in q1_smart_portfolios_created.keys()])
+    
+    for tab_idx, (au_id, tab) in enumerate(zip(q1_smart_portfolios_created.keys(), au_tabs)):
+        with tab:
+            display_single_q1_au_summary(au_id, q1_smart_portfolios_created)
+
 
 def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
     """Display table for a single smart portfolio AU"""
@@ -548,6 +767,16 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
             # Display summary statistics (same as Portfolio Assignment)
             from ui_components import display_summary_statistics
             display_summary_statistics(au_data)
+
+def display_single_q1_au_summary(au_id, q1_smart_portfolios_created):
+    """Display summary statistics for a single Q1 AU - NO portfolio table"""
+    if au_id in q1_smart_portfolios_created:
+        au_data = q1_smart_portfolios_created[au_id]
+        
+        # Display ONLY summary statistics (same as Portfolio Assignment)
+        from ui_components import display_summary_statistics
+        display_summary_statistics(au_data)
+
 
 def display_global_portfolio_control_component(results_df, customer_data, branch_data):
     """Display unified global portfolio control component with table, button and statistics"""
@@ -878,6 +1107,24 @@ def display_smart_geographic_map(smart_portfolios_created, branch_data):
             st.plotly_chart(combined_map, use_container_width=True)
     else:
         st.info("No customers selected for map display")
+
+def display_q1_geographic_map(q1_smart_portfolios_created, branch_data):
+    """Display the geographic distribution map for Q1 smart portfolios"""
+    # Convert to format expected by create_combined_map
+    preview_portfolios = {}
+    
+    for au_id, au_data in q1_smart_portfolios_created.items():
+        if not au_data.empty:
+            preview_portfolios[f"AU_{au_id}_Q1_Portfolio"] = au_data
+    
+    # Display the map with Q1 smart portfolios
+    if preview_portfolios:
+        combined_map = create_combined_map(preview_portfolios, branch_data)
+        if combined_map:
+            st.plotly_chart(combined_map, use_container_width=True)
+    else:
+        st.info("No customers selected for map display")
+
 
 def save_all_smart_portfolios(smart_portfolios_created, customer_data):
     """Save all smart portfolios to a single CSV"""
