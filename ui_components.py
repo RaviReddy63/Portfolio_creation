@@ -199,6 +199,22 @@ def show_portfolio_mapping_page():
     # Call the main portfolio mapping logic
     portfolio_mapping_page(customer_data, banker_data, branch_data)
 
+def show_q1_2024_move_page():
+    """Show complete Q1 2024 Move functionality"""
+    from data_loader import load_hh_data
+    from main import q1_2024_move_page
+    
+    hh_data, branch_data = load_hh_data()
+    
+    if hh_data.empty:
+        st.error("Unable to load HH_DF.csv data. Please check the file exists.")
+        return
+    
+    st.session_state.q1_hh_data = hh_data
+    
+    # Call the main Q1 2024 move logic
+    q1_2024_move_page(hh_data, branch_data)
+
 def initialize_session_state():
     """Initialize all session state variables - REMOVED, now in main.py"""
     pass
@@ -575,3 +591,113 @@ def create_customer_filters_for_mapping(customer_data):
         st.info(f"ℹ️ 2nd INMARKET radius: **{inmarket_radius_2} miles** | Max per branch (1st iteration): **{max_customers_per_branch}** customers")
     
     return cust_state, role, cust_portcd, cs_new_ns, None, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size
+
+def create_customer_filters_for_q1_move(hh_data):
+    """Create customer selection criteria filters for Q1 2024 Move - NO Role or Portfolio Code"""
+    col_header2, col_clear2 = st.columns([9, 1])
+    with col_header2:
+        st.subheader("Customer Selection Criteria")
+    with col_clear2:
+        st.markdown("<div style='margin-top: 0.5rem;'></div>", unsafe_allow_html=True)
+        if st.button("Clear filters", key="clear_q1_filters", help="Clear customer selection filters", type="secondary"):
+            # Clear customer filters for Q1 by clearing widget keys
+            q1_filter_keys = ["q1_cust_state", "q1_cs_new_ns", "q1_min_revenue", "q1_min_deposit", "q1_inmarket_radius_1", "q1_centralized_radius", "q1_min_size", "q1_max_size"]
+            for key in q1_filter_keys:
+                if key in st.session_state:
+                    del st.session_state[key]
+            # Clear Q1 smart portfolio results
+            if 'q1_smart_portfolio_results' in st.session_state:
+                del st.session_state.q1_smart_portfolio_results
+            st.rerun()
+    
+    with st.expander("Customer Filters", expanded=True):
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            cust_state_options = list(hh_data['BILLINGSTATE'].dropna().unique())
+            cust_state = st.multiselect("Customer State", cust_state_options, key="q1_cust_state")
+            if not cust_state:
+                cust_state = None
+        
+        with col2:
+            # CS_NEW_NS Filter (multiselect)
+            if 'CS_NEW_NS' in hh_data.columns:
+                cs_new_ns_options = [0, 1, 2, 3, 4]
+                cs_new_ns = st.multiselect(
+                    "CS NEW NS", 
+                    options=cs_new_ns_options,
+                    key="q1_cs_new_ns"
+                )
+                if not cs_new_ns:
+                    cs_new_ns = None
+            else:
+                cs_new_ns = None
+                st.info("CS_NEW_NS not in data")
+        
+        col3, col4 = st.columns(2)
+        
+        with col3:
+            min_rev = st.select_slider("Minimum Revenue", 
+                                     options=[0, 1000, 2000, 3000, 4000, 5000, 6000, 7000, 8000, 9000, 10000, 
+                                            11000, 12000, 13000, 14000, 15000, 16000, 17000, 18000, 19000, 20000],
+                                     value=5000,
+                                     format_func=lambda x: f"${x:,}",
+                                     key="q1_min_revenue")
+        with col4:
+            min_deposit = st.select_slider("Minimum Deposit",
+                                         options=[0, 25000, 50000, 75000, 100000, 125000, 150000, 175000, 200000],
+                                         value=100000,
+                                         format_func=lambda x: f"${x:,}",
+                                         key="q1_min_deposit")
+        
+        # Portfolio Configuration (Radius & Size)
+        st.markdown("---")
+        st.markdown("**Portfolio Configuration (Radius & Size)**")
+        
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            inmarket_radius_1 = st.slider(
+                "INMARKET Radius (miles)", 
+                5, 100, 
+                value=20, 
+                key="q1_inmarket_radius_1",
+                help="Radius for INMARKET clustering"
+            )
+        
+        with col2:
+            centralized_radius = st.slider(
+                "CENTRALIZED Radius (miles)", 
+                50, 1000, 
+                value=100, 
+                key="q1_centralized_radius",
+                help="Maximum radius for CENTRALIZED portfolios"
+            )
+        
+        with col3:
+            min_size = st.slider(
+                "Min Portfolio Size", 
+                150, 800, 
+                value=200, 
+                key="q1_min_size",
+                help="Minimum customers per portfolio"
+            )
+        
+        with col4:
+            max_size = st.slider(
+                "Max Portfolio Size", 
+                150, 800, 
+                value=225, 
+                key="q1_max_size",
+                help="Maximum customers per portfolio"
+            )
+        
+        # Calculate inmarket_radius_2 and max_customers_per_branch
+        inmarket_radius_2 = inmarket_radius_1 + 20
+        max_customers_per_branch = max_size - 25
+        
+        # Display calculated values in one line
+        st.info(f"ℹ️ 2nd INMARKET radius: **{inmarket_radius_2} miles** | Max per branch (1st iteration): **{max_customers_per_branch}** customers")
+    
+    # Return 10 values (no role, no portfolio code)
+    return cust_state, cs_new_ns, None, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size
