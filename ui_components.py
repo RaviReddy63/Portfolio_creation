@@ -525,62 +525,53 @@ def create_customer_filters_for_mapping(customer_data):
                                          format_func=lambda x: f"${x:,}",
                                          key="mapping_min_deposit")
         
-        # Add Portfolio Radius Configuration
+        # Portfolio Configuration (Radius & Size)
         st.markdown("---")
-        st.markdown("**Portfolio Radius Configuration**")
+        st.markdown("**Portfolio Configuration (Radius & Size)**")
         
-        col_r1, col_r2 = st.columns(2)
+        col1, col2, col3, col4 = st.columns(4)
         
-        with col_r1:
+        with col1:
             inmarket_radius_1 = st.slider(
                 "INMARKET Radius (miles)", 
-                5, 50, 
+                5, 100, 
                 value=20, 
                 key="mapping_inmarket_radius_1",
-                help="Radius for INMARKET clustering iterations (2nd iteration will be +20 miles)"
+                help="Radius for INMARKET clustering"
             )
         
-        with col_r2:
+        with col2:
             centralized_radius = st.slider(
                 "CENTRALIZED Radius (miles)", 
-                50, 200, 
+                50, 1000, 
                 value=100, 
                 key="mapping_centralized_radius",
                 help="Maximum radius for CENTRALIZED portfolios"
             )
         
-        # Calculate inmarket_radius_2 automatically
-        inmarket_radius_2 = inmarket_radius_1 + 20
-        
-        # Display info about the calculated 2nd iteration radius
-        st.info(f"ℹ️ 2nd INMARKET iteration radius will be: **{inmarket_radius_2} miles** (INMARKET Radius + 20)")
-        
-        # Add Portfolio Size Configuration
-        st.markdown("---")
-        st.markdown("**Portfolio Size Configuration**")
-        
-        col_s1, col_s2 = st.columns(2)
-        
-        with col_s1:
+        with col3:
             min_size = st.slider(
-                "Minimum Portfolio Size", 
-                150, 250, 
+                "Min Portfolio Size", 
+                150, 800, 
                 value=200, 
                 key="mapping_min_size",
-                help="Minimum number of customers per portfolio"
+                help="Minimum customers per portfolio"
             )
         
-        with col_s2:
+        with col4:
             max_size = st.slider(
-                "Maximum Portfolio Size", 
-                200, 300, 
+                "Max Portfolio Size", 
+                150, 800, 
                 value=225, 
                 key="mapping_max_size",
-                help="Maximum number of customers per portfolio"
+                help="Maximum customers per portfolio"
             )
         
-        # Display calculated values
+        # Calculate inmarket_radius_2 and max_customers_per_branch
+        inmarket_radius_2 = inmarket_radius_1 + 20
         max_customers_per_branch = max_size - 25
-        st.info(f"ℹ️ Max customers per branch will be: **{max_customers_per_branch}** (Max Size - 25)")
+        
+        # Display calculated values in one line
+        st.info(f"ℹ️ 2nd INMARKET radius: **{inmarket_radius_2} miles** | Max per branch (1st iteration): **{max_customers_per_branch}** customers")
     
     return cust_state, role, cust_portcd, cs_new_ns, None, min_rev, min_deposit, inmarket_radius_1, inmarket_radius_2, centralized_radius, min_size, max_size
