@@ -705,6 +705,209 @@ def display_q1_smart_portfolio_results(hh_data, branch_data):
     st.markdown("----")
     st.subheader("Geographic Distribution")
     display_q1_geographic_map(q1_smart_portfolios_created, branch_data)
+    
+    # Overall Summary Statistics below the map
+    st.markdown("----")
+    display_q1_overall_summary(results_df)
+def display_q1_overall_summary(results_df):
+    """Display overall summary statistics for all Q1 portfolios"""
+    st.subheader("Overall Q1 Summary Statistics")
+    
+    if len(results_df) > 0:
+        # Calculate metrics
+        total_customers = len(results_df)
+        avg_distance = results_df['DISTANCE_TO_AU'].mean()
+        
+        # Count portfolio types
+        inmarket_portfolios = results_df[results_df['TYPE'] == 'INMARKET']['ASSIGNED_AU'].nunique()
+        centralized_portfolios = results_df[results_df['TYPE'] == 'CENTRALIZED']['ASSIGNED_AU'].nunique()
+        
+        # Display metrics in horizontal format
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Customers", f"{total_customers:,}")
+        
+        with col2:
+            st.metric("Average Distance (Miles)", f"{avg_distance:.1f}")
+        
+        with col3:
+            st.metric("INMARKET Portfolios", f"{inmarket_portfolios} AUs")
+        
+        with col4:
+            st.metric("CENTRALIZED Portfolios", f"{centralized_portfolios} AUs")
+    else:
+        # Show empty state
+        col1, col2, col3, col4 = st.columns(4)
+        
+        with col1:
+            st.metric("Total Customers", "0")
+        
+        with col2:
+            st.metric("Average Distance (Miles)", "0.0")
+        
+        with col3:
+            st.metric("INMARKET Portfolios", "0 AUs")
+        
+        with col4:
+            st.metric("CENTRALIZED Portfolios", "0 AUs")
+
+def save_q1_single_au(au_id, q1_smart_portfolios_created, hh_data):
+    """Save a single AU portfolio to CSV for Q1 2024 Move"""
+    if au_id not in q1_smart_portfolios_created or hh_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        # Get branch_data from session state
+        from data_loader import load_hh_data
+        _, branch_data = load_hh_data()
+        
+        # Prepare data for export
+        au_data = q1_smart_portfolios_created[au_id]
+        export_data = prepare_q1_portfolio_for_export(au_data, hh_data, branch_data)
+        
+        if export_data.empty:
+            st.error("No data to export")
+            return
+        
+        # Convert to CSV
+        csv_data = export_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label=f"Download AU {au_id} Portfolio CSV",
+            data=csv_data,
+            file_name=f"q1_portfolio_au_{au_id}.csv",
+            mime="text/csv",
+            key=f"download_q1_au_{au_id}"
+        )
+        
+        st.success(f"Q1 Portfolio for AU {au_id} prepared for download ({len(export_data):,} customers)")
+        
+    except Exception as e:
+        st.error(f"Error saving Q1 portfolio: {str(e)}")
+
+def save_q1_all_portfolios(q1_smart_portfolios_created, hh_data):
+    """Save all Q1 portfolios to a single CSV"""
+    if not q1_smart_portfolios_created or hh_data is None:
+        st.error("No data available to save")
+        return
+    
+    try:
+        # Get branch_data
+        from data_loader import load_hh_data
+        _, branch_data = load_hh_data()
+        
+        all_portfolio_data = []
+        
+        # Process each AU portfolio
+        for au_id, au_data in q1_smart_portfolios_created.items():
+            if not au_data.empty:
+                export_data = prepare_q1_portfolio_for_export(au_data, hh_data, branch_data)
+                if not export_data.empty:
+                    all_portfolio_data.append(export_data)
+        
+        if not all_portfolio_data:
+            st.error("No data to export")
+            return
+        
+        # Combine all portfolios
+        combined_data = pd.concat(all_portfolio_data, ignore_index=True)
+        
+        # Final cleaning and validation
+        combined_data = clean_portfolio_data(combined_data)
+        is_clean, duplicate_ids = validate_no_duplicates(combined_data, 'CG_ECN')
+        if not is_clean:
+            st.warning(f"Removed {len(duplicate_ids)} duplicate customers from Q1 combined export")
+            combined_data = combined_data.drop_duplicates(subset=['CG_ECN'], keep='first')
+        
+        # Convert to CSV
+        csv_data = combined_data.to_csv(index=False)
+        
+        # Create download button
+        st.download_button(
+            label="Download All Q1 Portfolios CSV",
+            data=csv_data,
+            file_name="q1_all_portfolios.csv",
+            mime="text/csv",
+            key="download_all_q1_portfolios"
+        )
+        
+        st.success(f"All Q1 portfolios prepared for download ({len(combined_data):,} customers across {len(q1_smart_portfolios_created):,} AUs)")
+        
+    except Exception as e:
+        st.error(f"Error saving all Q1 portfolios: {str(e)}")
+
+def prepare_q1_portfolio_for_export(au_data, hh_data, branch_data):
+    """Prepare Q1 portfolio data in the required export format with deduplication"""
+    if au_data.empty or hh_data.empty:
+        return pd.DataFrame()
+    
+    # Clean input data
+    au_data_clean = clean_portfolio_data(au_data)
+    hh_data_clean = clean_portfolio_data(hh_data)
+    
+    # Merge with hh_data to get all required fields
+    export_data = au_data_clean.merge(
+        hh_data_clean[['CG_ECN', 'CS_NEW_NS', 'LAT_NUM', 'LON_NUM', 
+                      'BILLINGCITY', 'BILLINGSTATE', 'BANK_REVENUE', 'CG_GROSS_SALES', 
+                      'DEPOSIT_BAL', 'BILLINGSTREET']],
+        on='CG_ECN',
+        how='left',
+        suffixes=('', '_orig')
+    )
+    
+    # Remove duplicates after merge
+    export_data = clean_portfolio_data(export_data)
+    
+    # Get AU information from branch_data
+    au_id = au_data_clean['AU'].iloc[0]
+    au_info = branch_data[branch_data['AU'] == au_id]
+    
+    if not au_info.empty:
+        branch_lat = au_info.iloc[0]['BRANCH_LAT_NUM']
+        branch_lon = au_info.iloc[0]['BRANCH_LON_NUM']
+    else:
+        branch_lat = au_data_clean['BRANCH_LAT_NUM'].iloc[0] if 'BRANCH_LAT_NUM' in au_data_clean.columns else 0
+        branch_lon = au_data_clean['BRANCH_LON_NUM'].iloc[0] if 'BRANCH_LON_NUM' in au_data_clean.columns else 0
+    
+    # Use Distance if available
+    if 'Distance' in export_data.columns:
+        distance_col = export_data['Distance']
+    else:
+        # Calculate distance from customer to new AU
+        from utils import haversine_distance
+        distance_col = export_data.apply(
+            lambda row: haversine_distance(
+                row['LAT_NUM'], row['LON_NUM'], 
+                branch_lat, branch_lon
+            ), axis=1
+        )
+    
+    # Prepare final export format
+    final_export = pd.DataFrame({
+        'CG_ECN': export_data['CG_ECN'],
+        'CS_NEW_NS': export_data['CS_NEW_NS'],
+        'TYPE': export_data['TYPE'],
+        'LAT_NUM': export_data['LAT_NUM'],
+        'LON_NUM': export_data['LON_NUM'],
+        'BILLINGCITY': export_data['BILLINGCITY'],
+        'BILLINGSTATE': export_data['BILLINGSTATE'],
+        'DISTANCE': distance_col,
+        'AU_NBR': au_id,
+        'BRANCH_LAT_NUM': branch_lat,
+        'BRANCH_LON_NUM': branch_lon,
+        'BANK_REVENUE': export_data['BANK_REVENUE'],
+        'CG_GROSS_SALES': export_data['CG_GROSS_SALES'],
+        'DEPOSIT_BAL': export_data['DEPOSIT_BAL'],
+        'BILLINGSTREET': export_data['BILLINGSTREET']
+    })
+    
+    # Final deduplication
+    final_export_clean = clean_portfolio_data(final_export)
+    
+    return final_export_clean
 
 
 def display_smart_portfolio_tables(smart_portfolios_created, branch_data):
@@ -769,13 +972,67 @@ def display_single_smart_au_table(au_id, smart_portfolios_created, branch_data):
             display_summary_statistics(au_data)
 
 def display_single_q1_au_summary(au_id, q1_smart_portfolios_created):
-    """Display summary statistics for a single Q1 AU - NO portfolio table"""
+    """Display summary statistics for a single Q1 AU with portfolio type and save buttons"""
     if au_id in q1_smart_portfolios_created:
         au_data = q1_smart_portfolios_created[au_id]
         
-        # Display ONLY summary statistics (same as Portfolio Assignment)
-        from ui_components import display_summary_statistics
-        display_summary_statistics(au_data)
+        # Determine portfolio type for this AU
+        if 'TYPE' in au_data.columns:
+            type_counts = au_data['TYPE'].value_counts()
+            # Portfolio type is the most common type in this AU
+            portfolio_type = type_counts.index[0] if len(type_counts) > 0 else "Unknown"
+        else:
+            portfolio_type = "Unknown"
+        
+        # Display summary statistics with portfolio type
+        st.subheader("AU Summary Statistics")
+        
+        # First row - standard metrics
+        col_a, col_b, col_c, col_d = st.columns(4)
+        with col_a:
+            st.metric("Total Customers", f"{len(au_data):,}")
+        with col_b:
+            avg_distance = au_data['Distance'].mean() if 'Distance' in au_data.columns else 0
+            st.metric("Avg Distance (Miles)", f"{avg_distance:.1f}")
+        with col_c:
+            avg_revenue = au_data['BANK_REVENUE'].mean()
+            if avg_revenue >= 1000000:
+                st.metric("Average Revenue", f"${avg_revenue/1000000:.1f}M")
+            else:
+                st.metric("Average Revenue", f"${avg_revenue/1000:.1f}K")
+        with col_d:
+            avg_deposit = au_data['DEPOSIT_BAL'].mean()
+            if avg_deposit >= 1000000:
+                st.metric("Average Deposits", f"${avg_deposit/1000000:.1f}M")
+            else:
+                st.metric("Average Deposits", f"${avg_deposit/1000:.1f}K")
+        
+        # Second row - portfolio type
+        st.markdown("---")
+        col_type = st.columns(1)[0]
+        with col_type:
+            st.metric("Portfolio Type", portfolio_type)
+        
+        # Save buttons
+        st.markdown("---")
+        col1, col2, col3 = st.columns([3, 1, 1])
+        
+        with col1:
+            st.write("")  # Empty space
+        
+        with col2:
+            save_au_clicked = st.button(f"Save AU {au_id}", key=f"save_q1_au_{au_id}", type="secondary")
+        
+        with col3:
+            save_all_clicked = st.button("Save All Portfolios", key=f"save_all_q1_from_au_{au_id}", type="secondary")
+        
+        # Handle button clicks
+        if save_au_clicked:
+            save_q1_single_au(au_id, q1_smart_portfolios_created, st.session_state.get('q1_hh_data'))
+        
+        if save_all_clicked:
+            save_q1_all_portfolios(q1_smart_portfolios_created, st.session_state.get('q1_hh_data'))
+
 
 
 def display_global_portfolio_control_component(results_df, customer_data, branch_data):
