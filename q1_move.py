@@ -325,6 +325,164 @@ def process_banker_assignments(bankers_df, customers_df, eligible_customers_dict
     return bankers_df, customers_df, all_assignments, all_exceptions
 
 
+# ==================== REASSIGNMENT LOGIC ====================
+
+def reassign_from_overcapacity_bankers(struggling_bankers_df, all_bankers_df, customers_df, 
+                                       min_portfolio_size=280):
+    """
+    Reassign customers from over-capacity bankers to struggling bankers
+    Only takes from 20-mile IN MARKET assignments
+    Source banker must maintain >= min_portfolio_size total customers
+    
+    Args:
+        struggling_bankers_df: Bankers who still haven't met minimum
+        all_bankers_df: All IN MARKET bankers
+        customers_df: Customer DataFrame
+        min_portfolio_size: Minimum total portfolio size (default 280)
+    
+    Returns:
+        Tuple: (updated_bankers_df, updated_customers_df, reassignments_list)
+    """
+    reassignments = []
+    
+    print(f"\n{'='*60}")
+    print(f"Reassigning from Over-Capacity Bankers")
+    print(f"{'='*60}")
+    
+    if len(struggling_bankers_df) == 0:
+        print("✓ No struggling bankers - all met minimum requirements")
+        return all_bankers_df, customers_df, reassignments
+    
+    # Get customers from 20-mile IN MARKET assignments only
+    reassignable_customers = customers_df[
+        (customers_df['IS_ASSIGNED'] == True) & 
+        (customers_df['ASSIGNMENT_PHASE'].str.contains('IN_MARKET_MIN|IN_MARKET_MAX', na=False)) &
+        (~customers_df['ASSIGNMENT_PHASE'].str.contains('40MILE', na=False))
+    ].copy()
+    
+    print(f"Found {len(reassignable_customers)} customers in 20-mile IN MARKET assignments")
+    print(f"Attempting to help {len(struggling_bankers_df)} struggling bankers\n")
+    
+    for idx, struggling_banker in struggling_bankers_df.iterrows():
+        port_code = struggling_banker['PORT_CODE']
+        banker_name = struggling_banker['EMPLOYEE_NAME']
+        needs = int(struggling_banker['REMAINING_MIN'])
+        
+        if needs <= 0:
+            continue
+        
+        print(f"Banker: {banker_name} (Port: {port_code}) - Needs: {needs} more customers")
+        
+        # Calculate distance from struggling banker to all reassignable customers
+        banker_lat = struggling_banker['BANKER_LAT_NUM']
+        banker_lon = struggling_banker['BANKER_LON_NUM']
+        
+        candidate_customers = []
+        
+        for _, customer in reassignable_customers.iterrows():
+            if not customer['IS_ASSIGNED']:  # Skip if already reassigned
+                continue
+                
+            source_port = customer['ASSIGNED_TO_PORT_CODE']
+            
+            # Don't take from self
+            if source_port == port_code:
+                continue
+            
+            # Get source banker info
+            source_banker = all_bankers_df[all_bankers_df['PORT_CODE'] == source_port]
+            if len(source_banker) == 0:
+                continue
+            
+            source_banker = source_banker.iloc[0]
+            source_total = source_banker['CURR_COUNT'] + source_banker['CURRENT_ASSIGNED']
+            
+            # Check if source banker can spare this customer (stay >= 280)
+            if source_total - 1 < min_portfolio_size:
+                continue
+            
+            # Calculate distance to struggling banker
+            distance = haversine_distance(
+                banker_lat, banker_lon,
+                customer['LAT_NUM'], customer['LON_NUM']
+            )
+            
+            candidate_customers.append({
+                'HH_ECN': customer['HH_ECN'],
+                'SOURCE_PORT': source_port,
+                'SOURCE_BANKER_NAME': source_banker['EMPLOYEE_NAME'],
+                'SOURCE_TOTAL': source_total,
+                'DISTANCE': distance
+            })
+        
+        # Sort by distance (closest first)
+        candidate_customers.sort(key=lambda x: x['DISTANCE'])
+        
+        print(f"  Found {len(candidate_customers)} candidate customers for reassignment")
+        
+        reassigned_count = 0
+        
+        for candidate in candidate_customers:
+            if reassigned_count >= needs:
+                break
+            
+            cust_id = candidate['HH_ECN']
+            source_port = candidate['SOURCE_PORT']
+            distance = candidate['DISTANCE']
+            
+            # Double-check source banker can still spare (in case multiple taken)
+            source_banker_idx = all_bankers_df[all_bankers_df['PORT_CODE'] == source_port].index[0]
+            source_banker = all_bankers_df.loc[source_banker_idx]
+            source_total = source_banker['CURR_COUNT'] + source_banker['CURRENT_ASSIGNED']
+            
+            if source_total - 1 < min_portfolio_size:
+                continue
+            
+            # Perform reassignment
+            cust_idx = customers_df[customers_df['HH_ECN'] == cust_id].index[0]
+            
+            # Update customer assignment
+            old_phase = customers_df.at[cust_idx, 'ASSIGNMENT_PHASE']
+            customers_df.at[cust_idx, 'ASSIGNED_TO_PORT_CODE'] = port_code
+            customers_df.at[cust_idx, 'ASSIGNED_BANKER_EID'] = struggling_banker['EID']
+            customers_df.at[cust_idx, 'DISTANCE_MILES'] = distance
+            customers_df.at[cust_idx, 'ASSIGNMENT_PHASE'] = 'IN_MARKET_REASSIGNED'
+            customers_df.at[cust_idx, 'EXCEPTION_FLAG'] = f'REASSIGNED_FROM_{source_port}'
+            
+            # Update source banker (decrement)
+            all_bankers_df.at[source_banker_idx, 'CURRENT_ASSIGNED'] -= 1
+            all_bankers_df.at[source_banker_idx, 'REMAINING_MAX'] += 1
+            
+            # Update struggling banker (increment)
+            struggling_idx = all_bankers_df[all_bankers_df['PORT_CODE'] == port_code].index[0]
+            all_bankers_df.at[struggling_idx, 'CURRENT_ASSIGNED'] += 1
+            all_bankers_df.at[struggling_idx, 'REMAINING_MIN'] = max(0, all_bankers_df.at[struggling_idx, 'REMAINING_MIN'] - 1)
+            all_bankers_df.at[struggling_idx, 'REMAINING_MAX'] = max(0, all_bankers_df.at[struggling_idx, 'REMAINING_MAX'] - 1)
+            
+            reassignments.append({
+                'HH_ECN': cust_id,
+                'FROM_PORT': source_port,
+                'TO_PORT': port_code,
+                'DISTANCE': distance,
+                'FROM_BANKER': candidate['SOURCE_BANKER_NAME'],
+                'TO_BANKER': banker_name
+            })
+            
+            reassigned_count += 1
+        
+        if reassigned_count > 0:
+            print(f"  ✓ Reassigned {reassigned_count} customers to {banker_name}")
+            remaining = int(all_bankers_df[all_bankers_df['PORT_CODE'] == port_code]['REMAINING_MIN'].values[0])
+            if remaining > 0:
+                print(f"    ⚠ Still needs {remaining} more customers")
+            else:
+                print(f"    ✓ Minimum requirement now met!")
+        else:
+            print(f"  ✗ Could not find any reassignable customers")
+    
+    return all_bankers_df, customers_df, reassignments
+
+
 # ==================== OUTPUT GENERATION ====================
 
 def generate_customer_assignment_file(customers_df, bankers_df_full, output_path):
@@ -757,6 +915,39 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     else:
         print("✓ All IN MARKET bankers met their minimum requirements within 20 miles")
     
+    # Step 4.6: Reassign from over-capacity bankers if still below minimum
+    print("\n" + "="*60)
+    print("Final Check: Reassignment from Over-Capacity Bankers")
+    print("="*60)
+    
+    # Check again for bankers still below minimum
+    bankers_still_struggling = in_market_bankers[in_market_bankers['REMAINING_MIN'] > 0].copy()
+    
+    if len(bankers_still_struggling) > 0:
+        print(f"Found {len(bankers_still_struggling)} IN MARKET bankers still below minimum.")
+        print("Attempting reassignment from over-capacity bankers...\n")
+        
+        in_market_bankers, customers_df, reassignments = reassign_from_overcapacity_bankers(
+            bankers_still_struggling, 
+            in_market_bankers, 
+            customers_df,
+            min_portfolio_size=280
+        )
+        
+        print(f"\n✓ Completed {len(reassignments)} reassignments")
+        
+        # Add reassignments to the assignments list for tracking
+        for r in reassignments:
+            im_assignments.append({
+                'HH_ECN': r['HH_ECN'],
+                'PORT_CODE': r['TO_PORT'],
+                'DISTANCE': r['DISTANCE'],
+                'PHASE': 'IN_MARKET_REASSIGNED'
+            })
+    else:
+        reassignments = []
+        print("✓ All IN MARKET bankers have met their minimum requirements")
+    
     # Step 5: Process CENTRALIZED assignments
     centralized_bankers, customers_df, cent_assignments, cent_exceptions = process_banker_assignments(
         centralized_bankers, customers_df, centralized_eligible,
@@ -804,14 +995,16 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     unassigned_count = len(customers_df[customers_df['IS_ASSIGNED'] == False])
     
     # Count assignments by phase
-    im_20_count = len([a for a in im_assignments if '40MILE' not in a['PHASE']])
+    im_20_count = len([a for a in im_assignments if '40MILE' not in a['PHASE'] and 'REASSIGNED' not in a['PHASE']])
     im_40_count = len([a for a in im_assignments if '40MILE' in a['PHASE']])
+    im_reassigned_count = len([a for a in im_assignments if 'REASSIGNED' in a['PHASE']])
     
     print(f"\n✓ Total Customers Assigned: {assigned_count}")
     print(f"✓ Total Customers Unassigned: {unassigned_count}")
     print(f"✓ Assignment Rate: {(assigned_count/len(customers_df)*100):.2f}%")
     print(f"\n✓ IN MARKET Assignments (20 miles): {im_20_count}")
     print(f"✓ IN MARKET Assignments (40 miles expanded): {im_40_count}")
+    print(f"✓ IN MARKET Reassignments (from over-capacity): {im_reassigned_count}")
     print(f"✓ Total CENTRALIZED Assignments: {len(cent_assignments)}")
     print(f"\n✓ Exceptions: {len(all_exceptions)}")
     print(f"\n✓ Execution Time: {(datetime.now() - start_time).total_seconds():.2f} seconds")
