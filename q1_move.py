@@ -210,6 +210,10 @@ def assign_customers_to_banker(banker_row, customers_df, eligible_customers,
         customers_df.at[idx, 'DISTANCE_MILES'] = distance
         customers_df.at[idx, 'ASSIGNMENT_PHASE'] = phase
         
+        # Flag if this is an expanded radius assignment (e.g., IN_MARKET_40MILE)
+        if '40MILE' in phase and distance > 20:
+            customers_df.at[idx, 'EXCEPTION_FLAG'] = f'EXPANDED_RADIUS_20_TO_40_MILES'
+        
         assignments.append({
             'HH_ECN': cust_id,
             'PORT_CODE': port_code,
@@ -708,11 +712,50 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
         centralized_bankers, customers_df, 'CENTRALIZED', 200
     )
     
-    # Step 4: Process IN MARKET assignments
+    # Step 4: Process IN MARKET assignments (20 miles)
     in_market_bankers, customers_df, im_assignments, im_exceptions = process_banker_assignments(
         in_market_bankers, customers_df, in_market_eligible,
         'IN_MARKET', 'IN MARKET', 20
     )
+    
+    # Step 4.5: Retry IN MARKET bankers with 40 miles if they didn't meet minimum
+    print("\n" + "="*60)
+    print("Checking for IN MARKET Bankers Below Minimum")
+    print("="*60)
+    
+    # Identify bankers who didn't meet minimum
+    bankers_below_min = in_market_bankers[in_market_bankers['REMAINING_MIN'] > 0].copy()
+    
+    if len(bankers_below_min) > 0:
+        print(f"Found {len(bankers_below_min)} IN MARKET bankers below minimum.")
+        print("Retrying with expanded 40-mile radius...")
+        
+        # Recalculate eligible customers with 40-mile radius for these bankers
+        in_market_40mile_eligible = calculate_distance_matrix(
+            bankers_below_min, customers_df, 'IN MARKET', 40
+        )
+        
+        # Process these bankers again with 40-mile radius
+        in_market_bankers_retry, customers_df, im_40_assignments, im_40_exceptions = process_banker_assignments(
+            bankers_below_min, customers_df, in_market_40mile_eligible,
+            'IN_MARKET_40MILE', 'IN MARKET', 40
+        )
+        
+        # Update the main in_market_bankers dataframe with retry results
+        for idx, retry_banker in in_market_bankers_retry.iterrows():
+            port_code = retry_banker['PORT_CODE']
+            main_idx = in_market_bankers[in_market_bankers['PORT_CODE'] == port_code].index[0]
+            in_market_bankers.at[main_idx, 'CURRENT_ASSIGNED'] = retry_banker['CURRENT_ASSIGNED']
+            in_market_bankers.at[main_idx, 'REMAINING_MIN'] = retry_banker['REMAINING_MIN']
+            in_market_bankers.at[main_idx, 'REMAINING_MAX'] = retry_banker['REMAINING_MAX']
+        
+        # Combine assignments and exceptions
+        im_assignments.extend(im_40_assignments)
+        im_exceptions.extend(im_40_exceptions)
+        
+        print(f"✓ Additional {len(im_40_assignments)} assignments made with 40-mile radius")
+    else:
+        print("✓ All IN MARKET bankers met their minimum requirements within 20 miles")
     
     # Step 5: Process CENTRALIZED assignments
     centralized_bankers, customers_df, cent_assignments, cent_exceptions = process_banker_assignments(
@@ -760,10 +803,15 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     assigned_count = len(customers_df[customers_df['IS_ASSIGNED'] == True])
     unassigned_count = len(customers_df[customers_df['IS_ASSIGNED'] == False])
     
+    # Count assignments by phase
+    im_20_count = len([a for a in im_assignments if '40MILE' not in a['PHASE']])
+    im_40_count = len([a for a in im_assignments if '40MILE' in a['PHASE']])
+    
     print(f"\n✓ Total Customers Assigned: {assigned_count}")
     print(f"✓ Total Customers Unassigned: {unassigned_count}")
     print(f"✓ Assignment Rate: {(assigned_count/len(customers_df)*100):.2f}%")
-    print(f"\n✓ Total IN MARKET Assignments: {len(im_assignments)}")
+    print(f"\n✓ IN MARKET Assignments (20 miles): {im_20_count}")
+    print(f"✓ IN MARKET Assignments (40 miles expanded): {im_40_count}")
     print(f"✓ Total CENTRALIZED Assignments: {len(cent_assignments)}")
     print(f"\n✓ Exceptions: {len(all_exceptions)}")
     print(f"\n✓ Execution Time: {(datetime.now() - start_time).total_seconds():.2f} seconds")
