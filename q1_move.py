@@ -210,9 +210,11 @@ def assign_customers_to_banker(banker_row, customers_df, eligible_customers,
         customers_df.at[idx, 'DISTANCE_MILES'] = distance
         customers_df.at[idx, 'ASSIGNMENT_PHASE'] = phase
         
-        # Flag if this is an expanded radius assignment (e.g., IN_MARKET_40MILE)
+        # Flag if this is an expanded radius assignment (e.g., IN_MARKET_40MILE or CENTRALIZED_400MILE)
         if '40MILE' in phase and distance > 20:
             customers_df.at[idx, 'EXCEPTION_FLAG'] = f'EXPANDED_RADIUS_20_TO_40_MILES'
+        elif '400MILE' in phase and distance > 200:
+            customers_df.at[idx, 'EXCEPTION_FLAG'] = f'EXPANDED_RADIUS_200_TO_400_MILES'
         
         assignments.append({
             'HH_ECN': cust_id,
@@ -328,7 +330,7 @@ def process_banker_assignments(bankers_df, customers_df, eligible_customers_dict
 # ==================== REASSIGNMENT LOGIC ====================
 
 def reassign_from_overcapacity_bankers(struggling_bankers_df, all_bankers_df, customers_df, 
-                                       min_portfolio_size=280):
+                                       max_distance, min_portfolio_size=280):
     """
     Reassign customers from over-capacity bankers to struggling bankers
     Only takes from 20-mile IN MARKET assignments
@@ -338,6 +340,7 @@ def reassign_from_overcapacity_bankers(struggling_bankers_df, all_bankers_df, cu
         struggling_bankers_df: Bankers who still haven't met minimum
         all_bankers_df: All IN MARKET bankers
         customers_df: Customer DataFrame
+        max_distance: Maximum distance in miles for reassignment
         min_portfolio_size: Minimum total portfolio size (default 280)
     
     Returns:
@@ -346,7 +349,7 @@ def reassign_from_overcapacity_bankers(struggling_bankers_df, all_bankers_df, cu
     reassignments = []
     
     print(f"\n{'='*60}")
-    print(f"Reassigning from Over-Capacity Bankers")
+    print(f"Reassigning from Over-Capacity Bankers (within {max_distance} miles)")
     print(f"{'='*60}")
     
     if len(struggling_bankers_df) == 0:
@@ -407,6 +410,10 @@ def reassign_from_overcapacity_bankers(struggling_bankers_df, all_bankers_df, cu
                 customer['LAT_NUM'], customer['LON_NUM']
             )
             
+            # Check if within max_distance
+            if distance > max_distance:
+                continue
+            
             candidate_customers.append({
                 'HH_ECN': customer['HH_ECN'],
                 'SOURCE_PORT': source_port,
@@ -446,8 +453,8 @@ def reassign_from_overcapacity_bankers(struggling_bankers_df, all_bankers_df, cu
             customers_df.at[cust_idx, 'ASSIGNED_TO_PORT_CODE'] = port_code
             customers_df.at[cust_idx, 'ASSIGNED_BANKER_EID'] = struggling_banker['EID']
             customers_df.at[cust_idx, 'DISTANCE_MILES'] = distance
-            customers_df.at[cust_idx, 'ASSIGNMENT_PHASE'] = 'IN_MARKET_REASSIGNED'
-            customers_df.at[cust_idx, 'EXCEPTION_FLAG'] = f'REASSIGNED_FROM_{source_port}'
+            customers_df.at[cust_idx, 'ASSIGNMENT_PHASE'] = f'IN_MARKET_REASSIGNED_{max_distance}MILE'
+            customers_df.at[cust_idx, 'EXCEPTION_FLAG'] = f'REASSIGNED_FROM_{source_port}_WITHIN_{max_distance}MILES'
             
             # Update source banker (decrement)
             all_bankers_df.at[source_banker_idx, 'CURRENT_ASSIGNED'] -= 1
@@ -915,44 +922,110 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     else:
         print("✓ All IN MARKET bankers met their minimum requirements within 20 miles")
     
-    # Step 4.6: Reassign from over-capacity bankers if still below minimum
+    # Step 4.6: Reassign from over-capacity bankers (20 miles) if still below minimum
     print("\n" + "="*60)
-    print("Final Check: Reassignment from Over-Capacity Bankers")
+    print("Step 3: Reassignment from Over-Capacity Bankers (20 miles)")
     print("="*60)
     
-    # Check again for bankers still below minimum
     bankers_still_struggling = in_market_bankers[in_market_bankers['REMAINING_MIN'] > 0].copy()
     
     if len(bankers_still_struggling) > 0:
         print(f"Found {len(bankers_still_struggling)} IN MARKET bankers still below minimum.")
-        print("Attempting reassignment from over-capacity bankers...\n")
+        print("Attempting reassignment from over-capacity bankers within 20 miles...\n")
         
-        in_market_bankers, customers_df, reassignments = reassign_from_overcapacity_bankers(
+        in_market_bankers, customers_df, reassignments_20 = reassign_from_overcapacity_bankers(
             bankers_still_struggling, 
             in_market_bankers, 
             customers_df,
+            max_distance=20,
             min_portfolio_size=280
         )
         
-        print(f"\n✓ Completed {len(reassignments)} reassignments")
-        
-        # Add reassignments to the assignments list for tracking
-        for r in reassignments:
-            im_assignments.append({
-                'HH_ECN': r['HH_ECN'],
-                'PORT_CODE': r['TO_PORT'],
-                'DISTANCE': r['DISTANCE'],
-                'PHASE': 'IN_MARKET_REASSIGNED'
-            })
+        print(f"\n✓ Completed {len(reassignments_20)} reassignments (20 miles)")
     else:
-        reassignments = []
+        reassignments_20 = []
         print("✓ All IN MARKET bankers have met their minimum requirements")
     
-    # Step 5: Process CENTRALIZED assignments
+    # Step 4.7: Reassign from over-capacity bankers (40 miles) if STILL below minimum
+    print("\n" + "="*60)
+    print("Step 4: Reassignment from Over-Capacity Bankers (40 miles)")
+    print("="*60)
+    
+    bankers_still_struggling_40 = in_market_bankers[in_market_bankers['REMAINING_MIN'] > 0].copy()
+    
+    if len(bankers_still_struggling_40) > 0:
+        print(f"Found {len(bankers_still_struggling_40)} IN MARKET bankers STILL below minimum.")
+        print("Attempting reassignment from over-capacity bankers within 40 miles...\n")
+        
+        in_market_bankers, customers_df, reassignments_40 = reassign_from_overcapacity_bankers(
+            bankers_still_struggling_40, 
+            in_market_bankers, 
+            customers_df,
+            max_distance=40,
+            min_portfolio_size=280
+        )
+        
+        print(f"\n✓ Completed {len(reassignments_40)} reassignments (40 miles)")
+    else:
+        reassignments_40 = []
+        print("✓ All IN MARKET bankers have met their minimum requirements")
+    
+    # Combine all reassignments
+    all_reassignments = reassignments_20 + reassignments_40
+    
+    # Add reassignments to the assignments list for tracking
+    for r in all_reassignments:
+        im_assignments.append({
+            'HH_ECN': r['HH_ECN'],
+            'PORT_CODE': r['TO_PORT'],
+            'DISTANCE': r['DISTANCE'],
+            'PHASE': 'IN_MARKET_REASSIGNED'
+        })
+    
+    # Step 5: Process CENTRALIZED assignments (200 miles)
     centralized_bankers, customers_df, cent_assignments, cent_exceptions = process_banker_assignments(
         centralized_bankers, customers_df, centralized_eligible,
         'CENTRALIZED', 'CENTRALIZED', 200
     )
+    
+    # Step 5.5: Retry CENTRALIZED bankers with 400 miles if they didn't meet minimum
+    print("\n" + "="*60)
+    print("Checking for CENTRALIZED Bankers Below Minimum")
+    print("="*60)
+    
+    # Identify CENTRALIZED bankers who didn't meet minimum
+    cent_bankers_below_min = centralized_bankers[centralized_bankers['REMAINING_MIN'] > 0].copy()
+    
+    if len(cent_bankers_below_min) > 0:
+        print(f"Found {len(cent_bankers_below_min)} CENTRALIZED bankers below minimum.")
+        print("Retrying with expanded 400-mile radius...")
+        
+        # Recalculate eligible customers with 400-mile radius for these bankers
+        centralized_400mile_eligible = calculate_distance_matrix(
+            cent_bankers_below_min, customers_df, 'CENTRALIZED', 400
+        )
+        
+        # Process these bankers again with 400-mile radius
+        centralized_bankers_retry, customers_df, cent_400_assignments, cent_400_exceptions = process_banker_assignments(
+            cent_bankers_below_min, customers_df, centralized_400mile_eligible,
+            'CENTRALIZED_400MILE', 'CENTRALIZED', 400
+        )
+        
+        # Update the main centralized_bankers dataframe with retry results
+        for idx, retry_banker in centralized_bankers_retry.iterrows():
+            port_code = retry_banker['PORT_CODE']
+            main_idx = centralized_bankers[centralized_bankers['PORT_CODE'] == port_code].index[0]
+            centralized_bankers.at[main_idx, 'CURRENT_ASSIGNED'] = retry_banker['CURRENT_ASSIGNED']
+            centralized_bankers.at[main_idx, 'REMAINING_MIN'] = retry_banker['REMAINING_MIN']
+            centralized_bankers.at[main_idx, 'REMAINING_MAX'] = retry_banker['REMAINING_MAX']
+        
+        # Combine assignments and exceptions
+        cent_assignments.extend(cent_400_assignments)
+        cent_exceptions.extend(cent_400_exceptions)
+        
+        print(f"✓ Additional {len(cent_400_assignments)} assignments made with 400-mile radius")
+    else:
+        print("✓ All CENTRALIZED bankers met their minimum requirements within 200 miles")
     
     # Step 6: Combine results
     all_bankers = pd.concat([in_market_bankers, centralized_bankers], ignore_index=True)
@@ -997,15 +1070,28 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     # Count assignments by phase
     im_20_count = len([a for a in im_assignments if '40MILE' not in a['PHASE'] and 'REASSIGNED' not in a['PHASE']])
     im_40_count = len([a for a in im_assignments if '40MILE' in a['PHASE']])
-    im_reassigned_count = len([a for a in im_assignments if 'REASSIGNED' in a['PHASE']])
+    im_reassigned_20_count = len(reassignments_20)
+    im_reassigned_40_count = len(reassignments_40)
+    
+    cent_200_count = len([a for a in cent_assignments if '400MILE' not in a['PHASE']])
+    cent_400_count = len([a for a in cent_assignments if '400MILE' in a['PHASE']])
     
     print(f"\n✓ Total Customers Assigned: {assigned_count}")
     print(f"✓ Total Customers Unassigned: {unassigned_count}")
     print(f"✓ Assignment Rate: {(assigned_count/len(customers_df)*100):.2f}%")
-    print(f"\n✓ IN MARKET Assignments (20 miles): {im_20_count}")
-    print(f"✓ IN MARKET Assignments (40 miles expanded): {im_40_count}")
-    print(f"✓ IN MARKET Reassignments (from over-capacity): {im_reassigned_count}")
-    print(f"✓ Total CENTRALIZED Assignments: {len(cent_assignments)}")
+    
+    print(f"\n--- IN MARKET Assignments ---")
+    print(f"✓ Step 1 - Standard (20 miles): {im_20_count}")
+    print(f"✓ Step 2 - Expanded (40 miles): {im_40_count}")
+    print(f"✓ Step 3 - Reassigned (20 miles): {im_reassigned_20_count}")
+    print(f"✓ Step 4 - Reassigned (40 miles): {im_reassigned_40_count}")
+    print(f"  Total IN MARKET: {im_20_count + im_40_count + im_reassigned_20_count + im_reassigned_40_count}")
+    
+    print(f"\n--- CENTRALIZED Assignments ---")
+    print(f"✓ Step 1 - Standard (200 miles): {cent_200_count}")
+    print(f"✓ Step 2 - Expanded (400 miles): {cent_400_count}")
+    print(f"  Total CENTRALIZED: {len(cent_assignments)}")
+    
     print(f"\n✓ Exceptions: {len(all_exceptions)}")
     print(f"\n✓ Execution Time: {(datetime.now() - start_time).total_seconds():.2f} seconds")
     
