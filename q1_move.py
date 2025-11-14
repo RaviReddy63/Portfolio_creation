@@ -69,7 +69,6 @@ def find_customers_within_radius(banker_lat, banker_lon, customer_tree,
 
 
 # ==================== DATA PREPARATION ====================
-
 def load_and_prepare_data(banker_file, req_custs_file, available_custs_file):
     """Load and prepare all input data files"""
     print("Loading data files...")
@@ -77,6 +76,16 @@ def load_and_prepare_data(banker_file, req_custs_file, available_custs_file):
     banker_data = pd.read_csv(banker_file)
     req_custs = pd.read_csv(req_custs_file)
     available_custs = pd.read_csv(available_custs_file)
+    
+    # ===== FILTER OUT NULL COORDINATES =====
+    print(f"Bankers before filtering: {len(banker_data)}")
+    banker_data = banker_data.dropna(subset=['BANKER_LAT_NUM', 'BANKER_LON_NUM'])
+    print(f"Bankers after filtering: {len(banker_data)}")
+    
+    print(f"Customers before filtering: {len(available_custs)}")
+    available_custs = available_custs.dropna(subset=['LAT_NUM', 'LON_NUM'])
+    print(f"Customers after filtering: {len(available_custs)}")
+    # ========================================
     
     bankers_df = banker_data.merge(req_custs, on='PORT_CODE', how='inner')
     
@@ -94,7 +103,6 @@ def load_and_prepare_data(banker_file, req_custs_file, available_custs_file):
     print(f"Loaded {len(bankers_df)} bankers and {len(available_custs)} available customers")
     
     return bankers_df, available_custs, banker_data, available_custs.copy()
-
 
 def separate_bankers_by_type(bankers_df):
     """Separate bankers into IN MARKET and CENTRALIZED"""
