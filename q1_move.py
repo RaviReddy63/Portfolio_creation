@@ -1,6 +1,7 @@
 """
 Customer-Banker Assignment System with BallTree Spatial Indexing
 New Methodology: Distance-based assignment with balancing
+Enhanced Version: Includes existing customers and portfolio size tracking
 """
 
 import pandas as pd
@@ -374,16 +375,18 @@ def assign_remaining_to_nearest_no_exceed_max(customers_df, bankers_df, customer
 
 # ==================== OUTPUT GENERATION ====================
 
-def generate_customer_assignment_file(customers_df, bankers_df_full, output_path):
-    """Generate the main customer assignment output file"""
+def generate_customer_assignment_file(customers_df, bankers_df_full, bankers_df_working, 
+                                     output_path, existing_custs_file='EXISTING_CUSTS.csv'):
+    """Generate the main customer assignment output file with existing and new customers"""
     print("\nGenerating customer assignment file...")
     
+    # ==================== PROCESS NEW ASSIGNMENTS ====================
     assigned = customers_df[customers_df['IS_ASSIGNED'] == True].copy()
     
     banker_cols = ['PORT_CODE', 'EID', 'EMPLOYEE_NAME', 'AU', 'BRANCH_NAME', 
                    'ROLE_TYPE', 'BANKER_LAT_NUM', 'BANKER_LON_NUM', 
                    'MANAGER_NAME', 'DIRECTOR_NAME', 'COVERAGE', 
-                   'BRANCH_LOCATION_CODE']
+                   'BRANCH_LOCATION_CODE', 'CURR_COUNT']
     
     result = assigned.merge(
         bankers_df_full[banker_cols],
@@ -397,7 +400,107 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, output_path
     )
     result['IS_WITHIN_PROXIMITY'] = result['DISTANCE_MILES'] <= result['PROXIMITY_LIMIT_MILES']
     result['ASSIGNMENT_TIMESTAMP'] = datetime.now()
+    result['CUSTOMER_TYPE'] = 'New'
     
+    # ==================== LOAD AND PROCESS EXISTING CUSTOMERS ====================
+    print("Loading existing customers...")
+    try:
+        existing_custs = pd.read_csv(existing_custs_file)
+        print(f"✓ Loaded {len(existing_custs)} existing customers")
+        
+        # Filter out null coordinates
+        existing_custs = existing_custs.dropna(subset=['LAT_NUM', 'LON_NUM'])
+        print(f"✓ After filtering nulls: {len(existing_custs)} existing customers")
+        
+        # Rename CG_ECN to HH_ECN for consistency
+        if 'CG_ECN' in existing_custs.columns:
+            existing_custs = existing_custs.rename(columns={'CG_ECN': 'HH_ECN'})
+        
+        # Merge with banker information
+        existing_result = existing_custs.merge(
+            bankers_df_full[banker_cols],
+            on='PORT_CODE',
+            how='left'
+        )
+        
+        # Calculate distance for existing customers
+        print("Calculating distances for existing customers...")
+        existing_result['DISTANCE_MILES'] = existing_result.apply(
+            lambda row: haversine_distance(
+                row['LAT_NUM'], row['LON_NUM'],
+                row['BANKER_LAT_NUM'], row['BANKER_LON_NUM']
+            ) if pd.notna(row['BANKER_LAT_NUM']) and pd.notna(row['BANKER_LON_NUM']) else None,
+            axis=1
+        )
+        
+        # Add required columns for existing customers
+        existing_result['PROXIMITY_LIMIT_MILES'] = existing_result['ROLE_TYPE'].apply(
+            lambda x: 40 if x == 'IN MARKET' else 200
+        )
+        existing_result['IS_WITHIN_PROXIMITY'] = existing_result['DISTANCE_MILES'] <= existing_result['PROXIMITY_LIMIT_MILES']
+        existing_result['ASSIGNMENT_TIMESTAMP'] = datetime.now()
+        existing_result['ASSIGNMENT_PHASE'] = 'EXISTING_CUSTOMER'
+        existing_result['EXCEPTION_FLAG'] = None
+        existing_result['CUSTOMER_TYPE'] = 'Existing'
+        existing_result['ASSIGNED_TO_PORT_CODE'] = existing_result['PORT_CODE']
+        
+        # Fill missing columns with None/0 if they don't exist
+        for col in ['NEW_SEGMENT', 'DEPOSIT_BAL', 'CG_GROSS_SALES', 'BANK_REVENUE',
+                    'BILLINGCITY', 'BILLINGSTATE', 'BILLINGPOSTALCODE']:
+            if col not in existing_result.columns:
+                existing_result[col] = None
+        
+        print(f"✓ Processed {len(existing_result)} existing customers")
+        
+    except FileNotFoundError:
+        print(f"⚠ Warning: {existing_custs_file} not found. Skipping existing customers.")
+        existing_result = pd.DataFrame()
+    except Exception as e:
+        print(f"⚠ Warning: Error loading existing customers: {str(e)}")
+        existing_result = pd.DataFrame()
+    
+    # ==================== CALCULATE size_reach AT BANKER LEVEL ====================
+    print("Calculating size_reach for bankers...")
+    
+    # Calculate size_reach for each banker
+    banker_size_reach = []
+    for _, banker in bankers_df_working.iterrows():
+        port_code = banker['PORT_CODE']
+        current_assigned = banker['CURRENT_ASSIGNED']
+        curr_count = banker['CURR_COUNT']
+        min_req = banker['MIN_COUNT_REQ']
+        
+        total = current_assigned + curr_count
+        target_min = curr_count + min_req
+        
+        # size_reach: 0 if undersized, 1 if reached minimum or above
+        size_reach = 1 if total >= target_min else 0
+        
+        banker_size_reach.append({
+            'PORT_CODE': port_code,
+            'size_reach': size_reach
+        })
+    
+    size_reach_df = pd.DataFrame(banker_size_reach)
+    
+    # Merge size_reach into new assignments
+    result = result.merge(size_reach_df, left_on='ASSIGNED_TO_PORT_CODE', right_on='PORT_CODE', 
+                          how='left', suffixes=('', '_size'))
+    result = result.drop(columns=['PORT_CODE_size'], errors='ignore')
+    
+    # Merge size_reach into existing assignments
+    if len(existing_result) > 0:
+        existing_result = existing_result.merge(size_reach_df, on='PORT_CODE', how='left')
+    
+    # ==================== COMBINE NEW AND EXISTING ====================
+    if len(existing_result) > 0:
+        combined_result = pd.concat([result, existing_result], ignore_index=True)
+        print(f"✓ Combined {len(result)} new + {len(existing_result)} existing = {len(combined_result)} total customers")
+    else:
+        combined_result = result
+        print(f"✓ Total: {len(combined_result)} customers (new only)")
+    
+    # ==================== STANDARDIZE OUTPUT COLUMNS ====================
     output_cols = {
         'HH_ECN': 'HH_ECN',
         'ASSIGNED_TO_PORT_CODE': 'ASSIGNED_PORT_CODE',
@@ -426,10 +529,12 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, output_path
         'DIRECTOR_NAME': 'BANKER_DIRECTOR_NAME',
         'COVERAGE': 'BANKER_COVERAGE',
         'BRANCH_LOCATION_CODE': 'BANKER_BRANCH_LOCATION_CODE',
-        'ASSIGNMENT_TIMESTAMP': 'ASSIGNMENT_TIMESTAMP'
+        'ASSIGNMENT_TIMESTAMP': 'ASSIGNMENT_TIMESTAMP',
+        'CUSTOMER_TYPE': 'CUSTOMER_TYPE',
+        'size_reach': 'size_reach'
     }
     
-    output_df = result.rename(columns=output_cols)
+    output_df = combined_result.rename(columns=output_cols)
     output_df = output_df[[col for col in output_cols.values() if col in output_df.columns]]
     
     output_df.to_csv(output_path, index=False)
@@ -635,6 +740,7 @@ def generate_overall_summary(bankers_df_full, customers_df, start_time, output_p
 # ==================== MAIN ORCHESTRATOR ====================
 
 def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_file, 
+                                   existing_custs_file='EXISTING_CUSTS.csv',
                                    output_dir='output'):
     """Main function to run the entire customer-banker assignment process"""
     import os
@@ -776,7 +882,8 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     output_files = {}
     
     output_files['customer_assignment'] = os.path.join(output_dir, 'customer_assignment.csv')
-    generate_customer_assignment_file(customers_df, banker_data_orig, output_files['customer_assignment'])
+    generate_customer_assignment_file(customers_df, banker_data_orig, all_bankers,
+                                     output_files['customer_assignment'], existing_custs_file)
     
     output_files['banker_summary'] = os.path.join(output_dir, 'banker_summary.csv')
     generate_banker_summary_file(all_bankers, customers_df, output_files['banker_summary'])
@@ -822,11 +929,13 @@ if __name__ == "__main__":
     BANKER_FILE = 'banker_data.csv'
     REQ_CUSTS_FILE = 'req_custs.csv'
     AVAILABLE_CUSTS_FILE = 'available_custs.csv'
+    EXISTING_CUSTS_FILE = 'EXISTING_CUSTS.csv'
     
     output_files = run_customer_banker_assignment(
         banker_file=BANKER_FILE,
         req_custs_file=REQ_CUSTS_FILE,
         available_custs_file=AVAILABLE_CUSTS_FILE,
+        existing_custs_file=EXISTING_CUSTS_FILE,
         output_dir='output'
     )
     
