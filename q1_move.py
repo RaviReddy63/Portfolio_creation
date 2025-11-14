@@ -1,5 +1,5 @@
 """
-Customer-Banker Assignment System
+Customer-Banker Assignment System with BallTree Spatial Indexing
 Assigns available customers to banker portfolios based on proximity and capacity constraints
 """
 
@@ -7,6 +7,7 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
+from sklearn.neighbors import BallTree
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -14,95 +15,75 @@ warnings.filterwarnings('ignore')
 # ==================== DISTANCE CALCULATION ====================
 
 def haversine_distance(lat1, lon1, lat2, lon2):
-    """
-    Calculate the great circle distance between two points on earth in miles
-    
-    Args:
-        lat1, lon1: Latitude and longitude of point 1
-        lat2, lon2: Latitude and longitude of point 2
-    
-    Returns:
-        Distance in miles
-    """
-    # Convert decimal degrees to radians
+    """Calculate the great circle distance between two points on earth in miles"""
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
-    
-    # Haversine formula
     dlat = lat2 - lat1
     dlon = lon2 - lon1
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
     c = 2 * asin(sqrt(a))
-    
-    # Radius of earth in miles
     miles = 3959 * c
     return miles
 
 
-def calculate_distance_matrix(bankers_df, customers_df, role_type, proximity_limit):
-    """
-    Calculate eligible customers for each banker based on proximity
+def build_balltree(df, lat_col, lon_col):
+    """Build BallTree for efficient spatial queries"""
+    coords_rad = np.radians(df[[lat_col, lon_col]].values)
+    tree = BallTree(coords_rad, metric='haversine')
+    return tree
+
+
+def find_nearest_banker_within_radius(customer_lat, customer_lon, banker_tree, 
+                                      bankers_df, max_radius_miles):
+    """Find nearest banker within radius for a customer using BallTree"""
+    customer_rad = np.radians([[customer_lat, customer_lon]])
+    radius_rad = max_radius_miles / 3959.0
     
-    Args:
-        bankers_df: DataFrame with banker information
-        customers_df: DataFrame with customer information
-        role_type: 'IN MARKET' or 'CENTRALIZED'
-        proximity_limit: Maximum distance in miles (20 for IN MARKET, 200 for CENTRALIZED)
+    indices, distances = banker_tree.query_radius(customer_rad, r=radius_rad, 
+                                                   return_distance=True, sort_results=True)
     
-    Returns:
-        Dictionary: {PORT_CODE: [(customer_id, distance), ...]} sorted by distance
-    """
-    eligible_customers = {}
+    if len(indices[0]) == 0:
+        return None, None
     
-    for _, banker in bankers_df.iterrows():
-        port_code = banker['PORT_CODE']
-        banker_lat = banker['BANKER_LAT_NUM']
-        banker_lon = banker['BANKER_LON_NUM']
-        
-        customer_distances = []
-        
-        for _, customer in customers_df.iterrows():
-            cust_lat = customer['LAT_NUM']
-            cust_lon = customer['LON_NUM']
-            
-            # Calculate distance
-            distance = haversine_distance(banker_lat, banker_lon, cust_lat, cust_lon)
-            
-            # Check if within proximity limit
-            if distance <= proximity_limit:
-                customer_distances.append((customer['HH_ECN'], distance))
-        
-        # Sort by distance (closest first)
-        customer_distances.sort(key=lambda x: x[1])
-        eligible_customers[port_code] = customer_distances
+    distances_miles = distances[0] * 3959.0
+    banker_indices = indices[0]
     
-    return eligible_customers
+    return banker_indices, distances_miles
+
+
+def find_customers_within_radius(banker_lat, banker_lon, customer_tree, 
+                                 customers_df, max_radius_miles):
+    """Find customers within radius for a banker using BallTree"""
+    banker_rad = np.radians([[banker_lat, banker_lon]])
+    radius_rad = max_radius_miles / 3959.0
+    
+    indices, distances = customer_tree.query_radius(banker_rad, r=radius_rad, 
+                                                     return_distance=True, sort_results=True)
+    
+    if len(indices[0]) == 0:
+        return [], []
+    
+    distances_miles = distances[0] * 3959.0
+    customer_indices = indices[0]
+    
+    return customer_indices, distances_miles
 
 
 # ==================== DATA PREPARATION ====================
 
 def load_and_prepare_data(banker_file, req_custs_file, available_custs_file):
-    """
-    Load and prepare all input data files
-    
-    Returns:
-        Tuple: (bankers_df, customers_df, original_banker_data, original_customers)
-    """
+    """Load and prepare all input data files"""
     print("Loading data files...")
     
-    # Load data
     banker_data = pd.read_csv(banker_file)
     req_custs = pd.read_csv(req_custs_file)
     available_custs = pd.read_csv(available_custs_file)
     
-    # Merge banker data with requirements
     bankers_df = banker_data.merge(req_custs, on='PORT_CODE', how='inner')
     
-    # Add tracking columns to bankers
     bankers_df['CURRENT_ASSIGNED'] = 0
     bankers_df['REMAINING_MIN'] = bankers_df['MIN_COUNT_REQ']
     bankers_df['REMAINING_MAX'] = bankers_df['MAX_COUNT_REQ']
     
-    # Add tracking columns to customers
     available_custs['IS_ASSIGNED'] = False
     available_custs['ASSIGNED_TO_PORT_CODE'] = None
     available_custs['ASSIGNED_BANKER_EID'] = None
@@ -116,12 +97,7 @@ def load_and_prepare_data(banker_file, req_custs_file, available_custs_file):
 
 
 def separate_bankers_by_type(bankers_df):
-    """
-    Separate bankers into IN MARKET and CENTRALIZED
-    
-    Returns:
-        Tuple: (in_market_df, centralized_df)
-    """
+    """Separate bankers into IN MARKET and CENTRALIZED"""
     in_market = bankers_df[bankers_df['ROLE_TYPE'] == 'IN MARKET'].copy()
     centralized = bankers_df[bankers_df['ROLE_TYPE'] == 'CENTRALIZED'].copy()
     
@@ -131,377 +107,185 @@ def separate_bankers_by_type(bankers_df):
     return in_market, centralized
 
 
-def prioritize_bankers(bankers_df, eligible_customers_dict):
-    """
-    Sort bankers by priority (most urgent needs first)
-    
-    Args:
-        bankers_df: Banker DataFrame
-        eligible_customers_dict: Dictionary of eligible customers per banker
-    
-    Returns:
-        Sorted DataFrame
-    """
-    # Add number of eligible customers
-    bankers_df['NUM_ELIGIBLE'] = bankers_df['PORT_CODE'].apply(
-        lambda x: len(eligible_customers_dict.get(x, []))
-    )
-    
-    # Sort by REMAINING_MIN (descending) then NUM_ELIGIBLE (ascending)
-    sorted_bankers = bankers_df.sort_values(
-        by=['REMAINING_MIN', 'NUM_ELIGIBLE'],
-        ascending=[False, True]
-    ).copy()
-    
-    return sorted_bankers
+# ==================== STEP 1 & 5: CUSTOMER TO NEAREST BANKER ====================
 
-
-# ==================== ASSIGNMENT LOGIC ====================
-
-def assign_customers_to_banker(banker_row, customers_df, eligible_customers, 
-                               phase, min_or_max='MIN', proximity_limit=20):
-    """
-    Assign customers to a single banker
-    
-    Args:
-        banker_row: Series containing banker information
-        customers_df: DataFrame of all customers
-        eligible_customers: List of (customer_id, distance) tuples for this banker
-        phase: Assignment phase name (e.g., 'IN_MARKET_MIN')
-        min_or_max: 'MIN' to fill minimum, 'MAX' to fill up to maximum
-        proximity_limit: Base proximity limit for this banker type
-    
-    Returns:
-        Tuple: (assignments_list, updated_customers_df, exceptions_list)
-    """
-    port_code = banker_row['PORT_CODE']
-    banker_eid = banker_row['EID']
+def assign_customers_to_nearest_banker(customers_df, bankers_df, banker_tree, 
+                                      max_radius_miles, phase_name):
+    """For each customer, find nearest banker and assign (up to MIN only)"""
+    print(f"\n{'='*60}")
+    print(f"{phase_name}: Assign Customers to Nearest Banker ({max_radius_miles} miles)")
+    print(f"{'='*60}")
     
     assignments = []
-    exceptions = []
+    bankers_df = bankers_df.copy()
     
-    # Determine target count
-    if min_or_max == 'MIN':
-        target_count = int(banker_row['REMAINING_MIN'])
-    else:
-        target_count = int(banker_row['REMAINING_MAX'])
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False].copy()
     
-    if target_count <= 0:
-        return assignments, customers_df, exceptions
-    
-    # Get unassigned eligible customers
-    unassigned_eligible = []
-    for cust_id, distance in eligible_customers:
-        if not customers_df.loc[customers_df['HH_ECN'] == cust_id, 'IS_ASSIGNED'].values[0]:
-            unassigned_eligible.append((cust_id, distance))
-    
-    assigned_count = 0
-    
-    # First pass: Assign customers within proximity
-    for cust_id, distance in unassigned_eligible:
-        if assigned_count >= target_count:
+    for idx, customer in unassigned_custs.iterrows():
+        cust_lat = customer['LAT_NUM']
+        cust_lon = customer['LON_NUM']
+        cust_id = customer['HH_ECN']
+        
+        banker_indices, distances = find_nearest_banker_within_radius(
+            cust_lat, cust_lon, banker_tree, bankers_df, max_radius_miles
+        )
+        
+        if banker_indices is None:
+            continue
+        
+        assigned = False
+        for bidx, distance in zip(banker_indices, distances):
+            banker_row = bankers_df.iloc[bidx]
+            port_code = banker_row['PORT_CODE']
+            
+            banker_main_idx = bankers_df[bankers_df['PORT_CODE'] == port_code].index[0]
+            current_count = bankers_df.at[banker_main_idx, 'CURR_COUNT'] + bankers_df.at[banker_main_idx, 'CURRENT_ASSIGNED']
+            min_req = bankers_df.at[banker_main_idx, 'CURR_COUNT'] + bankers_df.at[banker_main_idx, 'MIN_COUNT_REQ']
+            
+            if current_count >= min_req:
+                continue
+            
+            customers_df.at[idx, 'IS_ASSIGNED'] = True
+            customers_df.at[idx, 'ASSIGNED_TO_PORT_CODE'] = port_code
+            customers_df.at[idx, 'ASSIGNED_BANKER_EID'] = banker_row['EID']
+            customers_df.at[idx, 'DISTANCE_MILES'] = distance
+            customers_df.at[idx, 'ASSIGNMENT_PHASE'] = phase_name
+            
+            bankers_df.at[banker_main_idx, 'CURRENT_ASSIGNED'] += 1
+            bankers_df.at[banker_main_idx, 'REMAINING_MIN'] = max(0, bankers_df.at[banker_main_idx, 'REMAINING_MIN'] - 1)
+            bankers_df.at[banker_main_idx, 'REMAINING_MAX'] = max(0, bankers_df.at[banker_main_idx, 'REMAINING_MAX'] - 1)
+            
+            assignments.append({
+                'HH_ECN': cust_id,
+                'PORT_CODE': port_code,
+                'DISTANCE': distance,
+                'PHASE': phase_name
+            })
+            
+            assigned = True
             break
         
-        # Assign customer
-        idx = customers_df[customers_df['HH_ECN'] == cust_id].index[0]
-        customers_df.at[idx, 'IS_ASSIGNED'] = True
-        customers_df.at[idx, 'ASSIGNED_TO_PORT_CODE'] = port_code
-        customers_df.at[idx, 'ASSIGNED_BANKER_EID'] = banker_eid
-        customers_df.at[idx, 'DISTANCE_MILES'] = distance
-        customers_df.at[idx, 'ASSIGNMENT_PHASE'] = phase
-        
-        # Flag if this is an expanded radius assignment (e.g., IN_MARKET_40MILE or CENTRALIZED_400MILE)
-        if '40MILE' in phase and distance > 20:
-            customers_df.at[idx, 'EXCEPTION_FLAG'] = f'EXPANDED_RADIUS_20_TO_40_MILES'
-        elif '400MILE' in phase and distance > 200:
-            customers_df.at[idx, 'EXCEPTION_FLAG'] = f'EXPANDED_RADIUS_200_TO_400_MILES'
-        
-        assignments.append({
-            'HH_ECN': cust_id,
-            'PORT_CODE': port_code,
-            'DISTANCE': distance,
-            'PHASE': phase
-        })
-        
-        assigned_count += 1
+    print(f"✓ Assigned {len(assignments)} customers to nearest bankers")
     
-    # If minimum not met and this is MIN phase, try expanding radius
-    if min_or_max == 'MIN' and assigned_count < target_count:
-        exception_msg = f"Could not meet minimum. Assigned {assigned_count} of {target_count} required."
-        exceptions.append({
-            'PORT_CODE': port_code,
-            'BANKER_EID': banker_eid,
-            'EXCEPTION_TYPE': 'MINIMUM_NOT_MET',
-            'ASSIGNED_COUNT': assigned_count,
-            'REQUIRED_COUNT': target_count,
-            'MESSAGE': exception_msg
-        })
-    
-    return assignments, customers_df, exceptions
+    return bankers_df, customers_df, assignments
 
 
-def process_banker_assignments(bankers_df, customers_df, eligible_customers_dict, 
-                               phase_name, banker_type, proximity_limit):
-    """
-    Process assignments for a group of bankers (MIN then MAX phases)
-    
-    Args:
-        bankers_df: DataFrame of bankers to process
-        customers_df: DataFrame of customers
-        eligible_customers_dict: Eligible customers per banker
-        phase_name: Base phase name (e.g., 'IN_MARKET')
-        banker_type: 'IN MARKET' or 'CENTRALIZED'
-        proximity_limit: Distance limit for this banker type
-    
-    Returns:
-        Tuple: (updated_bankers_df, updated_customers_df, all_assignments, all_exceptions)
-    """
-    all_assignments = []
-    all_exceptions = []
-    
+# ==================== STEP 2-4, 6-8: FILL PORTFOLIOS ====================
+
+def fill_banker_portfolios(bankers_df, customers_df, customer_tree, max_radius_miles, 
+                          phase_name, target_type='MIN'):
+    """Fill banker portfolios to MIN or MAX by finding nearest unassigned customers"""
     print(f"\n{'='*60}")
-    print(f"Processing {phase_name} Bankers - MINIMUM Requirements")
+    print(f"{phase_name}: Fill to {target_type} ({max_radius_miles} miles)")
     print(f"{'='*60}")
     
-    # Prioritize bankers
-    sorted_bankers = prioritize_bankers(bankers_df, eligible_customers_dict)
+    assignments = []
+    bankers_df = bankers_df.copy()
     
-    # PHASE 1: Meet minimum requirements
-    for idx, banker in sorted_bankers.iterrows():
+    if target_type == 'MIN':
+        bankers_to_fill = bankers_df[bankers_df['REMAINING_MIN'] > 0].copy()
+    else:
+        bankers_to_fill = bankers_df[bankers_df['REMAINING_MAX'] > 0].copy()
+    
+    if len(bankers_to_fill) == 0:
+        print(f"✓ All bankers already at {target_type}")
+        return bankers_df, customers_df, assignments
+    
+    print(f"Found {len(bankers_to_fill)} bankers below {target_type}")
+    
+    if target_type == 'MIN':
+        bankers_to_fill = bankers_to_fill.sort_values('REMAINING_MIN', ascending=False)
+    else:
+        bankers_to_fill = bankers_to_fill.sort_values('REMAINING_MAX', ascending=False)
+    
+    for _, banker in bankers_to_fill.iterrows():
         port_code = banker['PORT_CODE']
+        banker_lat = banker['BANKER_LAT_NUM']
+        banker_lon = banker['BANKER_LON_NUM']
+        banker_eid = banker['EID']
         banker_name = banker['EMPLOYEE_NAME']
         
-        if banker['REMAINING_MIN'] <= 0:
+        if target_type == 'MIN':
+            needed = int(banker['REMAINING_MIN'])
+        else:
+            needed = int(banker['REMAINING_MAX'])
+        
+        if needed <= 0:
             continue
         
-        eligible_custs = eligible_customers_dict.get(port_code, [])
+        print(f"  Banker: {banker_name} (Port: {port_code}) - Needs: {needed}")
         
-        print(f"  Banker: {banker_name} (Port: {port_code}) - Need: {banker['REMAINING_MIN']}, Eligible: {len(eligible_custs)}")
+        unassigned_indices = customers_df[customers_df['IS_ASSIGNED'] == False].index.tolist()
         
-        assignments, customers_df, exceptions = assign_customers_to_banker(
-            banker, customers_df, eligible_custs, 
-            f"{phase_name}_MIN", 'MIN', proximity_limit
+        if len(unassigned_indices) == 0:
+            print(f"    ✗ No unassigned customers available")
+            continue
+        
+        unassigned_custs = customers_df.loc[unassigned_indices]
+        if len(unassigned_custs) == 0:
+            continue
+            
+        temp_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        
+        cust_indices, distances = find_customers_within_radius(
+            banker_lat, banker_lon, temp_tree, unassigned_custs, max_radius_miles
         )
         
-        # Update banker's tracking
-        assigned_count = len(assignments)
-        bankers_df.at[idx, 'CURRENT_ASSIGNED'] += assigned_count
-        bankers_df.at[idx, 'REMAINING_MIN'] = max(0, banker['REMAINING_MIN'] - assigned_count)
-        bankers_df.at[idx, 'REMAINING_MAX'] = max(0, banker['REMAINING_MAX'] - assigned_count)
-        
-        all_assignments.extend(assignments)
-        all_exceptions.extend(exceptions)
-        
-        print(f"    ✓ Assigned: {assigned_count}, Remaining MIN: {bankers_df.at[idx, 'REMAINING_MIN']}")
-    
-    print(f"\n{'='*60}")
-    print(f"Processing {phase_name} Bankers - MAXIMUM Capacity")
-    print(f"{'='*60}")
-    
-    # PHASE 2: Fill up to maximum
-    for idx, banker in sorted_bankers.iterrows():
-        port_code = banker['PORT_CODE']
-        banker_name = banker['EMPLOYEE_NAME']
-        
-        if bankers_df.at[idx, 'REMAINING_MAX'] <= 0:
+        if len(cust_indices) == 0:
+            print(f"    ✗ No customers found within {max_radius_miles} miles")
             continue
         
-        eligible_custs = eligible_customers_dict.get(port_code, [])
-        
-        print(f"  Banker: {banker_name} (Port: {port_code}) - Can add: {bankers_df.at[idx, 'REMAINING_MAX']}")
-        
-        assignments, customers_df, exceptions = assign_customers_to_banker(
-            bankers_df.loc[idx], customers_df, eligible_custs, 
-            f"{phase_name}_MAX", 'MAX', proximity_limit
-        )
-        
-        # Update banker's tracking
-        assigned_count = len(assignments)
-        bankers_df.at[idx, 'CURRENT_ASSIGNED'] += assigned_count
-        bankers_df.at[idx, 'REMAINING_MAX'] = max(0, bankers_df.at[idx, 'REMAINING_MAX'] - assigned_count)
-        
-        all_assignments.extend(assignments)
-        
-        print(f"    ✓ Assigned: {assigned_count}, Remaining MAX: {bankers_df.at[idx, 'REMAINING_MAX']}")
-    
-    return bankers_df, customers_df, all_assignments, all_exceptions
-
-
-# ==================== REASSIGNMENT LOGIC ====================
-
-def reassign_from_overcapacity_bankers(struggling_bankers_df, all_bankers_df, customers_df, 
-                                       max_distance, min_portfolio_size=280):
-    """
-    Reassign customers from over-capacity bankers to struggling bankers
-    Only takes from 20-mile IN MARKET assignments
-    Source banker must maintain >= min_portfolio_size total customers
-    
-    Args:
-        struggling_bankers_df: Bankers who still haven't met minimum
-        all_bankers_df: All IN MARKET bankers
-        customers_df: Customer DataFrame
-        max_distance: Maximum distance in miles for reassignment
-        min_portfolio_size: Minimum total portfolio size (default 280)
-    
-    Returns:
-        Tuple: (updated_bankers_df, updated_customers_df, reassignments_list)
-    """
-    reassignments = []
-    
-    print(f"\n{'='*60}")
-    print(f"Reassigning from Over-Capacity Bankers (within {max_distance} miles)")
-    print(f"{'='*60}")
-    
-    if len(struggling_bankers_df) == 0:
-        print("✓ No struggling bankers - all met minimum requirements")
-        return all_bankers_df, customers_df, reassignments
-    
-    # Get customers from 20-mile IN MARKET assignments only
-    reassignable_customers = customers_df[
-        (customers_df['IS_ASSIGNED'] == True) & 
-        (customers_df['ASSIGNMENT_PHASE'].str.contains('IN_MARKET_MIN|IN_MARKET_MAX', na=False)) &
-        (~customers_df['ASSIGNMENT_PHASE'].str.contains('40MILE', na=False))
-    ].copy()
-    
-    print(f"Found {len(reassignable_customers)} customers in 20-mile IN MARKET assignments")
-    print(f"Attempting to help {len(struggling_bankers_df)} struggling bankers\n")
-    
-    for idx, struggling_banker in struggling_bankers_df.iterrows():
-        port_code = struggling_banker['PORT_CODE']
-        banker_name = struggling_banker['EMPLOYEE_NAME']
-        needs = int(struggling_banker['REMAINING_MIN'])
-        
-        if needs <= 0:
-            continue
-        
-        print(f"Banker: {banker_name} (Port: {port_code}) - Needs: {needs} more customers")
-        
-        # Calculate distance from struggling banker to all reassignable customers
-        banker_lat = struggling_banker['BANKER_LAT_NUM']
-        banker_lon = struggling_banker['BANKER_LON_NUM']
-        
-        candidate_customers = []
-        
-        for _, customer in reassignable_customers.iterrows():
-            if not customer['IS_ASSIGNED']:  # Skip if already reassigned
-                continue
-                
-            source_port = customer['ASSIGNED_TO_PORT_CODE']
-            
-            # Don't take from self
-            if source_port == port_code:
-                continue
-            
-            # Get source banker info
-            source_banker = all_bankers_df[all_bankers_df['PORT_CODE'] == source_port]
-            if len(source_banker) == 0:
-                continue
-            
-            source_banker = source_banker.iloc[0]
-            source_total = source_banker['CURR_COUNT'] + source_banker['CURRENT_ASSIGNED']
-            
-            # Check if source banker can spare this customer (stay >= 280)
-            if source_total - 1 < min_portfolio_size:
-                continue
-            
-            # Calculate distance to struggling banker
-            distance = haversine_distance(
-                banker_lat, banker_lon,
-                customer['LAT_NUM'], customer['LON_NUM']
-            )
-            
-            # Check if within max_distance
-            if distance > max_distance:
-                continue
-            
-            candidate_customers.append({
-                'HH_ECN': customer['HH_ECN'],
-                'SOURCE_PORT': source_port,
-                'SOURCE_BANKER_NAME': source_banker['EMPLOYEE_NAME'],
-                'SOURCE_TOTAL': source_total,
-                'DISTANCE': distance
-            })
-        
-        # Sort by distance (closest first)
-        candidate_customers.sort(key=lambda x: x['DISTANCE'])
-        
-        print(f"  Found {len(candidate_customers)} candidate customers for reassignment")
-        
-        reassigned_count = 0
-        
-        for candidate in candidate_customers:
-            if reassigned_count >= needs:
+        assigned_count = 0
+        for cidx, distance in zip(cust_indices, distances):
+            if assigned_count >= needed:
                 break
             
-            cust_id = candidate['HH_ECN']
-            source_port = candidate['SOURCE_PORT']
-            distance = candidate['DISTANCE']
+            actual_idx = unassigned_custs.iloc[cidx].name
+            cust_id = customers_df.at[actual_idx, 'HH_ECN']
             
-            # Double-check source banker can still spare (in case multiple taken)
-            source_banker_idx = all_bankers_df[all_bankers_df['PORT_CODE'] == source_port].index[0]
-            source_banker = all_bankers_df.loc[source_banker_idx]
-            source_total = source_banker['CURR_COUNT'] + source_banker['CURRENT_ASSIGNED']
-            
-            if source_total - 1 < min_portfolio_size:
+            if customers_df.at[actual_idx, 'IS_ASSIGNED']:
                 continue
             
-            # Perform reassignment
-            cust_idx = customers_df[customers_df['HH_ECN'] == cust_id].index[0]
+            customers_df.at[actual_idx, 'IS_ASSIGNED'] = True
+            customers_df.at[actual_idx, 'ASSIGNED_TO_PORT_CODE'] = port_code
+            customers_df.at[actual_idx, 'ASSIGNED_BANKER_EID'] = banker_eid
+            customers_df.at[actual_idx, 'DISTANCE_MILES'] = distance
+            customers_df.at[actual_idx, 'ASSIGNMENT_PHASE'] = phase_name
             
-            # Update customer assignment
-            old_phase = customers_df.at[cust_idx, 'ASSIGNMENT_PHASE']
-            customers_df.at[cust_idx, 'ASSIGNED_TO_PORT_CODE'] = port_code
-            customers_df.at[cust_idx, 'ASSIGNED_BANKER_EID'] = struggling_banker['EID']
-            customers_df.at[cust_idx, 'DISTANCE_MILES'] = distance
-            customers_df.at[cust_idx, 'ASSIGNMENT_PHASE'] = f'IN_MARKET_REASSIGNED_{max_distance}MILE'
-            customers_df.at[cust_idx, 'EXCEPTION_FLAG'] = f'REASSIGNED_FROM_{source_port}_WITHIN_{max_distance}MILES'
+            if '40MILE' in phase_name and distance > 20:
+                customers_df.at[actual_idx, 'EXCEPTION_FLAG'] = 'EXPANDED_RADIUS_20_TO_40_MILES'
+            elif '400MILE' in phase_name and distance > 200:
+                customers_df.at[actual_idx, 'EXCEPTION_FLAG'] = 'EXPANDED_RADIUS_200_TO_400_MILES'
             
-            # Update source banker (decrement)
-            all_bankers_df.at[source_banker_idx, 'CURRENT_ASSIGNED'] -= 1
-            all_bankers_df.at[source_banker_idx, 'REMAINING_MAX'] += 1
+            banker_main_idx = bankers_df[bankers_df['PORT_CODE'] == port_code].index[0]
+            bankers_df.at[banker_main_idx, 'CURRENT_ASSIGNED'] += 1
+            bankers_df.at[banker_main_idx, 'REMAINING_MIN'] = max(0, bankers_df.at[banker_main_idx, 'REMAINING_MIN'] - 1)
+            bankers_df.at[banker_main_idx, 'REMAINING_MAX'] = max(0, bankers_df.at[banker_main_idx, 'REMAINING_MAX'] - 1)
             
-            # Update struggling banker (increment)
-            struggling_idx = all_bankers_df[all_bankers_df['PORT_CODE'] == port_code].index[0]
-            all_bankers_df.at[struggling_idx, 'CURRENT_ASSIGNED'] += 1
-            all_bankers_df.at[struggling_idx, 'REMAINING_MIN'] = max(0, all_bankers_df.at[struggling_idx, 'REMAINING_MIN'] - 1)
-            all_bankers_df.at[struggling_idx, 'REMAINING_MAX'] = max(0, all_bankers_df.at[struggling_idx, 'REMAINING_MAX'] - 1)
-            
-            reassignments.append({
+            assignments.append({
                 'HH_ECN': cust_id,
-                'FROM_PORT': source_port,
-                'TO_PORT': port_code,
+                'PORT_CODE': port_code,
                 'DISTANCE': distance,
-                'FROM_BANKER': candidate['SOURCE_BANKER_NAME'],
-                'TO_BANKER': banker_name
+                'PHASE': phase_name
             })
             
-            reassigned_count += 1
+            assigned_count += 1
         
-        if reassigned_count > 0:
-            print(f"  ✓ Reassigned {reassigned_count} customers to {banker_name}")
-            remaining = int(all_bankers_df[all_bankers_df['PORT_CODE'] == port_code]['REMAINING_MIN'].values[0])
-            if remaining > 0:
-                print(f"    ⚠ Still needs {remaining} more customers")
-            else:
-                print(f"    ✓ Minimum requirement now met!")
-        else:
-            print(f"  ✗ Could not find any reassignable customers")
+        print(f"    ✓ Assigned {assigned_count} customers")
     
-    return all_bankers_df, customers_df, reassignments
+    print(f"✓ Total assignments in this step: {len(assignments)}")
+    
+    return bankers_df, customers_df, assignments
 
 
 # ==================== OUTPUT GENERATION ====================
 
 def generate_customer_assignment_file(customers_df, bankers_df_full, output_path):
-    """
-    Generate the main customer assignment output file
-    """
+    """Generate the main customer assignment output file"""
     print("\nGenerating customer assignment file...")
     
-    # Get only assigned customers
     assigned = customers_df[customers_df['IS_ASSIGNED'] == True].copy()
     
-    # Merge with banker details
     banker_cols = ['PORT_CODE', 'EID', 'EMPLOYEE_NAME', 'AU', 'BRANCH_NAME', 
                    'ROLE_TYPE', 'BANKER_LAT_NUM', 'BANKER_LON_NUM', 
                    'MANAGER_NAME', 'DIRECTOR_NAME', 'COVERAGE', 
@@ -514,14 +298,12 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, output_path
         how='left'
     )
     
-    # Calculate proximity compliance
     result['PROXIMITY_LIMIT_MILES'] = result['ROLE_TYPE'].apply(
         lambda x: 20 if x == 'IN MARKET' else 200
     )
     result['IS_WITHIN_PROXIMITY'] = result['DISTANCE_MILES'] <= result['PROXIMITY_LIMIT_MILES']
     result['ASSIGNMENT_TIMESTAMP'] = datetime.now()
     
-    # Select and rename columns for output
     output_cols = {
         'HH_ECN': 'HH_ECN',
         'ASSIGNED_TO_PORT_CODE': 'ASSIGNED_PORT_CODE',
@@ -563,9 +345,7 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, output_path
 
 
 def generate_banker_summary_file(bankers_df_full, customers_df, output_path):
-    """
-    Generate banker summary statistics file
-    """
+    """Generate banker summary statistics file"""
     print("\nGenerating banker summary file...")
     
     summary_data = []
@@ -573,7 +353,6 @@ def generate_banker_summary_file(bankers_df_full, customers_df, output_path):
     for _, banker in bankers_df_full.iterrows():
         port_code = banker['PORT_CODE']
         
-        # Get assigned customers for this banker
         assigned_custs = customers_df[
             (customers_df['ASSIGNED_TO_PORT_CODE'] == port_code) & 
             (customers_df['IS_ASSIGNED'] == True)
@@ -582,7 +361,6 @@ def generate_banker_summary_file(bankers_df_full, customers_df, output_path):
         newly_assigned = len(assigned_custs)
         final_total = banker['CURR_COUNT'] + newly_assigned
         
-        # Distance statistics
         if newly_assigned > 0:
             distances = assigned_custs['DISTANCE_MILES'].dropna()
             avg_distance = distances.mean()
@@ -591,12 +369,10 @@ def generate_banker_summary_file(bankers_df_full, customers_df, output_path):
             median_distance = distances.median()
             std_distance = distances.std()
             
-            # Business metrics
             total_deposits = assigned_custs['DEPOSIT_BAL'].sum()
             total_revenue = assigned_custs['BANK_REVENUE'].sum()
             total_sales = assigned_custs['CG_GROSS_SALES'].sum()
             
-            # Geographic diversity
             num_cities = assigned_custs['BILLINGCITY'].nunique()
             num_states = assigned_custs['BILLINGSTATE'].nunique()
             num_zips = assigned_custs['BILLINGPOSTALCODE'].nunique()
@@ -638,7 +414,7 @@ def generate_banker_summary_file(bankers_df_full, customers_df, output_path):
             'NUM_UNIQUE_CITIES': num_cities,
             'NUM_UNIQUE_STATES': num_states,
             'NUM_UNIQUE_ZIPCODES': num_zips,
-            'HAS_EXCEPTIONS': False,  # Will be updated if exceptions exist
+            'HAS_EXCEPTIONS': False,
             'EXCEPTION_COUNT': 0,
             'EXCEPTION_DETAILS': None
         })
@@ -651,9 +427,7 @@ def generate_banker_summary_file(bankers_df_full, customers_df, output_path):
 
 
 def generate_unassigned_customers_file(customers_df, bankers_df_full, output_path):
-    """
-    Generate file with customers that were not assigned
-    """
+    """Generate file with customers that were not assigned"""
     print("\nGenerating unassigned customers file...")
     
     unassigned = customers_df[customers_df['IS_ASSIGNED'] == False].copy()
@@ -662,14 +436,12 @@ def generate_unassigned_customers_file(customers_df, bankers_df_full, output_pat
         print("✓ All customers assigned successfully!")
         return None
     
-    # Find closest banker for each unassigned customer
     unassigned_data = []
     
     for _, customer in unassigned.iterrows():
         cust_lat = customer['LAT_NUM']
         cust_lon = customer['LON_NUM']
         
-        # Calculate distance to all bankers
         banker_distances = []
         for _, banker in bankers_df_full.iterrows():
             distance = haversine_distance(
@@ -683,13 +455,11 @@ def generate_unassigned_customers_file(customers_df, bankers_df_full, output_pat
                 'DISTANCE': distance
             })
         
-        # Sort by distance
         banker_distances.sort(key=lambda x: x['DISTANCE'])
         
         closest = banker_distances[0] if banker_distances else None
         second_closest = banker_distances[1] if len(banker_distances) > 1 else None
         
-        # Determine reason for non-assignment
         reason = "UNKNOWN"
         if closest:
             if closest['ROLE_TYPE'] == 'IN MARKET' and closest['DISTANCE'] > 20:
@@ -728,27 +498,10 @@ def generate_unassigned_customers_file(customers_df, bankers_df_full, output_pat
     return unassigned_df
 
 
-def generate_exception_report(all_exceptions, output_path):
-    """
-    Generate exception report file
-    """
-    if not all_exceptions:
-        print("\n✓ No exceptions to report")
-        return None
-    
-    print("\nGenerating exception report...")
-    
-    exceptions_df = pd.DataFrame(all_exceptions)
-    exceptions_df.to_csv(output_path, index=False)
-    print(f"✓ Saved: {output_path} ({len(exceptions_df)} records)")
-    
-    return exceptions_df
-
-
-def generate_overall_summary(bankers_df_full, customers_df, start_time, output_path):
-    """
-    Generate overall summary statistics
-    """
+def generate_overall_summary(bankers_df_full, customers_df, start_time, output_path, 
+                             im_step1, im_step2, im_step3, im_step4, 
+                             cent_step5, cent_step6, cent_step7, cent_step8a, cent_step8b):
+    """Generate overall summary statistics"""
     print("\nGenerating overall summary...")
     
     assigned = customers_df[customers_df['IS_ASSIGNED'] == True]
@@ -757,17 +510,15 @@ def generate_overall_summary(bankers_df_full, customers_df, start_time, output_p
     in_market_bankers = bankers_df_full[bankers_df_full['ROLE_TYPE'] == 'IN MARKET']
     centralized_bankers = bankers_df_full[bankers_df_full['ROLE_TYPE'] == 'CENTRALIZED']
     
-    # Calculate metrics
     total_available = len(customers_df)
     total_assigned = len(assigned)
     total_unassigned = len(unassigned)
     
-    # Distance metrics
     if total_assigned > 0:
         overall_avg_dist = assigned['DISTANCE_MILES'].mean()
         
-        in_market_assigned = assigned[assigned['ASSIGNMENT_PHASE'].str.contains('IN_MARKET', na=False)]
-        centralized_assigned = assigned[assigned['ASSIGNMENT_PHASE'].str.contains('CENTRALIZED', na=False)]
+        in_market_assigned = assigned[assigned['ASSIGNMENT_PHASE'].str.contains('IM_', na=False)]
+        centralized_assigned = assigned[assigned['ASSIGNMENT_PHASE'].str.contains('CENT_', na=False)]
         
         im_avg_dist = in_market_assigned['DISTANCE_MILES'].mean() if len(in_market_assigned) > 0 else 0
         cent_avg_dist = centralized_assigned['DISTANCE_MILES'].mean() if len(centralized_assigned) > 0 else 0
@@ -782,12 +533,10 @@ def generate_overall_summary(bankers_df_full, customers_df, start_time, output_p
         min_dist = max_dist = 0
         total_deposits = total_revenue = 0
     
-    # Banker statistics
     bankers_min_met = len(bankers_df_full[bankers_df_full['CURRENT_ASSIGNED'] >= bankers_df_full['MIN_COUNT_REQ']])
     bankers_failed_min = len(bankers_df_full[bankers_df_full['CURRENT_ASSIGNED'] < bankers_df_full['MIN_COUNT_REQ']])
     bankers_at_max = len(bankers_df_full[bankers_df_full['CURRENT_ASSIGNED'] >= bankers_df_full['MAX_COUNT_REQ']])
     
-    # Portfolio statistics
     portfolio_sizes = (bankers_df_full['CURR_COUNT'] + bankers_df_full['CURRENT_ASSIGNED']).values
     avg_portfolio = portfolio_sizes.mean()
     min_portfolio = portfolio_sizes.min()
@@ -831,235 +580,130 @@ def generate_overall_summary(bankers_df_full, customers_df, start_time, output_p
 
 def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_file, 
                                    output_dir='output'):
-    """
-    Main function to run the entire customer-banker assignment process
-    
-    Args:
-        banker_file: Path to banker_data.csv
-        req_custs_file: Path to req_custs.csv
-        available_custs_file: Path to available_custs.csv
-        output_dir: Directory to save output files
-    
-    Returns:
-        Dictionary with paths to all output files
-    """
+    """Main function to run the entire customer-banker assignment process"""
     import os
     
     start_time = datetime.now()
     
     print("\n" + "="*80)
-    print("CUSTOMER-BANKER ASSIGNMENT SYSTEM")
+    print("CUSTOMER-BANKER ASSIGNMENT SYSTEM (BallTree Optimized)")
     print("="*80)
     
-    # Create output directory
     os.makedirs(output_dir, exist_ok=True)
     
-    # Step 1: Load and prepare data
     bankers_df, customers_df, banker_data_orig, customers_orig = load_and_prepare_data(
         banker_file, req_custs_file, available_custs_file
     )
     
-    # Step 2: Separate bankers by type
     in_market_bankers, centralized_bankers = separate_bankers_by_type(bankers_df)
     
-    # Step 3: Calculate distance matrices
-    print("\n" + "="*60)
-    print("Calculating Distance Matrices")
-    print("="*60)
+    print("\nBuilding spatial index for IN MARKET bankers...")
+    im_tree = build_balltree(in_market_bankers, 'BANKER_LAT_NUM', 'BANKER_LON_NUM')
     
-    print("Calculating eligible customers for IN MARKET bankers (20 mile radius)...")
-    in_market_eligible = calculate_distance_matrix(
-        in_market_bankers, customers_df, 'IN MARKET', 20
+    print("\n" + "="*80)
+    print("IN MARKET ASSIGNMENTS")
+    print("="*80)
+    
+    in_market_bankers, customers_df, im_step1 = assign_customers_to_nearest_banker(
+        customers_df, in_market_bankers, im_tree, 20, 'IM_STEP1_NEAREST_20MI'
     )
     
-    print("Calculating eligible customers for CENTRALIZED bankers (200 mile radius)...")
-    centralized_eligible = calculate_distance_matrix(
-        centralized_bankers, customers_df, 'CENTRALIZED', 200
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False]
+    if len(unassigned_custs) > 0:
+        cust_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        in_market_bankers, customers_df, im_step2 = fill_banker_portfolios(
+            in_market_bankers, customers_df, cust_tree, 20, 'IM_STEP2_FILL_MIN_20MI', 'MIN'
+        )
+    else:
+        im_step2 = []
+    
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False]
+    if len(unassigned_custs) > 0:
+        cust_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        in_market_bankers, customers_df, im_step3 = fill_banker_portfolios(
+            in_market_bankers, customers_df, cust_tree, 40, 'IM_STEP3_FILL_MIN_40MILE', 'MIN'
+        )
+    else:
+        im_step3 = []
+    
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False]
+    if len(unassigned_custs) > 0:
+        cust_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        in_market_bankers, customers_df, im_step4 = fill_banker_portfolios(
+            in_market_bankers, customers_df, cust_tree, 20, 'IM_STEP4_FILL_MAX_20MI', 'MAX'
+        )
+    else:
+        im_step4 = []
+    
+    print("\n" + "="*80)
+    print("CENTRALIZED ASSIGNMENTS")
+    print("="*80)
+    
+    print("\nBuilding spatial index for CENTRALIZED bankers...")
+    cent_tree = build_balltree(centralized_bankers, 'BANKER_LAT_NUM', 'BANKER_LON_NUM')
+    
+    centralized_bankers, customers_df, cent_step5 = assign_customers_to_nearest_banker(
+        customers_df, centralized_bankers, cent_tree, 200, 'CENT_STEP5_NEAREST_200MI'
     )
     
-    # Step 4: Process IN MARKET assignments (20 miles)
-    in_market_bankers, customers_df, im_assignments, im_exceptions = process_banker_assignments(
-        in_market_bankers, customers_df, in_market_eligible,
-        'IN_MARKET', 'IN MARKET', 20
-    )
-    
-    # Step 4.5: Retry IN MARKET bankers with 40 miles if they didn't meet minimum
-    print("\n" + "="*60)
-    print("Checking for IN MARKET Bankers Below Minimum")
-    print("="*60)
-    
-    # Identify bankers who didn't meet minimum
-    bankers_below_min = in_market_bankers[in_market_bankers['REMAINING_MIN'] > 0].copy()
-    
-    if len(bankers_below_min) > 0:
-        print(f"Found {len(bankers_below_min)} IN MARKET bankers below minimum.")
-        print("Retrying with expanded 40-mile radius...")
-        
-        # Recalculate eligible customers with 40-mile radius for these bankers
-        in_market_40mile_eligible = calculate_distance_matrix(
-            bankers_below_min, customers_df, 'IN MARKET', 40
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False]
+    if len(unassigned_custs) > 0:
+        cust_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        centralized_bankers, customers_df, cent_step6 = fill_banker_portfolios(
+            centralized_bankers, customers_df, cust_tree, 200, 'CENT_STEP6_FILL_MIN_200MI', 'MIN'
         )
-        
-        # Process these bankers again with 40-mile radius
-        in_market_bankers_retry, customers_df, im_40_assignments, im_40_exceptions = process_banker_assignments(
-            bankers_below_min, customers_df, in_market_40mile_eligible,
-            'IN_MARKET_40MILE', 'IN MARKET', 40
-        )
-        
-        # Update the main in_market_bankers dataframe with retry results
-        for idx, retry_banker in in_market_bankers_retry.iterrows():
-            port_code = retry_banker['PORT_CODE']
-            main_idx = in_market_bankers[in_market_bankers['PORT_CODE'] == port_code].index[0]
-            in_market_bankers.at[main_idx, 'CURRENT_ASSIGNED'] = retry_banker['CURRENT_ASSIGNED']
-            in_market_bankers.at[main_idx, 'REMAINING_MIN'] = retry_banker['REMAINING_MIN']
-            in_market_bankers.at[main_idx, 'REMAINING_MAX'] = retry_banker['REMAINING_MAX']
-        
-        # Combine assignments and exceptions
-        im_assignments.extend(im_40_assignments)
-        im_exceptions.extend(im_40_exceptions)
-        
-        print(f"✓ Additional {len(im_40_assignments)} assignments made with 40-mile radius")
     else:
-        print("✓ All IN MARKET bankers met their minimum requirements within 20 miles")
+        cent_step6 = []
     
-    # Step 4.6: Reassign from over-capacity bankers (20 miles) if still below minimum
-    print("\n" + "="*60)
-    print("Step 3: Reassignment from Over-Capacity Bankers (20 miles)")
-    print("="*60)
-    
-    bankers_still_struggling = in_market_bankers[in_market_bankers['REMAINING_MIN'] > 0].copy()
-    
-    if len(bankers_still_struggling) > 0:
-        print(f"Found {len(bankers_still_struggling)} IN MARKET bankers still below minimum.")
-        print("Attempting reassignment from over-capacity bankers within 20 miles...\n")
-        
-        in_market_bankers, customers_df, reassignments_20 = reassign_from_overcapacity_bankers(
-            bankers_still_struggling, 
-            in_market_bankers, 
-            customers_df,
-            max_distance=20,
-            min_portfolio_size=280
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False]
+    if len(unassigned_custs) > 0:
+        cust_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        centralized_bankers, customers_df, cent_step7 = fill_banker_portfolios(
+            centralized_bankers, customers_df, cust_tree, 400, 'CENT_STEP7_FILL_MIN_400MILE', 'MIN'
         )
-        
-        print(f"\n✓ Completed {len(reassignments_20)} reassignments (20 miles)")
     else:
-        reassignments_20 = []
-        print("✓ All IN MARKET bankers have met their minimum requirements")
+        cent_step7 = []
     
-    # Step 4.7: Reassign from over-capacity bankers (40 miles) if STILL below minimum
-    print("\n" + "="*60)
-    print("Step 4: Reassignment from Over-Capacity Bankers (40 miles)")
-    print("="*60)
-    
-    bankers_still_struggling_40 = in_market_bankers[in_market_bankers['REMAINING_MIN'] > 0].copy()
-    
-    if len(bankers_still_struggling_40) > 0:
-        print(f"Found {len(bankers_still_struggling_40)} IN MARKET bankers STILL below minimum.")
-        print("Attempting reassignment from over-capacity bankers within 40 miles...\n")
-        
-        in_market_bankers, customers_df, reassignments_40 = reassign_from_overcapacity_bankers(
-            bankers_still_struggling_40, 
-            in_market_bankers, 
-            customers_df,
-            max_distance=40,
-            min_portfolio_size=280
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False]
+    if len(unassigned_custs) > 0:
+        cust_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        centralized_bankers, customers_df, cent_step8a = fill_banker_portfolios(
+            centralized_bankers, customers_df, cust_tree, 200, 'CENT_STEP8A_FILL_MAX_200MI', 'MAX'
         )
-        
-        print(f"\n✓ Completed {len(reassignments_40)} reassignments (40 miles)")
     else:
-        reassignments_40 = []
-        print("✓ All IN MARKET bankers have met their minimum requirements")
+        cent_step8a = []
     
-    # Combine all reassignments
-    all_reassignments = reassignments_20 + reassignments_40
-    
-    # Add reassignments to the assignments list for tracking
-    for r in all_reassignments:
-        im_assignments.append({
-            'HH_ECN': r['HH_ECN'],
-            'PORT_CODE': r['TO_PORT'],
-            'DISTANCE': r['DISTANCE'],
-            'PHASE': 'IN_MARKET_REASSIGNED'
-        })
-    
-    # Step 5: Process CENTRALIZED assignments (200 miles)
-    centralized_bankers, customers_df, cent_assignments, cent_exceptions = process_banker_assignments(
-        centralized_bankers, customers_df, centralized_eligible,
-        'CENTRALIZED', 'CENTRALIZED', 200
-    )
-    
-    # Step 5.5: Retry CENTRALIZED bankers with 400 miles if they didn't meet minimum
-    print("\n" + "="*60)
-    print("Checking for CENTRALIZED Bankers Below Minimum")
-    print("="*60)
-    
-    # Identify CENTRALIZED bankers who didn't meet minimum
-    cent_bankers_below_min = centralized_bankers[centralized_bankers['REMAINING_MIN'] > 0].copy()
-    
-    if len(cent_bankers_below_min) > 0:
-        print(f"Found {len(cent_bankers_below_min)} CENTRALIZED bankers below minimum.")
-        print("Retrying with expanded 400-mile radius...")
-        
-        # Recalculate eligible customers with 400-mile radius for these bankers
-        centralized_400mile_eligible = calculate_distance_matrix(
-            cent_bankers_below_min, customers_df, 'CENTRALIZED', 400
+    unassigned_custs = customers_df[customers_df['IS_ASSIGNED'] == False]
+    if len(unassigned_custs) > 0:
+        cust_tree = build_balltree(unassigned_custs, 'LAT_NUM', 'LON_NUM')
+        centralized_bankers, customers_df, cent_step8b = fill_banker_portfolios(
+            centralized_bankers, customers_df, cust_tree, 400, 'CENT_STEP8B_FILL_MAX_400MILE', 'MAX'
         )
-        
-        # Process these bankers again with 400-mile radius
-        centralized_bankers_retry, customers_df, cent_400_assignments, cent_400_exceptions = process_banker_assignments(
-            cent_bankers_below_min, customers_df, centralized_400mile_eligible,
-            'CENTRALIZED_400MILE', 'CENTRALIZED', 400
-        )
-        
-        # Update the main centralized_bankers dataframe with retry results
-        for idx, retry_banker in centralized_bankers_retry.iterrows():
-            port_code = retry_banker['PORT_CODE']
-            main_idx = centralized_bankers[centralized_bankers['PORT_CODE'] == port_code].index[0]
-            centralized_bankers.at[main_idx, 'CURRENT_ASSIGNED'] = retry_banker['CURRENT_ASSIGNED']
-            centralized_bankers.at[main_idx, 'REMAINING_MIN'] = retry_banker['REMAINING_MIN']
-            centralized_bankers.at[main_idx, 'REMAINING_MAX'] = retry_banker['REMAINING_MAX']
-        
-        # Combine assignments and exceptions
-        cent_assignments.extend(cent_400_assignments)
-        cent_exceptions.extend(cent_400_exceptions)
-        
-        print(f"✓ Additional {len(cent_400_assignments)} assignments made with 400-mile radius")
     else:
-        print("✓ All CENTRALIZED bankers met their minimum requirements within 200 miles")
+        cent_step8b = []
     
-    # Step 6: Combine results
     all_bankers = pd.concat([in_market_bankers, centralized_bankers], ignore_index=True)
-    all_exceptions = im_exceptions + cent_exceptions
     
-    # Step 7: Generate output files
     print("\n" + "="*60)
     print("Generating Output Files")
     print("="*60)
     
     output_files = {}
     
-    # File 1: Customer Assignment
     output_files['customer_assignment'] = os.path.join(output_dir, 'customer_assignment.csv')
     generate_customer_assignment_file(customers_df, banker_data_orig, output_files['customer_assignment'])
     
-    # File 2: Banker Summary
     output_files['banker_summary'] = os.path.join(output_dir, 'banker_summary.csv')
     generate_banker_summary_file(all_bankers, customers_df, output_files['banker_summary'])
     
-    # File 3: Unassigned Customers
     output_files['unassigned_customers'] = os.path.join(output_dir, 'unassigned_customers.csv')
     generate_unassigned_customers_file(customers_df, banker_data_orig, output_files['unassigned_customers'])
     
-    # File 4: Exception Report
-    if all_exceptions:
-        output_files['exception_report'] = os.path.join(output_dir, 'exception_report.csv')
-        generate_exception_report(all_exceptions, output_files['exception_report'])
-    
-    # File 5: Overall Summary
     output_files['overall_summary'] = os.path.join(output_dir, 'overall_summary.csv')
-    generate_overall_summary(all_bankers, customers_df, start_time, output_files['overall_summary'])
+    generate_overall_summary(all_bankers, customers_df, start_time, output_files['overall_summary'],
+                            im_step1, im_step2, im_step3, im_step4,
+                            cent_step5, cent_step6, cent_step7, cent_step8a, cent_step8b)
     
-    # Print final summary
     print("\n" + "="*80)
     print("ASSIGNMENT COMPLETE")
     print("="*80)
@@ -1067,52 +711,36 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     assigned_count = len(customers_df[customers_df['IS_ASSIGNED'] == True])
     unassigned_count = len(customers_df[customers_df['IS_ASSIGNED'] == False])
     
-    # Count assignments by phase
-    im_20_count = len([a for a in im_assignments if '40MILE' not in a['PHASE'] and 'REASSIGNED' not in a['PHASE']])
-    im_40_count = len([a for a in im_assignments if '40MILE' in a['PHASE']])
-    im_reassigned_20_count = len(reassignments_20)
-    im_reassigned_40_count = len(reassignments_40)
-    
-    cent_200_count = len([a for a in cent_assignments if '400MILE' not in a['PHASE']])
-    cent_400_count = len([a for a in cent_assignments if '400MILE' in a['PHASE']])
-    
     print(f"\n✓ Total Customers Assigned: {assigned_count}")
     print(f"✓ Total Customers Unassigned: {unassigned_count}")
     print(f"✓ Assignment Rate: {(assigned_count/len(customers_df)*100):.2f}%")
     
     print(f"\n--- IN MARKET Assignments ---")
-    print(f"✓ Step 1 - Standard (20 miles): {im_20_count}")
-    print(f"✓ Step 2 - Expanded (40 miles): {im_40_count}")
-    print(f"✓ Step 3 - Reassigned (20 miles): {im_reassigned_20_count}")
-    print(f"✓ Step 4 - Reassigned (40 miles): {im_reassigned_40_count}")
-    print(f"  Total IN MARKET: {im_20_count + im_40_count + im_reassigned_20_count + im_reassigned_40_count}")
+    print(f"✓ Step 1 - Nearest banker (20 mi, up to MIN): {len(im_step1)}")
+    print(f"✓ Step 2 - Fill MIN (20 mi): {len(im_step2)}")
+    print(f"✓ Step 3 - Fill MIN (40 mi): {len(im_step3)}")
+    print(f"✓ Step 4 - Fill MAX (20 mi): {len(im_step4)}")
+    print(f"  Total IN MARKET: {len(im_step1) + len(im_step2) + len(im_step3) + len(im_step4)}")
     
     print(f"\n--- CENTRALIZED Assignments ---")
-    print(f"✓ Step 1 - Standard (200 miles): {cent_200_count}")
-    print(f"✓ Step 2 - Expanded (400 miles): {cent_400_count}")
-    print(f"  Total CENTRALIZED: {len(cent_assignments)}")
+    print(f"✓ Step 5 - Nearest banker (200 mi, up to MIN): {len(cent_step5)}")
+    print(f"✓ Step 6 - Fill MIN (200 mi): {len(cent_step6)}")
+    print(f"✓ Step 7 - Fill MIN (400 mi): {len(cent_step7)}")
+    print(f"✓ Step 8a - Fill MAX (200 mi): {len(cent_step8a)}")
+    print(f"✓ Step 8b - Fill MAX (400 mi): {len(cent_step8b)}")
+    print(f"  Total CENTRALIZED: {len(cent_step5) + len(cent_step6) + len(cent_step7) + len(cent_step8a) + len(cent_step8b)}")
     
-    print(f"\n✓ Exceptions: {len(all_exceptions)}")
     print(f"\n✓ Execution Time: {(datetime.now() - start_time).total_seconds():.2f} seconds")
-    
     print(f"\nOutput files saved to: {output_dir}/")
     
     return output_files
 
 
-# ==================== USAGE EXAMPLE ====================
-
 if __name__ == "__main__":
-    """
-    Example usage of the customer-banker assignment system
-    """
-    
-    # Define your input file paths
     BANKER_FILE = 'banker_data.csv'
     REQ_CUSTS_FILE = 'req_custs.csv'
     AVAILABLE_CUSTS_FILE = 'available_custs.csv'
     
-    # Run the assignment
     output_files = run_customer_banker_assignment(
         banker_file=BANKER_FILE,
         req_custs_file=REQ_CUSTS_FILE,
