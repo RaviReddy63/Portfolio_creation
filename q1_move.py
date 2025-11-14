@@ -383,17 +383,29 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, bankers_df_
     # ==================== PROCESS NEW ASSIGNMENTS ====================
     assigned = customers_df[customers_df['IS_ASSIGNED'] == True].copy()
     
+    # Columns from original banker data (without CURR_COUNT)
     banker_cols = ['PORT_CODE', 'EID', 'EMPLOYEE_NAME', 'AU', 'BRANCH_NAME', 
                    'ROLE_TYPE', 'BANKER_LAT_NUM', 'BANKER_LON_NUM', 
                    'MANAGER_NAME', 'DIRECTOR_NAME', 'COVERAGE', 
-                   'BRANCH_LOCATION_CODE', 'CURR_COUNT']
+                   'BRANCH_LOCATION_CODE']
     
+    # Merge with full banker info
     result = assigned.merge(
         bankers_df_full[banker_cols],
         left_on='ASSIGNED_TO_PORT_CODE',
         right_on='PORT_CODE',
         how='left'
     )
+    
+    # Merge CURR_COUNT from working dataframe
+    result = result.merge(
+        bankers_df_working[['PORT_CODE', 'CURR_COUNT']],
+        left_on='ASSIGNED_TO_PORT_CODE',
+        right_on='PORT_CODE',
+        how='left',
+        suffixes=('', '_curr')
+    )
+    result = result.drop(columns=['PORT_CODE_curr'], errors='ignore')
     
     result['PROXIMITY_LIMIT_MILES'] = result['ROLE_TYPE'].apply(
         lambda x: 40 if x == 'IN MARKET' else 200
@@ -419,6 +431,13 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, bankers_df_
         # Merge with banker information
         existing_result = existing_custs.merge(
             bankers_df_full[banker_cols],
+            on='PORT_CODE',
+            how='left'
+        )
+        
+        # Merge CURR_COUNT from working dataframe
+        existing_result = existing_result.merge(
+            bankers_df_working[['PORT_CODE', 'CURR_COUNT']],
             on='PORT_CODE',
             how='left'
         )
