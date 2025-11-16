@@ -997,6 +997,73 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
         customers_df, centralized_bankers, 200, 'CENT_STEP10_FILL_MAX_200MI', 'MAX'
     )
     
+    # Step 11: Assign remaining unassigned to nearest centralized (no distance limit, up to MAX)
+    print(f"\n{'='*60}")
+    print("CENT_STEP11: Assign Remaining to Nearest CENTRALIZED (No Limit, Up to MAX)")
+    print(f"{'='*60}")
+    
+    unassigned = customers_df[customers_df['IS_ASSIGNED'] == False]
+    step11 = []
+    
+    if len(unassigned) > 0:
+        print(f"Found {len(unassigned)} unassigned customers")
+        
+        for idx, customer in unassigned.iterrows():
+            cust_lat = customer['LAT_NUM']
+            cust_lon = customer['LON_NUM']
+            cust_id = customer['HH_ECN']
+            
+            # Find nearest centralized banker regardless of distance
+            min_distance = float('inf')
+            nearest_banker_idx = None
+            nearest_port_code = None
+            
+            for banker_idx, banker in centralized_bankers.iterrows():
+                # Check if banker can take more (not at MAX)
+                current = banker['CURRENT_ASSIGNED']
+                curr_count = banker['CURR_COUNT']
+                max_allowed = banker['MAX_COUNT_REQ']
+                total = curr_count + current
+                target_max = curr_count + max_allowed
+                
+                if total >= target_max:
+                    continue
+                
+                # Calculate distance
+                banker_lat = banker['BANKER_LAT_NUM']
+                banker_lon = banker['BANKER_LON_NUM']
+                distance = haversine_distance(cust_lat, cust_lon, banker_lat, banker_lon)
+                
+                if distance < min_distance:
+                    min_distance = distance
+                    nearest_banker_idx = banker_idx
+                    nearest_port_code = banker['PORT_CODE']
+            
+            # Assign to nearest banker if found
+            if nearest_banker_idx is not None:
+                banker_eid = centralized_bankers.at[nearest_banker_idx, 'EID']
+                
+                customers_df.at[idx, 'IS_ASSIGNED'] = True
+                customers_df.at[idx, 'ASSIGNED_TO_PORT_CODE'] = nearest_port_code
+                customers_df.at[idx, 'ASSIGNED_BANKER_EID'] = banker_eid
+                customers_df.at[idx, 'DISTANCE_MILES'] = min_distance
+                customers_df.at[idx, 'ASSIGNMENT_PHASE'] = 'CENT_STEP11_NEAREST_NO_LIMIT'
+                
+                if min_distance > 600:
+                    customers_df.at[idx, 'EXCEPTION_FLAG'] = f'DISTANCE_EXCEEDS_600MI_{int(min_distance)}MI'
+                
+                centralized_bankers.at[nearest_banker_idx, 'CURRENT_ASSIGNED'] += 1
+                
+                step11.append({
+                    'HH_ECN': cust_id,
+                    'PORT_CODE': nearest_port_code,
+                    'DISTANCE': min_distance
+                })
+        
+        print(f"✓ Assigned {len(step11)} customers to nearest centralized bankers")
+    else:
+        print("✓ No unassigned customers remaining")
+    
     # ==================== GENERATE OUTPUTS ====================
     
     all_bankers = pd.concat([in_market_bankers, centralized_bankers], ignore_index=True)
@@ -1043,7 +1110,8 @@ def run_customer_banker_assignment(banker_file, req_custs_file, available_custs_
     print(f"✓ Step 8 - Fill MIN (400 mi): {len(step8)}")
     print(f"✓ Step 9 - Fill MIN (600 mi): {len(step9)}")
     print(f"✓ Step 10 - Fill MAX (200 mi): {len(step10)}")
-    print(f"  Total CENTRALIZED: {len(step7) + len(step8) + len(step9) + len(step10)}")
+    print(f"✓ Step 11 - Nearest (no limit, up to MAX): {len(step11)}")
+    print(f"  Total CENTRALIZED: {len(step7) + len(step8) + len(step9) + len(step10) + len(step11)}")
     
     print(f"\n✓ Execution Time: {(datetime.now() - start_time).total_seconds():.2f} seconds")
     print(f"\nOutput files saved to: {output_dir}/")
