@@ -8,7 +8,8 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 from math import radians, cos, sin, asin, sqrt
-from sklearn.neighbors import BallTree
+from sklearn.neighbors import BallTree, NearestNeighbors
+from sklearn.preprocessing import LabelEncoder
 import warnings
 warnings.filterwarnings('ignore')
 
@@ -24,6 +25,98 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     c = 2 * asin(sqrt(a))
     miles = 3959 * c
     return miles
+
+
+def impute_missing_coordinates_knn(df, k=5):
+    """
+    Use K-Nearest Neighbors to impute missing LAT_NUM and LON_NUM
+    based on BILLINGCITY, BILLINGSTATE, and BILLINGSTREET similarity
+    """
+    print("\nImputing missing coordinates using KNN...")
+    
+    # Separate rows with and without coordinates
+    has_coords = df[df['LAT_NUM'].notna() & df['LON_NUM'].notna()].copy()
+    missing_coords = df[df['LAT_NUM'].isna() | df['LON_NUM'].isna()].copy()
+    
+    if len(missing_coords) == 0:
+        print("✓ No missing coordinates to impute")
+        return df
+    
+    print(f"Found {len(missing_coords)} customers with missing coordinates")
+    print(f"Using {len(has_coords)} customers with valid coordinates for KNN")
+    
+    # Fill missing address fields with empty string
+    for col in ['BILLINGCITY', 'BILLINGSTATE', 'BILLINGSTREET']:
+        if col in has_coords.columns:
+            has_coords[col] = has_coords[col].fillna('UNKNOWN')
+            missing_coords[col] = missing_coords[col].fillna('UNKNOWN')
+    
+    # Encode BILLINGCITY and BILLINGSTATE
+    city_encoder = LabelEncoder()
+    state_encoder = LabelEncoder()
+    
+    # Fit encoders on combined data to handle all categories
+    all_cities = pd.concat([has_coords['BILLINGCITY'], missing_coords['BILLINGCITY']]).unique()
+    all_states = pd.concat([has_coords['BILLINGSTATE'], missing_coords['BILLINGSTATE']]).unique()
+    
+    city_encoder.fit(all_cities)
+    state_encoder.fit(all_states)
+    
+    # Transform training data (customers with coordinates)
+    has_coords['CITY_ENCODED'] = city_encoder.transform(has_coords['BILLINGCITY'])
+    has_coords['STATE_ENCODED'] = state_encoder.transform(has_coords['BILLINGSTATE'])
+    
+    # Transform test data (customers without coordinates)
+    missing_coords['CITY_ENCODED'] = city_encoder.transform(missing_coords['BILLINGCITY'])
+    missing_coords['STATE_ENCODED'] = state_encoder.transform(missing_coords['BILLINGSTATE'])
+    
+    # Prepare features for KNN (using city and state)
+    X_train = has_coords[['CITY_ENCODED', 'STATE_ENCODED']].values
+    y_train_lat = has_coords['LAT_NUM'].values
+    y_train_lon = has_coords['LON_NUM'].values
+    
+    X_test = missing_coords[['CITY_ENCODED', 'STATE_ENCODED']].values
+    
+    # Build KNN model
+    knn = NearestNeighbors(n_neighbors=min(k, len(has_coords)), metric='euclidean')
+    knn.fit(X_train)
+    
+    # Find K nearest neighbors for each missing coordinate
+    distances, indices = knn.kneighbors(X_test)
+    
+    # Impute coordinates as median of K nearest neighbors
+    imputed_lats = []
+    imputed_lons = []
+    
+    for neighbor_indices in indices:
+        neighbor_lats = y_train_lat[neighbor_indices]
+        neighbor_lons = y_train_lon[neighbor_indices]
+        
+        # Use median to be robust to outliers
+        imputed_lat = np.median(neighbor_lats)
+        imputed_lon = np.median(neighbor_lons)
+        
+        imputed_lats.append(imputed_lat)
+        imputed_lons.append(imputed_lon)
+    
+    # Update missing coordinates
+    missing_coords['LAT_NUM'] = imputed_lats
+    missing_coords['LON_NUM'] = imputed_lons
+    missing_coords['COORDS_IMPUTED'] = True
+    
+    # Mark non-imputed rows
+    has_coords['COORDS_IMPUTED'] = False
+    
+    # Combine back
+    result = pd.concat([has_coords, missing_coords], ignore_index=True)
+    
+    # Drop encoding columns
+    result = result.drop(columns=['CITY_ENCODED', 'STATE_ENCODED'], errors='ignore')
+    
+    print(f"✓ Imputed coordinates for {len(missing_coords)} customers using {k}-NN")
+    print(f"  Method: Median of {k} nearest neighbors based on BILLINGCITY + BILLINGSTATE")
+    
+    return result
 
 
 def build_balltree(df, lat_col, lon_col):
@@ -43,14 +136,25 @@ def load_and_prepare_data(banker_file, req_custs_file, available_custs_file):
     req_custs = pd.read_csv(req_custs_file)
     available_custs = pd.read_csv(available_custs_file)
     
-    # Filter out null coordinates
-    print(f"Bankers before filtering: {len(banker_data)}")
+    # Filter out null coordinates from bankers
+    print(f"\nBankers before filtering: {len(banker_data)}")
     banker_data = banker_data.dropna(subset=['BANKER_LAT_NUM', 'BANKER_LON_NUM'])
     print(f"Bankers after filtering: {len(banker_data)}")
     
-    print(f"Customers before filtering: {len(available_custs)}")
+    # Impute missing coordinates for customers using KNN
+    print(f"\nCustomers loaded: {len(available_custs)}")
+    customers_with_missing = available_custs['LAT_NUM'].isna().sum()
+    print(f"Customers with missing coordinates: {customers_with_missing}")
+    
+    if customers_with_missing > 0:
+        available_custs = impute_missing_coordinates_knn(available_custs, k=5)
+    else:
+        available_custs['COORDS_IMPUTED'] = False
+    
+    # Now filter out any remaining nulls (if imputation wasn't possible)
+    print(f"\nCustomers before final filtering: {len(available_custs)}")
     available_custs = available_custs.dropna(subset=['LAT_NUM', 'LON_NUM'])
-    print(f"Customers after filtering: {len(available_custs)}")
+    print(f"Customers after final filtering: {len(available_custs)}")
     
     bankers_df = banker_data.merge(req_custs, on='PORT_CODE', how='inner')
     
@@ -65,7 +169,7 @@ def load_and_prepare_data(banker_file, req_custs_file, available_custs_file):
     available_custs['ASSIGNMENT_PHASE'] = None
     available_custs['EXCEPTION_FLAG'] = None
     
-    print(f"Loaded {len(bankers_df)} bankers and {len(available_custs)} available customers")
+    print(f"\nLoaded {len(bankers_df)} bankers and {len(available_custs)} available customers")
     
     return bankers_df, available_custs, banker_data, available_custs.copy()
 
@@ -462,6 +566,7 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, bankers_df_
         existing_result['EXCEPTION_FLAG'] = None
         existing_result['CUSTOMER_TYPE'] = 'Existing'
         existing_result['ASSIGNED_TO_PORT_CODE'] = existing_result['PORT_CODE']
+        existing_result['COORDS_IMPUTED'] = False  # Existing customers have real coordinates
         
         # Fill missing columns with None/0 if they don't exist
         for col in ['NEW_SEGMENT', 'DEPOSIT_BAL', 'CG_GROSS_SALES', 'BANK_REVENUE',
@@ -537,6 +642,7 @@ def generate_customer_assignment_file(customers_df, bankers_df_full, bankers_df_
         'ASSIGNMENT_PHASE': 'ASSIGNMENT_PHASE',
         'IS_WITHIN_PROXIMITY': 'IS_WITHIN_PROXIMITY',
         'EXCEPTION_FLAG': 'EXCEPTION_FLAG',
+        'COORDS_IMPUTED': 'COORDS_IMPUTED',
         'NEW_SEGMENT': 'NEW_SEGMENT',
         'DEPOSIT_BAL': 'DEPOSIT_BAL',
         'CG_GROSS_SALES': 'CG_GROSS_SALES',
@@ -683,6 +789,7 @@ def generate_unassigned_customers_file(customers_df, bankers_df_full, output_pat
             'BILLINGPOSTALCODE': customer['BILLINGPOSTALCODE'],
             'LAT_NUM': customer['LAT_NUM'],
             'LON_NUM': customer['LON_NUM'],
+            'COORDS_IMPUTED': customer.get('COORDS_IMPUTED', False),
             'DEPOSIT_BAL': customer['DEPOSIT_BAL'],
             'CG_GROSS_SALES': customer['CG_GROSS_SALES'],
             'BANK_REVENUE': customer['BANK_REVENUE'],
