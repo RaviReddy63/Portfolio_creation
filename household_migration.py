@@ -154,55 +154,6 @@ def impute_missing_coordinates_knn(df, lat_col='LAT_NUM', lon_col='LON_NUM',
     return result
 
 
-def impute_coordinates_by_patronage_au(df, branch_data, lat_col='LAT_NUM', lon_col='LON_NUM',
-                                        patr_au_col='PATR_AU_STR', entity_name='records'):
-    """
-    Impute missing coordinates using patronage AU's branch location
-    
-    This is used when city/state are not available but patronage AU is known
-    """
-    print(f"\n  Imputing missing coordinates for {entity_name} using Patronage AU...")
-    
-    df = df.copy()
-    
-    if patr_au_col not in df.columns:
-        print(f"    ⚠ Missing {patr_au_col} column, skipping AU-based imputation")
-        if 'COORDS_IMPUTED' not in df.columns:
-            df['COORDS_IMPUTED'] = False
-        return df
-    
-    # Get records with missing coordinates
-    missing_mask = df[lat_col].isna() | df[lon_col].isna()
-    missing_count_before = missing_mask.sum()
-    
-    if missing_count_before == 0:
-        print(f"    ✓ No missing coordinates to impute")
-        if 'COORDS_IMPUTED' not in df.columns:
-            df['COORDS_IMPUTED'] = False
-        return df
-    
-    print(f"    Found {missing_count_before} {entity_name} with missing coordinates")
-    
-    # Create AU to branch location mapping
-    au_to_coords = branch_data.set_index('AU')[['BRANCH_LAT_NUM', 'BRANCH_LON_NUM']].to_dict('index')
-    
-    imputed_count = 0
-    
-    for idx in df[missing_mask].index:
-        patr_au = df.at[idx, patr_au_col]
-        
-        if pd.notna(patr_au) and patr_au in au_to_coords:
-            branch_coords = au_to_coords[patr_au]
-            df.at[idx, lat_col] = branch_coords['BRANCH_LAT_NUM']
-            df.at[idx, lon_col] = branch_coords['BRANCH_LON_NUM']
-            df.at[idx, 'COORDS_IMPUTED'] = True
-            imputed_count += 1
-    
-    print(f"    ✓ Imputed {imputed_count} {entity_name} using Patronage AU branch location")
-    
-    return df
-
-
 def build_balltree(df, lat_col, lon_col):
     """Build BallTree for efficient spatial queries"""
     valid_df = df.dropna(subset=[lat_col, lon_col])
@@ -298,12 +249,24 @@ def prepare_data(data):
     print(f"    Households: {len(hh_missing_before)} / {len(data['household'])}")
     print(f"    Client Groups: {len(cg_missing_before)} / {len(data['clientgroup'])}")
     
+    # Impute client group coordinates FIRST (using KNN with address fields)
+    # This way clientgroup coords can be used for household imputation
+    data['clientgroup'] = impute_missing_coordinates_knn(
+        data['clientgroup'],
+        lat_col='LAT_NUM',
+        lon_col='LON_NUM',
+        city_col='BILLINGCITY',
+        state_col='BILLINGSTATE',
+        k=5,
+        entity_name='client groups'
+    )
+    
     # Impute household coordinates
-    # First try using KNN with city/state if available in household data
-    # Check if household has address columns (they might not based on schema)
+    # Check if household has address columns
     hh_has_address = 'BILLINGCITY' in data['household'].columns and 'BILLINGSTATE' in data['household'].columns
     
     if hh_has_address:
+        # Method 1: KNN with city/state
         data['household'] = impute_missing_coordinates_knn(
             data['household'],
             lat_col='LAT_NUM',
@@ -314,39 +277,31 @@ def prepare_data(data):
             entity_name='households'
         )
     else:
-        # Fall back to patronage AU-based imputation
-        data['household'] = impute_coordinates_by_patronage_au(
+        # Method 2: Cross-reference ECN with relatedclient and clientgroup data
+        print("\n  Household data doesn't have address columns, using ECN cross-reference...")
+        data['household'] = impute_coordinates_from_ecn_sources(
             data['household'],
-            data['branch'],
+            data['relatedclient'],
+            data['clientgroup'],
+            ecn_col='ECN',
             lat_col='LAT_NUM',
             lon_col='LON_NUM',
-            patr_au_col='PATR_AU_STR',
             entity_name='households'
         )
     
-    # If still missing, try KNN based on patronage AU
+    # If still missing, try ECN cross-reference (even if address columns exist)
     still_missing = data['household'][data['household']['LAT_NUM'].isna() | data['household']['LON_NUM'].isna()]
-    if len(still_missing) > 0:
-        print(f"  Still missing after first imputation: {len(still_missing)}")
-        data['household'] = impute_coordinates_by_patronage_au(
+    if len(still_missing) > 0 and hh_has_address:
+        print(f"\n  Still missing after KNN: {len(still_missing)}, trying ECN cross-reference...")
+        data['household'] = impute_coordinates_from_ecn_sources(
             data['household'],
-            data['branch'],
+            data['relatedclient'],
+            data['clientgroup'],
+            ecn_col='ECN',
             lat_col='LAT_NUM',
             lon_col='LON_NUM',
-            patr_au_col='PATR_AU_STR',
-            entity_name='households (fallback)'
+            entity_name='households (ECN fallback)'
         )
-    
-    # Impute client group coordinates using KNN with address fields
-    data['clientgroup'] = impute_missing_coordinates_knn(
-        data['clientgroup'],
-        lat_col='LAT_NUM',
-        lon_col='LON_NUM',
-        city_col='BILLINGCITY',
-        state_col='BILLINGSTATE',
-        k=5,
-        entity_name='client groups'
-    )
     
     # Check missing coordinates after imputation
     hh_missing_after = data['household'][data['household']['LAT_NUM'].isna() | data['household']['LON_NUM'].isna()]
@@ -1422,16 +1377,187 @@ def step12_generate_metrics(data, metrics):
 # ==================== OUTPUT GENERATION ====================
 
 def generate_outputs(data, metrics, output_dir='output'):
-    """Generate all output files"""
+    """Generate all output files with columns similar to original customer_assignment.csv"""
     print_section("GENERATING OUTPUT FILES")
     
     import os
     os.makedirs(output_dir, exist_ok=True)
     
-    # 1. Main HH Assignment File
+    # 1. Main HH Assignment File (with enriched columns like original)
+    # EXCLUDE SBB assignments - they go to separate file
     hh_assignments = data['hh_assignments'].copy()
-    hh_assignments.to_csv(f"{output_dir}/hh_assignments.csv", index=False)
-    print(f"  ✓ Saved: {output_dir}/hh_assignments.csv ({len(hh_assignments)} records)")
+    
+    # Get assigned households (excluding SBB)
+    assigned_hh = hh_assignments[
+        (hh_assignments['IS_ASSIGNED'] == True) & 
+        (hh_assignments['ASSIGNED_BANKER_TYPE'] != 'SBB')
+    ].copy()
+    
+    # Merge with banker data for RM/RC bankers
+    banker_data = data['banker'].copy()
+    branch_data = data['branch'].copy()
+    sbb_data = data['sbb'].copy()
+    
+    # Add branch coordinates to banker data
+    banker_with_coords = banker_data.merge(
+        branch_data[['AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM', 'NAME', 'CITY', 'POSTALCODE']],
+        on='AU',
+        how='left'
+    )
+    banker_with_coords = banker_with_coords.rename(columns={
+        'NAME': 'BRANCH_NAME',
+        'BRANCH_LAT_NUM': 'BANKER_LAT',
+        'BRANCH_LON_NUM': 'BANKER_LON'
+    })
+    
+    # Merge assigned HHs with banker info
+    assigned_enriched = assigned_hh.merge(
+        banker_with_coords[['PORT_CODE', 'EID', 'EMPLOYEE_NAME', 'AU', 'BRANCH_NAME',
+                            'ROLE_TYPE', 'BANKER_LAT', 'BANKER_LON', 
+                            'MANAGER_NAME', 'DIRECTOR_NAME', 'COVERAGE', 'BANKER_TYPE']],
+        left_on='ASSIGNED_PORT_CODE',
+        right_on='PORT_CODE',
+        how='left'
+    )
+    
+    # For SBB bankers, merge separately
+    sbb_assigned = assigned_enriched[assigned_enriched['ASSIGNED_BANKER_TYPE'] == 'SBB'].copy()
+    non_sbb_assigned = assigned_enriched[assigned_enriched['ASSIGNED_BANKER_TYPE'] != 'SBB'].copy()
+    
+    if len(sbb_assigned) > 0:
+        # Get SBB details
+        sbb_details = sbb_data[['AU', 'Full Name', 'Manager', 'Director', 'State', 
+                                 'BRANCH NAME', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM']].copy()
+        sbb_details = sbb_details.rename(columns={
+            'Full Name': 'EMPLOYEE_NAME_SBB',
+            'Manager': 'MANAGER_NAME_SBB',
+            'Director': 'DIRECTOR_NAME_SBB',
+            'BRANCH NAME': 'BRANCH_NAME_SBB',
+            'BRANCH_LAT_NUM': 'BANKER_LAT_SBB',
+            'BRANCH_LON_NUM': 'BANKER_LON_SBB'
+        })
+        
+        sbb_assigned = sbb_assigned.merge(
+            sbb_details,
+            left_on='ASSIGNED_PORT_CODE',
+            right_on='AU',
+            how='left',
+            suffixes=('', '_sbb')
+        )
+        
+        # Fill in banker columns from SBB data
+        sbb_assigned['EMPLOYEE_NAME'] = sbb_assigned['EMPLOYEE_NAME'].fillna(sbb_assigned['EMPLOYEE_NAME_SBB'])
+        sbb_assigned['MANAGER_NAME'] = sbb_assigned['MANAGER_NAME'].fillna(sbb_assigned['MANAGER_NAME_SBB'])
+        sbb_assigned['DIRECTOR_NAME'] = sbb_assigned['DIRECTOR_NAME'].fillna(sbb_assigned['DIRECTOR_NAME_SBB'])
+        sbb_assigned['BRANCH_NAME'] = sbb_assigned['BRANCH_NAME'].fillna(sbb_assigned['BRANCH_NAME_SBB'])
+        sbb_assigned['BANKER_LAT'] = sbb_assigned['BANKER_LAT'].fillna(sbb_assigned['BANKER_LAT_SBB'])
+        sbb_assigned['BANKER_LON'] = sbb_assigned['BANKER_LON'].fillna(sbb_assigned['BANKER_LON_SBB'])
+        sbb_assigned['AU'] = sbb_assigned['ASSIGNED_PORT_CODE']
+        sbb_assigned['ROLE_TYPE'] = 'SBB'
+        
+        # Drop temporary columns
+        sbb_cols_to_drop = [col for col in sbb_assigned.columns if col.endswith('_SBB') or col.endswith('_sbb')]
+        sbb_assigned = sbb_assigned.drop(columns=sbb_cols_to_drop, errors='ignore')
+        
+        # Combine back
+        assigned_enriched = pd.concat([non_sbb_assigned, sbb_assigned], ignore_index=True)
+    
+    # Calculate distance
+    assigned_enriched['DISTANCE_MILES'] = assigned_enriched.apply(
+        lambda row: haversine_distance(
+            row['LAT_NUM'], row['LON_NUM'],
+            row['BANKER_LAT'], row['BANKER_LON']
+        ) if pd.notna(row['BANKER_LAT']) and pd.notna(row['BANKER_LON']) else None,
+        axis=1
+    )
+    
+    # Add proximity limit based on role type
+    def get_proximity_limit(row):
+        if row['ASSIGNED_BANKER_TYPE'] == 'SBB':
+            return 10
+        elif row.get('ROLE_TYPE') == 'IN MARKET' or row['ASSIGNED_BANKER_TYPE'] == 'RM':
+            return 40
+        else:  # CENTRALIZED / RC
+            return 200
+    
+    assigned_enriched['PROXIMITY_LIMIT_MILES'] = assigned_enriched.apply(get_proximity_limit, axis=1)
+    assigned_enriched['IS_WITHIN_PROXIMITY'] = assigned_enriched['DISTANCE_MILES'] <= assigned_enriched['PROXIMITY_LIMIT_MILES']
+    
+    # Add exception flag for expanded radius
+    def get_exception_flag(row):
+        if pd.isna(row['DISTANCE_MILES']):
+            return None
+        if row['ASSIGNED_BANKER_TYPE'] == 'RM' and row['DISTANCE_MILES'] > 40:
+            return f"EXPANDED_RADIUS_{int(row['DISTANCE_MILES'])}MI"
+        elif row['ASSIGNED_BANKER_TYPE'] == 'RC' and row['DISTANCE_MILES'] > 200:
+            return f"EXPANDED_RADIUS_{int(row['DISTANCE_MILES'])}MI"
+        elif row['ASSIGNED_BANKER_TYPE'] == 'SBB' and row['DISTANCE_MILES'] > 10:
+            return f"EXPANDED_RADIUS_{int(row['DISTANCE_MILES'])}MI"
+        return None
+    
+    assigned_enriched['EXCEPTION_FLAG'] = assigned_enriched.apply(get_exception_flag, axis=1)
+    
+    # Add timestamp
+    assigned_enriched['ASSIGNMENT_TIMESTAMP'] = datetime.now()
+    
+    # Calculate size_reach (1 if banker met minimum, 0 otherwise)
+    # This requires knowing retained counts per banker - simplified version
+    assigned_enriched['size_reach'] = 1  # Default to 1, can be enhanced
+    
+    # Rename columns to match original format
+    output_df = assigned_enriched.rename(columns={
+        'LAT_NUM': 'CUSTOMER_LAT',
+        'LON_NUM': 'CUSTOMER_LON',
+        'ASSIGNED_PORT_CODE': 'ASSIGNED_PORT_CODE',
+        'ASSIGNED_EID': 'ASSIGNED_BANKER_EID',
+        'ASSIGNED_BANKER_NAME': 'ASSIGNED_BANKER_NAME',
+        'AU': 'ASSIGNED_BANKER_AU',
+        'BRANCH_NAME': 'ASSIGNED_BANKER_BRANCH_NAME',
+        'BANKER_LAT': 'BANKER_LAT',
+        'BANKER_LON': 'BANKER_LON',
+        'ROLE_TYPE': 'BANKER_ROLE_TYPE',
+        'MANAGER_NAME': 'BANKER_MANAGER_NAME',
+        'DIRECTOR_NAME': 'BANKER_DIRECTOR_NAME',
+        'COVERAGE': 'BANKER_COVERAGE',
+        'ASSIGNMENT_STEP': 'ASSIGNMENT_PHASE'
+    })
+    
+    # Select and order columns
+    output_cols = [
+        'HH_ECN',
+        'ASSIGNED_PORT_CODE',
+        'ASSIGNED_BANKER_EID',
+        'ASSIGNED_BANKER_NAME',
+        'ASSIGNED_BANKER_AU',
+        'ASSIGNED_BANKER_BRANCH_NAME',
+        'ASSIGNED_BANKER_TYPE',
+        'DISTANCE_MILES',
+        'CUSTOMER_LAT',
+        'CUSTOMER_LON',
+        'BANKER_LAT',
+        'BANKER_LON',
+        'BANKER_ROLE_TYPE',
+        'PROXIMITY_LIMIT_MILES',
+        'ASSIGNMENT_PHASE',
+        'ASSIGNMENT_REASON',
+        'IS_WITHIN_PROXIMITY',
+        'EXCEPTION_FLAG',
+        'COORDS_IMPUTED',
+        'NEW_SEGMENT',
+        'PATR_AU_STR',
+        'BANKER_MANAGER_NAME',
+        'BANKER_DIRECTOR_NAME',
+        'BANKER_COVERAGE',
+        'ASSIGNMENT_TIMESTAMP',
+        'size_reach'
+    ]
+    
+    # Keep only existing columns
+    output_cols = [col for col in output_cols if col in output_df.columns]
+    output_df = output_df[output_cols]
+    
+    output_df.to_csv(f"{output_dir}/hh_assignments.csv", index=False)
+    print(f"  ✓ Saved: {output_dir}/hh_assignments.csv ({len(output_df)} records)")
     
     # 2. SBB Mapping File
     sbb_mappings = data.get('sbb_mappings', [])
@@ -1443,11 +1569,19 @@ def generate_outputs(data, metrics, output_dir='output'):
     else:
         print(f"  ⚠ No SBB mappings to save")
     
-    # 3. Unassigned Households
-    unassigned = hh_assignments[hh_assignments['IS_ASSIGNED'] == False]
-    if len(unassigned) > 0:
-        unassigned.to_csv(f"{output_dir}/unassigned_households.csv", index=False)
-        print(f"  ✓ Saved: {output_dir}/unassigned_households.csv ({len(unassigned)} records)")
+    # 3. Unassigned Households (excluding those assigned to SBB)
+    unassigned = hh_assignments[
+        (hh_assignments['IS_ASSIGNED'] == False) | 
+        (hh_assignments['ASSIGNED_BANKER_TYPE'] == 'SBB')
+    ].copy()
+    unassigned_only = hh_assignments[hh_assignments['IS_ASSIGNED'] == False].copy()
+    if len(unassigned_only) > 0:
+        unassigned_only = unassigned_only.rename(columns={
+            'LAT_NUM': 'CUSTOMER_LAT',
+            'LON_NUM': 'CUSTOMER_LON'
+        })
+        unassigned_only.to_csv(f"{output_dir}/unassigned_households.csv", index=False)
+        print(f"  ✓ Saved: {output_dir}/unassigned_households.csv ({len(unassigned_only)} records)")
     
     # 4. ECN-level Assignment File (with all ECNs for each HH)
     ecn_assignments = data['hh_to_ecn'].merge(
@@ -1461,14 +1595,15 @@ def generate_outputs(data, metrics, output_dir='output'):
     print(f"  ✓ Saved: {output_dir}/ecn_assignments.csv ({len(ecn_assignments)} records)")
     
     # 5. Banker Summary
-    assigned_hh = hh_assignments[hh_assignments['IS_ASSIGNED'] == True]
-    banker_summary = assigned_hh.groupby(['ASSIGNED_PORT_CODE', 'ASSIGNED_EID', 
-                                           'ASSIGNED_BANKER_NAME', 'ASSIGNED_BANKER_TYPE']).agg({
+    banker_summary = output_df.groupby(['ASSIGNED_PORT_CODE', 'ASSIGNED_BANKER_EID', 
+                                        'ASSIGNED_BANKER_NAME', 'ASSIGNED_BANKER_TYPE']).agg({
         'HH_ECN': 'count',
-        'NEW_SEGMENT': lambda x: dict(Counter(x))
+        'NEW_SEGMENT': lambda x: dict(Counter(x)),
+        'DISTANCE_MILES': ['mean', 'min', 'max']
     }).reset_index()
     banker_summary.columns = ['PORT_CODE', 'EID', 'BANKER_NAME', 'BANKER_TYPE', 
-                              'HH_COUNT', 'SEGMENT_BREAKDOWN']
+                              'HH_COUNT', 'SEGMENT_BREAKDOWN', 
+                              'AVG_DISTANCE_MILES', 'MIN_DISTANCE_MILES', 'MAX_DISTANCE_MILES']
     banker_summary.to_csv(f"{output_dir}/banker_summary.csv", index=False)
     print(f"  ✓ Saved: {output_dir}/banker_summary.csv ({len(banker_summary)} records)")
     
