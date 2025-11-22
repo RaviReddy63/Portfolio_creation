@@ -261,47 +261,16 @@ def prepare_data(data):
         entity_name='client groups'
     )
     
-    # Impute household coordinates
-    # Check if household has address columns
-    hh_has_address = 'BILLINGCITY' in data['household'].columns and 'BILLINGSTATE' in data['household'].columns
-    
-    if hh_has_address:
-        # Method 1: KNN with city/state
-        data['household'] = impute_missing_coordinates_knn(
-            data['household'],
-            lat_col='LAT_NUM',
-            lon_col='LON_NUM',
-            city_col='BILLINGCITY',
-            state_col='BILLINGSTATE',
-            k=5,
-            entity_name='households'
-        )
-    else:
-        # Method 2: Cross-reference ECN with relatedclient and clientgroup data
-        print("\n  Household data doesn't have address columns, using ECN cross-reference...")
-        data['household'] = impute_coordinates_from_ecn_sources(
-            data['household'],
-            data['relatedclient'],
-            data['clientgroup'],
-            ecn_col='ECN',
-            lat_col='LAT_NUM',
-            lon_col='LON_NUM',
-            entity_name='households'
-        )
-    
-    # If still missing, try ECN cross-reference (even if address columns exist)
-    still_missing = data['household'][data['household']['LAT_NUM'].isna() | data['household']['LON_NUM'].isna()]
-    if len(still_missing) > 0 and hh_has_address:
-        print(f"\n  Still missing after KNN: {len(still_missing)}, trying ECN cross-reference...")
-        data['household'] = impute_coordinates_from_ecn_sources(
-            data['household'],
-            data['relatedclient'],
-            data['clientgroup'],
-            ecn_col='ECN',
-            lat_col='LAT_NUM',
-            lon_col='LON_NUM',
-            entity_name='households (ECN fallback)'
-        )
+    # Impute household coordinates using KNN with city/state
+    data['household'] = impute_missing_coordinates_knn(
+        data['household'],
+        lat_col='LAT_NUM',
+        lon_col='LON_NUM',
+        city_col='BILLINGCITY',
+        state_col='BILLINGSTATE',
+        k=5,
+        entity_name='households'
+    )
     
     # Check missing coordinates after imputation
     hh_missing_after = data['household'][data['household']['LAT_NUM'].isna() | data['household']['LON_NUM'].isna()]
