@@ -1692,14 +1692,15 @@ def generate_outputs(data, metrics, output_dir='output'):
     
     # Add exception flag for expanded radius
     def get_exception_flag(row):
-        if pd.isna(row['DISTANCE_MILES']):
+        if pd.isna(row['DISTANCE_MILES']) or row['DISTANCE_MILES'] == float('inf'):
             return None
+        dist = int(row['DISTANCE_MILES'])
         if row['ASSIGNED_BANKER_TYPE'] == 'RM' and row['DISTANCE_MILES'] > 40:
-            return f"EXPANDED_RADIUS_{int(row['DISTANCE_MILES'])}MI"
+            return f"EXPANDED_RADIUS_{dist}MI"
         elif row['ASSIGNED_BANKER_TYPE'] == 'RC' and row['DISTANCE_MILES'] > 200:
-            return f"EXPANDED_RADIUS_{int(row['DISTANCE_MILES'])}MI"
+            return f"EXPANDED_RADIUS_{dist}MI"
         elif row['ASSIGNED_BANKER_TYPE'] == 'SBB' and row['DISTANCE_MILES'] > 10:
-            return f"EXPANDED_RADIUS_{int(row['DISTANCE_MILES'])}MI"
+            return f"EXPANDED_RADIUS_{dist}MI"
         return None
     
     assigned_enriched['EXCEPTION_FLAG'] = assigned_enriched.apply(get_exception_flag, axis=1)
