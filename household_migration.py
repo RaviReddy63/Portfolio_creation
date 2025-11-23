@@ -1722,6 +1722,21 @@ def generate_outputs(data, metrics, output_dir='output'):
     # Add timestamp
     assigned_enriched['ASSIGNMENT_TIMESTAMP'] = datetime.now()
     
+    # Add CUSTOMER_TYPE based on assignment step
+    def get_customer_type(row):
+        step = row.get('ASSIGNMENT_STEP', '')
+        if pd.isna(step):
+            return None
+        # Steps 5-10 are retention (Existing), Step 11 is spatial (New)
+        if 'STEP_5' in step or 'STEP_6' in step or 'STEP_7' in step or \
+           'STEP_8' in step or 'STEP_9' in step or 'STEP_10' in step:
+            return 'Existing'
+        elif 'STEP_11' in step:
+            return 'New'
+        return None
+    
+    assigned_enriched['CUSTOMER_TYPE'] = assigned_enriched.apply(get_customer_type, axis=1)
+    
     # Calculate size_reach (1 if banker met minimum, 0 otherwise)
     # This requires knowing retained counts per banker - simplified version
     assigned_enriched['size_reach'] = 1  # Default to 1, can be enhanced
@@ -1777,6 +1792,7 @@ def generate_outputs(data, metrics, output_dir='output'):
         'BANKER_DIRECTOR_NAME',
         'BANKER_COVERAGE',
         'ASSIGNMENT_TIMESTAMP',
+        'CUSTOMER_TYPE',
         'size_reach'
     ]
     
