@@ -343,12 +343,20 @@ def prepare_data(data):
     
     # Get unique households with their primary info
     # Aggregate to get one record per HH_ECN
-    hh_primary = data['household'].groupby('HH_ECN').agg({
+    agg_dict = {
         'NEW_SEGMENT': 'first',
         'LAT_NUM': 'first',
         'LON_NUM': 'first',
         'PATR_AU_STR': 'first'
-    }).reset_index()
+    }
+    
+    # Add financial and address fields if they exist
+    for col in ['DEPOSIT_BAL', 'CG_GROSS_SALES', 'BANK_REVENUE', 
+                'BILLINGCITY', 'BILLINGSTATE', 'BILLINGPOSTALCODE']:
+        if col in data['household'].columns:
+            agg_dict[col] = 'first'
+    
+    hh_primary = data['household'].groupby('HH_ECN').agg(agg_dict).reset_index()
     
     # Add COORDS_IMPUTED flag if available
     if 'COORDS_IMPUTED' in data['household'].columns:
@@ -554,6 +562,12 @@ def initialize_assignment_tracking(data):
     # Ensure COORDS_IMPUTED column exists
     if 'COORDS_IMPUTED' not in hh_primary.columns:
         hh_primary['COORDS_IMPUTED'] = False
+    
+    # Ensure financial and address fields exist (will be filled from household data)
+    for col in ['DEPOSIT_BAL', 'CG_GROSS_SALES', 'BANK_REVENUE', 
+                'BILLINGCITY', 'BILLINGSTATE', 'BILLINGPOSTALCODE']:
+        if col not in hh_primary.columns:
+            hh_primary[col] = None
     
     data['hh_assignments'] = hh_primary
     
@@ -1752,6 +1766,12 @@ def generate_outputs(data, metrics, output_dir='output'):
         'EXCEPTION_FLAG',
         'COORDS_IMPUTED',
         'NEW_SEGMENT',
+        'DEPOSIT_BAL',
+        'CG_GROSS_SALES',
+        'BANK_REVENUE',
+        'BILLINGCITY',
+        'BILLINGSTATE',
+        'BILLINGPOSTALCODE',
         'PATR_AU_STR',
         'BANKER_MANAGER_NAME',
         'BANKER_DIRECTOR_NAME',
@@ -1803,15 +1823,59 @@ def generate_outputs(data, metrics, output_dir='output'):
     print(f"  ✓ Saved: {output_dir}/ecn_assignments.csv ({len(ecn_assignments)} records)")
     
     # 5. Banker Summary
-    banker_summary = output_df.groupby(['ASSIGNED_PORT_CODE', 'ASSIGNED_BANKER_EID', 
-                                        'ASSIGNED_BANKER_NAME', 'ASSIGNED_BANKER_TYPE']).agg({
+    banker_agg = {
         'HH_ECN': 'count',
         'NEW_SEGMENT': lambda x: dict(Counter(x)),
-        'DISTANCE_MILES': ['mean', 'min', 'max']
-    }).reset_index()
-    banker_summary.columns = ['PORT_CODE', 'EID', 'BANKER_NAME', 'BANKER_TYPE', 
-                              'HH_COUNT', 'SEGMENT_BREAKDOWN', 
-                              'AVG_DISTANCE_MILES', 'MIN_DISTANCE_MILES', 'MAX_DISTANCE_MILES']
+        'DISTANCE_MILES': ['mean', 'min', 'max', 'median']
+    }
+    
+    # Add financial aggregations if columns exist
+    if 'DEPOSIT_BAL' in output_df.columns:
+        banker_agg['DEPOSIT_BAL'] = ['sum', 'mean']
+    if 'CG_GROSS_SALES' in output_df.columns:
+        banker_agg['CG_GROSS_SALES'] = ['sum', 'mean']
+    if 'BANK_REVENUE' in output_df.columns:
+        banker_agg['BANK_REVENUE'] = ['sum', 'mean']
+    
+    # Add geographic diversity metrics
+    if 'BILLINGCITY' in output_df.columns:
+        banker_agg['BILLINGCITY'] = 'nunique'
+    if 'BILLINGSTATE' in output_df.columns:
+        banker_agg['BILLINGSTATE'] = 'nunique'
+    if 'BILLINGPOSTALCODE' in output_df.columns:
+        banker_agg['BILLINGPOSTALCODE'] = 'nunique'
+    
+    banker_summary = output_df.groupby(['ASSIGNED_PORT_CODE', 'ASSIGNED_BANKER_EID', 
+                                        'ASSIGNED_BANKER_NAME', 'ASSIGNED_BANKER_TYPE']).agg(banker_agg).reset_index()
+    
+    # Flatten column names
+    banker_summary.columns = ['_'.join(col).strip('_') if isinstance(col, tuple) else col 
+                              for col in banker_summary.columns]
+    
+    # Rename to match original format
+    rename_dict = {
+        'ASSIGNED_PORT_CODE': 'PORT_CODE',
+        'ASSIGNED_BANKER_EID': 'EID',
+        'ASSIGNED_BANKER_NAME': 'BANKER_NAME',
+        'ASSIGNED_BANKER_TYPE': 'BANKER_TYPE',
+        'HH_ECN_count': 'HH_COUNT',
+        'NEW_SEGMENT_<lambda>': 'SEGMENT_BREAKDOWN',
+        'DISTANCE_MILES_mean': 'AVG_DISTANCE_MILES',
+        'DISTANCE_MILES_min': 'MIN_DISTANCE_MILES',
+        'DISTANCE_MILES_max': 'MAX_DISTANCE_MILES',
+        'DISTANCE_MILES_median': 'MEDIAN_DISTANCE_MILES',
+        'DEPOSIT_BAL_sum': 'TOTAL_DEPOSIT_BAL',
+        'DEPOSIT_BAL_mean': 'AVG_DEPOSIT_BAL',
+        'CG_GROSS_SALES_sum': 'TOTAL_GROSS_SALES',
+        'CG_GROSS_SALES_mean': 'AVG_GROSS_SALES',
+        'BANK_REVENUE_sum': 'TOTAL_REVENUE',
+        'BANK_REVENUE_mean': 'AVG_REVENUE',
+        'BILLINGCITY_nunique': 'NUM_UNIQUE_CITIES',
+        'BILLINGSTATE_nunique': 'NUM_UNIQUE_STATES',
+        'BILLINGPOSTALCODE_nunique': 'NUM_UNIQUE_ZIPCODES'
+    }
+    banker_summary = banker_summary.rename(columns=rename_dict)
+    
     banker_summary.to_csv(f"{output_dir}/banker_summary.csv", index=False)
     print(f"  ✓ Saved: {output_dir}/banker_summary.csv ({len(banker_summary)} records)")
     
