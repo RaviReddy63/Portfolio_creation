@@ -290,6 +290,55 @@ def prepare_data(data):
     print(f"    RM Bankers: {len(data['rm_bankers'])}")
     print(f"    RC Bankers: {len(data['rc_bankers'])}")
     
+    # ==================== BANKER COORDINATES ====================
+    
+    # Extract portfolio centroids from clientgroup data
+    portfolio_centroids = data['clientgroup'].groupby('CG_PORTFOLIO_CD').agg({
+        'PORT_CENTROID_LAT': 'first',
+        'PORT_CENTROID_LON': 'first'
+    }).reset_index()
+    
+    print(f"\n  Portfolio centroids extracted: {len(portfolio_centroids)}")
+    
+    # Add coordinates to banker data based on ROLE_TYPE
+    banker_with_coords = data['banker'].copy()
+    
+    # For IN MARKET bankers: use branch coordinates
+    in_market_bankers = banker_with_coords[banker_with_coords['ROLE_TYPE'] == 'IN MARKET'].copy()
+    if len(in_market_bankers) > 0:
+        in_market_bankers = in_market_bankers.merge(
+            data['branch'][['AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM']],
+            on='AU',
+            how='left'
+        )
+        in_market_bankers['BANKER_LAT_NUM'] = in_market_bankers['BRANCH_LAT_NUM']
+        in_market_bankers['BANKER_LON_NUM'] = in_market_bankers['BRANCH_LON_NUM']
+        in_market_bankers = in_market_bankers.drop(columns=['BRANCH_LAT_NUM', 'BRANCH_LON_NUM'])
+    
+    # For CENTRALIZED bankers: use portfolio centroids
+    centralized_bankers = banker_with_coords[banker_with_coords['ROLE_TYPE'] == 'CENTRALIZED'].copy()
+    if len(centralized_bankers) > 0:
+        centralized_bankers = centralized_bankers.merge(
+            portfolio_centroids,
+            left_on='PORT_CODE',
+            right_on='CG_PORTFOLIO_CD',
+            how='left'
+        )
+        centralized_bankers['BANKER_LAT_NUM'] = centralized_bankers['PORT_CENTROID_LAT']
+        centralized_bankers['BANKER_LON_NUM'] = centralized_bankers['PORT_CENTROID_LON']
+        centralized_bankers = centralized_bankers.drop(columns=['CG_PORTFOLIO_CD', 'PORT_CENTROID_LAT', 'PORT_CENTROID_LON'], errors='ignore')
+    
+    # Combine back
+    banker_with_coords = pd.concat([in_market_bankers, centralized_bankers], ignore_index=True)
+    data['banker_with_coords'] = banker_with_coords
+    
+    # Update RM and RC bankers with coordinates
+    data['rm_bankers'] = banker_with_coords[banker_with_coords['BANKER_TYPE'] == 'RM'].copy()
+    data['rc_bankers'] = banker_with_coords[banker_with_coords['BANKER_TYPE'] == 'RC'].copy()
+    
+    print(f"  RM Bankers with coordinates: {data['rm_bankers']['BANKER_LAT_NUM'].notna().sum()} / {len(data['rm_bankers'])}")
+    print(f"  RC Bankers with coordinates: {data['rc_bankers']['BANKER_LAT_NUM'].notna().sum()} / {len(data['rc_bankers'])}")
+    
     # ==================== HOUSEHOLD PRIMARY RECORDS ====================
     
     # Get unique households with their primary info
@@ -989,7 +1038,7 @@ def step10_verify_segment2_placement(data):
 def step11_spatial_assignment(data):
     """
     Step 11: Remaining segment 3 → RMs, segment 4 → RCs
-    Using BallTree spatial assignment with min/max targets
+    Using BallTree spatial assignment with min/max targets (same as original logic)
     """
     print_step("11", "Spatial Assignment (Seg 3 → RM, Seg 4 → RC)")
     
@@ -1010,30 +1059,35 @@ def step11_spatial_assignment(data):
     
     # Prepare RM bankers for assignment
     rm_bankers = data['rm_bankers'].copy()
-    rm_bankers = rm_bankers.merge(
-        data['branch'][['AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM']],
-        on='AU',
-        how='left'
-    )
     rm_bankers['RETAINED_COUNT'] = rm_bankers['PORT_CODE'].map(rm_retention_counts).fillna(0).astype(int)
     rm_bankers['MIN_NEEDED'] = 270 - rm_bankers['RETAINED_COUNT']
     rm_bankers['MAX_NEEDED'] = 350 - rm_bankers['RETAINED_COUNT']
     rm_bankers['CURRENT_ASSIGNED'] = 0
     
+    # Separate IN MARKET and CENTRALIZED RMs
+    rm_in_market = rm_bankers[rm_bankers['ROLE_TYPE'] == 'IN MARKET'].copy()
+    rm_centralized = rm_bankers[rm_bankers['ROLE_TYPE'] == 'CENTRALIZED'].copy()
+    
     # Prepare RC bankers for assignment
     rc_bankers = data['rc_bankers'].copy()
-    # RC bankers are CENTRALIZED - they don't have AU, need different location logic
-    # For now, use a default location or skip coordinates
     rc_bankers['RETAINED_COUNT'] = rc_bankers['PORT_CODE'].map(rc_retention_counts).fillna(0).astype(int)
     rc_bankers['MIN_NEEDED'] = 220 - rc_bankers['RETAINED_COUNT']
     rc_bankers['MAX_NEEDED'] = 270 - rc_bankers['RETAINED_COUNT']
     rc_bankers['CURRENT_ASSIGNED'] = 0
     
-    print(f"\n  RM Bankers: {len(rm_bankers)}")
+    # Separate IN MARKET and CENTRALIZED RCs
+    rc_in_market = rc_bankers[rc_bankers['ROLE_TYPE'] == 'IN MARKET'].copy()
+    rc_centralized = rc_bankers[rc_bankers['ROLE_TYPE'] == 'CENTRALIZED'].copy()
+    
+    print(f"\n  RM Bankers:")
+    print(f"    IN MARKET: {len(rm_in_market)}")
+    print(f"    CENTRALIZED: {len(rm_centralized)}")
     print(f"    Total MIN needed: {rm_bankers['MIN_NEEDED'].clip(lower=0).sum()}")
     print(f"    Total MAX capacity: {rm_bankers['MAX_NEEDED'].clip(lower=0).sum()}")
     
-    print(f"\n  RC Bankers: {len(rc_bankers)}")
+    print(f"\n  RC Bankers:")
+    print(f"    IN MARKET: {len(rc_in_market)}")
+    print(f"    CENTRALIZED: {len(rc_centralized)}")
     print(f"    Total MIN needed: {rc_bankers['MIN_NEEDED'].clip(lower=0).sum()}")
     print(f"    Total MAX capacity: {rc_bankers['MAX_NEEDED'].clip(lower=0).sum()}")
     
@@ -1044,22 +1098,54 @@ def step11_spatial_assignment(data):
     print(f"\n  Unassigned Segment 3: {len(seg3_unassigned)}")
     print(f"  Unassigned Segment 4: {len(seg4_unassigned)}")
     
-    # Assign Segment 3 to RMs
-    seg3_assigned = assign_spatial_with_balltree(
-        data, seg3_unassigned, rm_bankers, 
-        'RM', 'STEP_11', 'SPATIAL_SEG3_RM',
-        in_market_radius=40, expanded_radius=60
-    )
+    # Track all assignments
+    seg3_assigned = 0
+    seg4_assigned = 0
     
-    # Assign Segment 4 to RCs (CENTRALIZED - larger radius)
-    seg4_assigned = assign_spatial_with_balltree(
-        data, seg4_unassigned, rc_bankers,
-        'RC', 'STEP_11', 'SPATIAL_SEG4_RC',
-        in_market_radius=200, expanded_radius=600, is_centralized=True
-    )
+    # ==================== SEGMENT 3 → RM IN MARKET ====================
+    if len(rm_in_market) > 0 and len(seg3_unassigned) > 0:
+        print(f"\n  --- Assigning Segment 3 to RM IN MARKET ---")
+        assigned = assign_spatial_balltree(
+            data, seg3_unassigned, rm_in_market,
+            'RM', 'STEP_11', 'SPATIAL_SEG3_RM_IN_MARKET',
+            initial_radius=40, expanded_radius=60
+        )
+        seg3_assigned += assigned
+        seg3_unassigned = get_unassigned_hh(data, segment=3)
     
-    print(f"\n  ✓ Segment 3 → RM assignments: {seg3_assigned}")
-    print(f"  ✓ Segment 4 → RC assignments: {seg4_assigned}")
+    # ==================== SEGMENT 3 → RM CENTRALIZED ====================
+    if len(rm_centralized) > 0 and len(seg3_unassigned) > 0:
+        print(f"\n  --- Assigning Segment 3 to RM CENTRALIZED ---")
+        assigned = assign_spatial_balltree(
+            data, seg3_unassigned, rm_centralized,
+            'RM', 'STEP_11', 'SPATIAL_SEG3_RM_CENTRALIZED',
+            initial_radius=200, expanded_radius=400, final_radius=600
+        )
+        seg3_assigned += assigned
+    
+    # ==================== SEGMENT 4 → RC IN MARKET ====================
+    if len(rc_in_market) > 0 and len(seg4_unassigned) > 0:
+        print(f"\n  --- Assigning Segment 4 to RC IN MARKET ---")
+        assigned = assign_spatial_balltree(
+            data, seg4_unassigned, rc_in_market,
+            'RC', 'STEP_11', 'SPATIAL_SEG4_RC_IN_MARKET',
+            initial_radius=40, expanded_radius=60
+        )
+        seg4_assigned += assigned
+        seg4_unassigned = get_unassigned_hh(data, segment=4)
+    
+    # ==================== SEGMENT 4 → RC CENTRALIZED ====================
+    if len(rc_centralized) > 0 and len(seg4_unassigned) > 0:
+        print(f"\n  --- Assigning Segment 4 to RC CENTRALIZED ---")
+        assigned = assign_spatial_balltree(
+            data, seg4_unassigned, rc_centralized,
+            'RC', 'STEP_11', 'SPATIAL_SEG4_RC_CENTRALIZED',
+            initial_radius=200, expanded_radius=400, final_radius=600
+        )
+        seg4_assigned += assigned
+    
+    print(f"\n  ✓ Total Segment 3 → RM assignments: {seg3_assigned}")
+    print(f"  ✓ Total Segment 4 → RC assignments: {seg4_assigned}")
     
     return data, {
         'step11_seg3_rm': seg3_assigned,
@@ -1067,34 +1153,34 @@ def step11_spatial_assignment(data):
     }
 
 
-def assign_spatial_with_balltree(data, unassigned_hh, bankers, banker_type, step, reason,
-                                  in_market_radius=40, expanded_radius=60, is_centralized=False):
-    """Assign households to bankers using BallTree spatial indexing"""
+def assign_spatial_balltree(data, unassigned_hh, bankers, banker_type, step, reason,
+                             initial_radius=40, expanded_radius=60, final_radius=None):
+    """
+    Assign households to bankers using BallTree spatial indexing
+    Same methodology as original code
+    """
     
     if len(unassigned_hh) == 0:
         return 0
     
-    # Get banker coordinates
-    if is_centralized:
-        # For centralized, use HH coordinates to find nearest banker
-        # Since RC bankers don't have AU/branch, we'll assign based on capacity
-        return assign_centralized_by_capacity(data, unassigned_hh, bankers, banker_type, step, reason)
-    
-    # Build BallTree for bankers
-    bankers_valid = bankers.dropna(subset=['BRANCH_LAT_NUM', 'BRANCH_LON_NUM']).copy()
+    # Filter bankers with valid coordinates
+    bankers_valid = bankers.dropna(subset=['BANKER_LAT_NUM', 'BANKER_LON_NUM']).copy()
     
     if len(bankers_valid) == 0:
         print(f"    ⚠ No bankers with valid coordinates")
         return 0
     
+    # Build BallTree for bankers
     banker_tree = BallTree(
-        np.radians(bankers_valid[['BRANCH_LAT_NUM', 'BRANCH_LON_NUM']].values),
+        np.radians(bankers_valid[['BANKER_LAT_NUM', 'BANKER_LON_NUM']].values),
         metric='haversine'
     )
     
     assigned_count = 0
     
-    # Phase 1: Initial radius
+    # Phase 1: Assign to nearest banker within initial radius
+    print(f"    Phase 1: Assigning within {initial_radius} miles...")
+    
     for _, hh_row in unassigned_hh.iterrows():
         hh_ecn = hh_row['HH_ECN']
         hh_lat = hh_row['LAT_NUM']
@@ -1107,11 +1193,15 @@ def assign_spatial_with_balltree(data, unassigned_hh, bankers, banker_type, step
             continue
         
         hh_rad = np.radians([[hh_lat, hh_lon]])
-        radius_rad = in_market_radius / 3959.0
+        radius_rad = initial_radius / 3959.0
         
         indices, distances = banker_tree.query_radius(hh_rad, r=radius_rad,
                                                        return_distance=True, sort_results=True)
         
+        if len(indices[0]) == 0:
+            continue
+        
+        # Assign to nearest banker with capacity
         for idx, dist in zip(indices[0], distances[0] * 3959.0):
             banker = bankers_valid.iloc[idx]
             banker_idx = bankers[bankers['PORT_CODE'] == banker['PORT_CODE']].index[0]
@@ -1129,7 +1219,7 @@ def assign_spatial_with_balltree(data, unassigned_hh, bankers, banker_type, step
                 banker['EMPLOYEE_NAME'],
                 banker_type,
                 step,
-                reason
+                f"{reason}_{initial_radius}MI"
             )
             
             if success:
@@ -1137,14 +1227,16 @@ def assign_spatial_with_balltree(data, unassigned_hh, bankers, banker_type, step
                 assigned_count += 1
                 break
     
-    # Phase 2: Expanded radius for undersized bankers
+    print(f"    ✓ Assigned: {assigned_count}")
+    
+    # Phase 2: Fill undersized bankers (expanded radius)
     undersized = bankers[bankers['CURRENT_ASSIGNED'] < bankers['MIN_NEEDED']]
     
     if len(undersized) > 0:
-        print(f"    Filling {len(undersized)} undersized bankers (expanded to {expanded_radius}mi)")
+        print(f"    Phase 2: Filling {len(undersized)} undersized bankers ({expanded_radius}mi)...")
         
         for idx, banker in undersized.iterrows():
-            if pd.isna(banker.get('BRANCH_LAT_NUM')) or pd.isna(banker.get('BRANCH_LON_NUM')):
+            if pd.isna(banker.get('BANKER_LAT_NUM')) or pd.isna(banker.get('BANKER_LON_NUM')):
                 continue
             
             needed = banker['MIN_NEEDED'] - banker['CURRENT_ASSIGNED']
@@ -1164,7 +1256,7 @@ def assign_spatial_with_balltree(data, unassigned_hh, bankers, banker_type, step
                 metric='haversine'
             )
             
-            banker_rad = np.radians([[banker['BRANCH_LAT_NUM'], banker['BRANCH_LON_NUM']]])
+            banker_rad = np.radians([[banker['BANKER_LAT_NUM'], banker['BANKER_LON_NUM']]])
             radius_rad = expanded_radius / 3959.0
             
             indices, distances = hh_tree.query_radius(banker_rad, r=radius_rad,
@@ -1195,70 +1287,66 @@ def assign_spatial_with_balltree(data, unassigned_hh, bankers, banker_type, step
                     bankers.at[idx, 'CURRENT_ASSIGNED'] += 1
                     assigned_count += 1
                     assigned_to_banker += 1
-    
-    return assigned_count
-
-
-def assign_centralized_by_capacity(data, unassigned_hh, bankers, banker_type, step, reason):
-    """Assign to centralized bankers by capacity (round-robin to fill minimums)"""
-    
-    assigned_count = 0
-    
-    # Sort bankers by how much they need
-    bankers = bankers.copy()
-    bankers = bankers.sort_values('MIN_NEEDED', ascending=False)
-    
-    hh_list = unassigned_hh['HH_ECN'].tolist()
-    
-    for hh_ecn in hh_list:
-        if data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].iloc[0]['IS_ASSIGNED']:
-            continue
         
-        # Find banker with most remaining capacity under MIN
-        for idx, banker in bankers.iterrows():
-            current = banker['CURRENT_ASSIGNED']
-            min_needed = banker['MIN_NEEDED']
+        print(f"    ✓ Additional assigned: {assigned_count - (assigned_count - len(undersized))}")
+    
+    # Phase 3: Final radius (if provided, for CENTRALIZED)
+    if final_radius is not None:
+        undersized = bankers[bankers['CURRENT_ASSIGNED'] < bankers['MIN_NEEDED']]
+        
+        if len(undersized) > 0:
+            print(f"    Phase 3: Filling {len(undersized)} still undersized bankers ({final_radius}mi)...")
             
-            if current >= min_needed:
-                continue
-            
-            success = assign_household(
-                data, hh_ecn,
-                banker['PORT_CODE'],
-                banker['EID'],
-                banker['EMPLOYEE_NAME'],
-                banker_type,
-                step,
-                reason
-            )
-            
-            if success:
-                bankers.at[idx, 'CURRENT_ASSIGNED'] += 1
-                assigned_count += 1
-                break
-        else:
-            # All at MIN, now fill to MAX
-            for idx, banker in bankers.iterrows():
-                current = banker['CURRENT_ASSIGNED']
-                max_needed = banker['MAX_NEEDED']
-                
-                if current >= max_needed:
+            for idx, banker in undersized.iterrows():
+                if pd.isna(banker.get('BANKER_LAT_NUM')) or pd.isna(banker.get('BANKER_LON_NUM')):
                     continue
                 
-                success = assign_household(
-                    data, hh_ecn,
-                    banker['PORT_CODE'],
-                    banker['EID'],
-                    banker['EMPLOYEE_NAME'],
-                    banker_type,
-                    step,
-                    f"{reason}_FILL_MAX"
+                needed = banker['MIN_NEEDED'] - banker['CURRENT_ASSIGNED']
+                if needed <= 0:
+                    continue
+                
+                still_unassigned = get_unassigned_hh(data, segment=unassigned_hh['NEW_SEGMENT'].iloc[0] if len(unassigned_hh) > 0 else None)
+                still_unassigned = still_unassigned.dropna(subset=['LAT_NUM', 'LON_NUM'])
+                
+                if len(still_unassigned) == 0:
+                    break
+                
+                hh_tree = BallTree(
+                    np.radians(still_unassigned[['LAT_NUM', 'LON_NUM']].values),
+                    metric='haversine'
                 )
                 
-                if success:
-                    bankers.at[idx, 'CURRENT_ASSIGNED'] += 1
-                    assigned_count += 1
-                    break
+                banker_rad = np.radians([[banker['BANKER_LAT_NUM'], banker['BANKER_LON_NUM']]])
+                radius_rad = final_radius / 3959.0
+                
+                indices, distances = hh_tree.query_radius(banker_rad, r=radius_rad,
+                                                           return_distance=True, sort_results=True)
+                
+                assigned_to_banker = 0
+                for hh_idx, dist in zip(indices[0], distances[0] * 3959.0):
+                    if assigned_to_banker >= needed:
+                        break
+                    
+                    hh_row = still_unassigned.iloc[hh_idx]
+                    hh_ecn = hh_row['HH_ECN']
+                    
+                    if data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].iloc[0]['IS_ASSIGNED']:
+                        continue
+                    
+                    success = assign_household(
+                        data, hh_ecn,
+                        banker['PORT_CODE'],
+                        banker['EID'],
+                        banker['EMPLOYEE_NAME'],
+                        banker_type,
+                        step,
+                        f"{reason}_EXPANDED_{final_radius}MI"
+                    )
+                    
+                    if success:
+                        bankers.at[idx, 'CURRENT_ASSIGNED'] += 1
+                        assigned_count += 1
+                        assigned_to_banker += 1
     
     return assigned_count
 
@@ -1362,21 +1450,21 @@ def generate_outputs(data, metrics, output_dir='output'):
         (hh_assignments['ASSIGNED_BANKER_TYPE'] != 'SBB')
     ].copy()
     
-    # Merge with banker data for RM/RC bankers
-    banker_data = data['banker'].copy()
+    # Merge with banker data (already has coordinates from prepare_data)
+    banker_with_coords = data['banker_with_coords'].copy()
     branch_data = data['branch'].copy()
     sbb_data = data['sbb'].copy()
     
-    # Add branch coordinates to banker data
-    banker_with_coords = banker_data.merge(
-        branch_data[['AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM', 'NAME', 'CITY', 'POSTALCODE']],
+    # Merge with branch data for branch name details
+    banker_with_coords = banker_with_coords.merge(
+        branch_data[['AU', 'NAME']],
         on='AU',
         how='left'
     )
     banker_with_coords = banker_with_coords.rename(columns={
         'NAME': 'BRANCH_NAME',
-        'BRANCH_LAT_NUM': 'BANKER_LAT',
-        'BRANCH_LON_NUM': 'BANKER_LON'
+        'BANKER_LAT_NUM': 'BANKER_LAT',
+        'BANKER_LON_NUM': 'BANKER_LON'
     })
     
     # Merge assigned HHs with banker info
