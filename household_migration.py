@@ -1038,7 +1038,7 @@ def step10_verify_segment2_placement(data):
 def step11_spatial_assignment(data):
     """
     Step 11: Remaining segment 3 → RMs, segment 4 → RCs
-    Using BallTree spatial assignment with min/max targets (same as original logic)
+    Using FULL original BallTree spatial assignment logic with all phases
     """
     print_step("11", "Spatial Assignment (Seg 3 → RM, Seg 4 → RC)")
     
@@ -1104,10 +1104,12 @@ def step11_spatial_assignment(data):
     
     # ==================== SEGMENT 3 → RM IN MARKET ====================
     if len(rm_in_market) > 0 and len(seg3_unassigned) > 0:
-        print(f"\n  --- Assigning Segment 3 to RM IN MARKET ---")
-        assigned = assign_spatial_balltree(
+        print(f"\n  {'='*60}")
+        print(f"  SEGMENT 3 → RM IN MARKET")
+        print(f"  {'='*60}")
+        assigned = assign_full_spatial_logic(
             data, seg3_unassigned, rm_in_market,
-            'RM', 'STEP_11', 'SPATIAL_SEG3_RM_IN_MARKET',
+            'RM', 'STEP_11_RM_IM', 'SEG3_RM_IN_MARKET',
             initial_radius=40, expanded_radius=60
         )
         seg3_assigned += assigned
@@ -1115,20 +1117,24 @@ def step11_spatial_assignment(data):
     
     # ==================== SEGMENT 3 → RM CENTRALIZED ====================
     if len(rm_centralized) > 0 and len(seg3_unassigned) > 0:
-        print(f"\n  --- Assigning Segment 3 to RM CENTRALIZED ---")
-        assigned = assign_spatial_balltree(
+        print(f"\n  {'='*60}")
+        print(f"  SEGMENT 3 → RM CENTRALIZED")
+        print(f"  {'='*60}")
+        assigned = assign_full_spatial_logic(
             data, seg3_unassigned, rm_centralized,
-            'RM', 'STEP_11', 'SPATIAL_SEG3_RM_CENTRALIZED',
+            'RM', 'STEP_11_RM_CENT', 'SEG3_RM_CENTRALIZED',
             initial_radius=200, expanded_radius=400, final_radius=600
         )
         seg3_assigned += assigned
     
     # ==================== SEGMENT 4 → RC IN MARKET ====================
     if len(rc_in_market) > 0 and len(seg4_unassigned) > 0:
-        print(f"\n  --- Assigning Segment 4 to RC IN MARKET ---")
-        assigned = assign_spatial_balltree(
+        print(f"\n  {'='*60}")
+        print(f"  SEGMENT 4 → RC IN MARKET")
+        print(f"  {'='*60}")
+        assigned = assign_full_spatial_logic(
             data, seg4_unassigned, rc_in_market,
-            'RC', 'STEP_11', 'SPATIAL_SEG4_RC_IN_MARKET',
+            'RC', 'STEP_11_RC_IM', 'SEG4_RC_IN_MARKET',
             initial_radius=40, expanded_radius=60
         )
         seg4_assigned += assigned
@@ -1136,10 +1142,12 @@ def step11_spatial_assignment(data):
     
     # ==================== SEGMENT 4 → RC CENTRALIZED ====================
     if len(rc_centralized) > 0 and len(seg4_unassigned) > 0:
-        print(f"\n  --- Assigning Segment 4 to RC CENTRALIZED ---")
-        assigned = assign_spatial_balltree(
+        print(f"\n  {'='*60}")
+        print(f"  SEGMENT 4 → RC CENTRALIZED")
+        print(f"  {'='*60}")
+        assigned = assign_full_spatial_logic(
             data, seg4_unassigned, rc_centralized,
-            'RC', 'STEP_11', 'SPATIAL_SEG4_RC_CENTRALIZED',
+            'RC', 'STEP_11_RC_CENT', 'SEG4_RC_CENTRALIZED',
             initial_radius=200, expanded_radius=400, final_radius=600
         )
         seg4_assigned += assigned
@@ -1153,200 +1161,342 @@ def step11_spatial_assignment(data):
     }
 
 
-def assign_spatial_balltree(data, unassigned_hh, bankers, banker_type, step, reason,
-                             initial_radius=40, expanded_radius=60, final_radius=None):
+def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, reason,
+                               initial_radius=40, expanded_radius=60, final_radius=None):
     """
-    Assign households to bankers using BallTree spatial indexing
-    Same methodology as original code
+    Full spatial assignment logic matching original code:
+    1. Build customer-banker mapping
+    2. Assign to nearest banker
+    3. Remove excess (keep MIN)
+    4. Fill undersized (initial radius)
+    5. Assign remaining to nearest (no exceed MAX)
+    6. Fill undersized (expanded radius)
+    7. Fill undersized (final radius) - for CENTRALIZED only
     """
     
     if len(unassigned_hh) == 0:
         return 0
     
     # Filter bankers with valid coordinates
-    bankers_valid = bankers.dropna(subset=['BANKER_LAT_NUM', 'BANKER_LON_NUM']).copy()
+    bankers = bankers.dropna(subset=['BANKER_LAT_NUM', 'BANKER_LON_NUM']).copy()
     
-    if len(bankers_valid) == 0:
+    if len(bankers) == 0:
         print(f"    ⚠ No bankers with valid coordinates")
         return 0
     
     # Build BallTree for bankers
     banker_tree = BallTree(
-        np.radians(bankers_valid[['BANKER_LAT_NUM', 'BANKER_LON_NUM']].values),
+        np.radians(bankers[['BANKER_LAT_NUM', 'BANKER_LON_NUM']].values),
         metric='haversine'
     )
     
+    total_assigned = 0
+    
+    # ==================== STEP 1: BUILD CUSTOMER-BANKER MAPPING ====================
+    print(f"\n  Step 1: Building customer-banker mapping ({initial_radius} miles)...")
+    customer_banker_map = build_customer_banker_mapping_hh(
+        unassigned_hh, bankers, banker_tree, initial_radius
+    )
+    print(f"    ✓ Mapped {len(customer_banker_map)} households to bankers")
+    
+    # ==================== STEP 2: ASSIGN TO NEAREST BANKER ====================
+    print(f"\n  Step 2: Assign to nearest banker...")
+    assigned_count = assign_to_nearest_banker(
+        data, customer_banker_map, bankers, banker_type, f"{step}_NEAREST", reason
+    )
+    total_assigned += assigned_count
+    print(f"    ✓ Assigned {assigned_count} households")
+    
+    # ==================== STEP 3: REMOVE EXCESS (KEEP MIN) ====================
+    print(f"\n  Step 3: Remove excess customers (keep MIN)...")
+    removed_count = remove_excess_keep_min(data, bankers)
+    print(f"    ✓ Removed {removed_count} households from over-capacity bankers")
+    total_assigned -= removed_count
+    
+    # ==================== STEP 4: FILL UNDERSIZED (INITIAL RADIUS) ====================
+    print(f"\n  Step 4: Fill undersized portfolios ({initial_radius} miles)...")
+    assigned_count = fill_undersized_portfolios(
+        data, bankers, initial_radius, banker_type, f"{step}_FILL_MIN", reason, 'MIN'
+    )
+    total_assigned += assigned_count
+    print(f"    ✓ Assigned {assigned_count} households")
+    
+    # ==================== STEP 5: ASSIGN REMAINING (NO EXCEED MAX) ====================
+    print(f"\n  Step 5: Assign remaining to nearest (no exceed MAX)...")
+    assigned_count = assign_remaining_no_exceed_max(
+        data, customer_banker_map, bankers, banker_type, f"{step}_REMAINING", reason
+    )
+    total_assigned += assigned_count
+    print(f"    ✓ Assigned {assigned_count} households")
+    
+    # ==================== STEP 6: FILL UNDERSIZED (EXPANDED RADIUS) ====================
+    print(f"\n  Step 6: Fill undersized portfolios ({expanded_radius} miles)...")
+    assigned_count = fill_undersized_portfolios(
+        data, bankers, expanded_radius, banker_type, f"{step}_FILL_EXPANDED", f"{reason}_{expanded_radius}MI", 'MIN'
+    )
+    total_assigned += assigned_count
+    print(f"    ✓ Assigned {assigned_count} households")
+    
+    # ==================== STEP 7: FILL UNDERSIZED (FINAL RADIUS - CENTRALIZED ONLY) ====================
+    if final_radius is not None:
+        print(f"\n  Step 7: Fill undersized portfolios ({final_radius} miles)...")
+        assigned_count = fill_undersized_portfolios(
+            data, bankers, final_radius, banker_type, f"{step}_FILL_FINAL", f"{reason}_{final_radius}MI", 'MIN'
+        )
+        total_assigned += assigned_count
+        print(f"    ✓ Assigned {assigned_count} households")
+    
+    return total_assigned
+
+
+def build_customer_banker_mapping_hh(customers_df, bankers_df, banker_tree, max_radius):
+    """Build mapping of households to bankers within radius"""
+    customer_banker_map = {}
+    
+    for idx, customer in customers_df.iterrows():
+        hh_ecn = customer['HH_ECN']
+        cust_lat = customer['LAT_NUM']
+        cust_lon = customer['LON_NUM']
+        
+        if pd.isna(cust_lat) or pd.isna(cust_lon):
+            continue
+        
+        # Find all bankers within radius
+        customer_rad = np.radians([[cust_lat, cust_lon]])
+        radius_rad = max_radius / 3959.0
+        
+        indices, distances = banker_tree.query_radius(customer_rad, r=radius_rad, 
+                                                       return_distance=True, sort_results=True)
+        
+        if len(indices[0]) > 0:
+            distances_miles = distances[0] * 3959.0
+            banker_indices = indices[0]
+            
+            # Store as list of (banker_port_code, distance) tuples sorted by distance
+            bankers_in_range = []
+            for bidx, dist in zip(banker_indices, distances_miles):
+                banker_port = bankers_df.iloc[bidx]['PORT_CODE']
+                bankers_in_range.append((banker_port, dist))
+            
+            customer_banker_map[hh_ecn] = bankers_in_range
+    
+    return customer_banker_map
+
+
+def assign_to_nearest_banker(data, customer_banker_map, bankers_df, banker_type, step, reason):
+    """Assign each household to their nearest banker"""
     assigned_count = 0
     
-    # Phase 1: Assign to nearest banker within initial radius
-    print(f"    Phase 1: Assigning within {initial_radius} miles...")
+    for hh_ecn, bankers_in_range in customer_banker_map.items():
+        # Check if already assigned
+        hh_row = data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn]
+        if len(hh_row) == 0 or hh_row.iloc[0]['IS_ASSIGNED']:
+            continue
+        
+        # Assign to nearest banker
+        for banker_port, distance in bankers_in_range:
+            banker_idx = bankers_df[bankers_df['PORT_CODE'] == banker_port].index
+            if len(banker_idx) == 0:
+                continue
+            banker_idx = banker_idx[0]
+            
+            banker_eid = bankers_df.at[banker_idx, 'EID']
+            banker_name = bankers_df.at[banker_idx, 'EMPLOYEE_NAME']
+            
+            # Assign
+            success = assign_household(
+                data, hh_ecn, banker_port, banker_eid, banker_name, banker_type, step, reason
+            )
+            
+            if success:
+                bankers_df.at[banker_idx, 'CURRENT_ASSIGNED'] += 1
+                assigned_count += 1
+                break
     
-    for _, hh_row in unassigned_hh.iterrows():
-        hh_ecn = hh_row['HH_ECN']
-        hh_lat = hh_row['LAT_NUM']
-        hh_lon = hh_row['LON_NUM']
+    return assigned_count
+
+
+def remove_excess_keep_min(data, bankers_df):
+    """Remove farthest households from over-capacity bankers (keep only MIN)"""
+    removed_count = 0
+    
+    for idx, banker in bankers_df.iterrows():
+        port_code = banker['PORT_CODE']
+        min_req = banker['MIN_NEEDED']
+        current_assigned = banker['CURRENT_ASSIGNED']
         
-        if data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].iloc[0]['IS_ASSIGNED']:
+        if current_assigned <= min_req:
             continue
         
-        if pd.isna(hh_lat) or pd.isna(hh_lon):
+        # Get households assigned to this banker in current step
+        assigned_hhs = data['hh_assignments'][
+            (data['hh_assignments']['ASSIGNED_PORT_CODE'] == port_code) &
+            (data['hh_assignments']['IS_ASSIGNED'] == True) &
+            (data['hh_assignments']['ASSIGNMENT_STEP'].str.contains('STEP_11', na=False))
+        ].copy()
+        
+        if len(assigned_hhs) == 0:
             continue
         
-        hh_rad = np.radians([[hh_lat, hh_lon]])
-        radius_rad = initial_radius / 3959.0
+        # Calculate distances (if not already calculated)
+        banker_lat = banker['BANKER_LAT_NUM']
+        banker_lon = banker['BANKER_LON_NUM']
         
-        indices, distances = banker_tree.query_radius(hh_rad, r=radius_rad,
-                                                       return_distance=True, sort_results=True)
+        assigned_hhs['DISTANCE_CALC'] = assigned_hhs.apply(
+            lambda row: haversine_distance(row['LAT_NUM'], row['LON_NUM'], banker_lat, banker_lon),
+            axis=1
+        )
+        
+        # Sort by distance (farthest first)
+        assigned_hhs = assigned_hhs.sort_values('DISTANCE_CALC', ascending=False)
+        
+        # Remove excess
+        excess = current_assigned - min_req
+        households_to_remove = assigned_hhs.head(excess)
+        
+        for hh_idx, hh_row in households_to_remove.iterrows():
+            # Reset assignment
+            data['hh_assignments'].at[hh_idx, 'IS_ASSIGNED'] = False
+            data['hh_assignments'].at[hh_idx, 'ASSIGNED_PORT_CODE'] = None
+            data['hh_assignments'].at[hh_idx, 'ASSIGNED_EID'] = None
+            data['hh_assignments'].at[hh_idx, 'ASSIGNED_BANKER_NAME'] = None
+            data['hh_assignments'].at[hh_idx, 'ASSIGNED_BANKER_TYPE'] = None
+            data['hh_assignments'].at[hh_idx, 'ASSIGNMENT_STEP'] = None
+            data['hh_assignments'].at[hh_idx, 'ASSIGNMENT_REASON'] = None
+            
+            removed_count += 1
+        
+        bankers_df.at[idx, 'CURRENT_ASSIGNED'] = min_req
+    
+    return removed_count
+
+
+def fill_undersized_portfolios(data, bankers_df, max_radius, banker_type, step, reason, target='MIN'):
+    """Fill undersized portfolios with nearest unassigned households"""
+    assigned_count = 0
+    
+    # Find undersized bankers
+    if target == 'MIN':
+        undersized = bankers_df[bankers_df['CURRENT_ASSIGNED'] < bankers_df['MIN_NEEDED']].copy()
+    else:  # MAX
+        undersized = bankers_df[bankers_df['CURRENT_ASSIGNED'] < bankers_df['MAX_NEEDED']].copy()
+    
+    if len(undersized) == 0:
+        return 0
+    
+    # Get unassigned households
+    unassigned_hhs = data['hh_assignments'][data['hh_assignments']['IS_ASSIGNED'] == False].copy()
+    unassigned_hhs = unassigned_hhs.dropna(subset=['LAT_NUM', 'LON_NUM'])
+    
+    if len(unassigned_hhs) == 0:
+        return 0
+    
+    # Build tree for unassigned households
+    hh_tree = BallTree(
+        np.radians(unassigned_hhs[['LAT_NUM', 'LON_NUM']].values),
+        metric='haversine'
+    )
+    
+    for idx, banker in undersized.iterrows():
+        port_code = banker['PORT_CODE']
+        banker_lat = banker['BANKER_LAT_NUM']
+        banker_lon = banker['BANKER_LON_NUM']
+        banker_eid = banker['EID']
+        banker_name = banker['EMPLOYEE_NAME']
+        
+        if target == 'MIN':
+            needed = banker['MIN_NEEDED'] - banker['CURRENT_ASSIGNED']
+        else:
+            needed = banker['MAX_NEEDED'] - banker['CURRENT_ASSIGNED']
+        
+        if needed <= 0:
+            continue
+        
+        # Find households within radius
+        banker_rad = np.radians([[banker_lat, banker_lon]])
+        radius_rad = max_radius / 3959.0
+        
+        # Refresh unassigned list
+        unassigned_hhs_current = data['hh_assignments'][data['hh_assignments']['IS_ASSIGNED'] == False].copy()
+        unassigned_hhs_current = unassigned_hhs_current.dropna(subset=['LAT_NUM', 'LON_NUM'])
+        
+        if len(unassigned_hhs_current) == 0:
+            break
+        
+        hh_tree = BallTree(
+            np.radians(unassigned_hhs_current[['LAT_NUM', 'LON_NUM']].values),
+            metric='haversine'
+        )
+        
+        indices, distances = hh_tree.query_radius(banker_rad, r=radius_rad,
+                                                   return_distance=True, sort_results=True)
         
         if len(indices[0]) == 0:
             continue
         
-        # Assign to nearest banker with capacity
-        for idx, dist in zip(indices[0], distances[0] * 3959.0):
-            banker = bankers_valid.iloc[idx]
-            banker_idx = bankers[bankers['PORT_CODE'] == banker['PORT_CODE']].index[0]
+        distances_miles = distances[0] * 3959.0
+        hh_indices = indices[0]
+        
+        assigned_to_banker = 0
+        for hidx, dist in zip(hh_indices, distances_miles):
+            if assigned_to_banker >= needed:
+                break
             
-            current = bankers.at[banker_idx, 'CURRENT_ASSIGNED']
-            max_needed = bankers.at[banker_idx, 'MAX_NEEDED']
+            actual_idx = unassigned_hhs_current.iloc[hidx].name
+            hh_ecn = data['hh_assignments'].at[actual_idx, 'HH_ECN']
             
-            if current >= max_needed:
+            if data['hh_assignments'].at[actual_idx, 'IS_ASSIGNED']:
                 continue
             
+            # Assign
             success = assign_household(
-                data, hh_ecn,
-                banker['PORT_CODE'],
-                banker['EID'],
-                banker['EMPLOYEE_NAME'],
-                banker_type,
-                step,
-                f"{reason}_{initial_radius}MI"
+                data, hh_ecn, port_code, banker_eid, banker_name, banker_type, step, reason
             )
             
             if success:
-                bankers.at[banker_idx, 'CURRENT_ASSIGNED'] += 1
+                bankers_df.at[idx, 'CURRENT_ASSIGNED'] += 1
                 assigned_count += 1
-                break
+                assigned_to_banker += 1
     
-    print(f"    ✓ Assigned: {assigned_count}")
+    return assigned_count
+
+
+def assign_remaining_no_exceed_max(data, customer_banker_map, bankers_df, banker_type, step, reason):
+    """Assign remaining unassigned households to nearest banker without exceeding MAX"""
+    assigned_count = 0
     
-    # Phase 2: Fill undersized bankers (expanded radius)
-    undersized = bankers[bankers['CURRENT_ASSIGNED'] < bankers['MIN_NEEDED']]
-    
-    if len(undersized) > 0:
-        print(f"    Phase 2: Filling {len(undersized)} undersized bankers ({expanded_radius}mi)...")
+    for hh_ecn, bankers_in_range in customer_banker_map.items():
+        # Check if already assigned
+        hh_row = data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn]
+        if len(hh_row) == 0 or hh_row.iloc[0]['IS_ASSIGNED']:
+            continue
         
-        for idx, banker in undersized.iterrows():
-            if pd.isna(banker.get('BANKER_LAT_NUM')) or pd.isna(banker.get('BANKER_LON_NUM')):
+        # Try to assign to nearest banker with capacity
+        for banker_port, distance in bankers_in_range:
+            banker_idx = bankers_df[bankers_df['PORT_CODE'] == banker_port].index
+            if len(banker_idx) == 0:
+                continue
+            banker_idx = banker_idx[0]
+            
+            # Check if banker can take more (not at MAX)
+            current = bankers_df.at[banker_idx, 'CURRENT_ASSIGNED']
+            max_allowed = bankers_df.at[banker_idx, 'MAX_NEEDED']
+            
+            if current >= max_allowed:
                 continue
             
-            needed = banker['MIN_NEEDED'] - banker['CURRENT_ASSIGNED']
-            if needed <= 0:
-                continue
+            banker_eid = bankers_df.at[banker_idx, 'EID']
+            banker_name = bankers_df.at[banker_idx, 'EMPLOYEE_NAME']
             
-            # Get remaining unassigned
-            still_unassigned = get_unassigned_hh(data, segment=unassigned_hh['NEW_SEGMENT'].iloc[0] if len(unassigned_hh) > 0 else None)
-            still_unassigned = still_unassigned.dropna(subset=['LAT_NUM', 'LON_NUM'])
-            
-            if len(still_unassigned) == 0:
-                break
-            
-            # Build tree for unassigned HHs
-            hh_tree = BallTree(
-                np.radians(still_unassigned[['LAT_NUM', 'LON_NUM']].values),
-                metric='haversine'
+            # Assign
+            success = assign_household(
+                data, hh_ecn, banker_port, banker_eid, banker_name, banker_type, step, reason
             )
             
-            banker_rad = np.radians([[banker['BANKER_LAT_NUM'], banker['BANKER_LON_NUM']]])
-            radius_rad = expanded_radius / 3959.0
-            
-            indices, distances = hh_tree.query_radius(banker_rad, r=radius_rad,
-                                                       return_distance=True, sort_results=True)
-            
-            assigned_to_banker = 0
-            for hh_idx, dist in zip(indices[0], distances[0] * 3959.0):
-                if assigned_to_banker >= needed:
-                    break
-                
-                hh_row = still_unassigned.iloc[hh_idx]
-                hh_ecn = hh_row['HH_ECN']
-                
-                if data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].iloc[0]['IS_ASSIGNED']:
-                    continue
-                
-                success = assign_household(
-                    data, hh_ecn,
-                    banker['PORT_CODE'],
-                    banker['EID'],
-                    banker['EMPLOYEE_NAME'],
-                    banker_type,
-                    step,
-                    f"{reason}_EXPANDED_{expanded_radius}MI"
-                )
-                
-                if success:
-                    bankers.at[idx, 'CURRENT_ASSIGNED'] += 1
-                    assigned_count += 1
-                    assigned_to_banker += 1
-        
-        print(f"    ✓ Additional assigned: {assigned_count - (assigned_count - len(undersized))}")
-    
-    # Phase 3: Final radius (if provided, for CENTRALIZED)
-    if final_radius is not None:
-        undersized = bankers[bankers['CURRENT_ASSIGNED'] < bankers['MIN_NEEDED']]
-        
-        if len(undersized) > 0:
-            print(f"    Phase 3: Filling {len(undersized)} still undersized bankers ({final_radius}mi)...")
-            
-            for idx, banker in undersized.iterrows():
-                if pd.isna(banker.get('BANKER_LAT_NUM')) or pd.isna(banker.get('BANKER_LON_NUM')):
-                    continue
-                
-                needed = banker['MIN_NEEDED'] - banker['CURRENT_ASSIGNED']
-                if needed <= 0:
-                    continue
-                
-                still_unassigned = get_unassigned_hh(data, segment=unassigned_hh['NEW_SEGMENT'].iloc[0] if len(unassigned_hh) > 0 else None)
-                still_unassigned = still_unassigned.dropna(subset=['LAT_NUM', 'LON_NUM'])
-                
-                if len(still_unassigned) == 0:
-                    break
-                
-                hh_tree = BallTree(
-                    np.radians(still_unassigned[['LAT_NUM', 'LON_NUM']].values),
-                    metric='haversine'
-                )
-                
-                banker_rad = np.radians([[banker['BANKER_LAT_NUM'], banker['BANKER_LON_NUM']]])
-                radius_rad = final_radius / 3959.0
-                
-                indices, distances = hh_tree.query_radius(banker_rad, r=radius_rad,
-                                                           return_distance=True, sort_results=True)
-                
-                assigned_to_banker = 0
-                for hh_idx, dist in zip(indices[0], distances[0] * 3959.0):
-                    if assigned_to_banker >= needed:
-                        break
-                    
-                    hh_row = still_unassigned.iloc[hh_idx]
-                    hh_ecn = hh_row['HH_ECN']
-                    
-                    if data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].iloc[0]['IS_ASSIGNED']:
-                        continue
-                    
-                    success = assign_household(
-                        data, hh_ecn,
-                        banker['PORT_CODE'],
-                        banker['EID'],
-                        banker['EMPLOYEE_NAME'],
-                        banker_type,
-                        step,
-                        f"{reason}_EXPANDED_{final_radius}MI"
-                    )
-                    
-                    if success:
-                        bankers.at[idx, 'CURRENT_ASSIGNED'] += 1
-                        assigned_count += 1
-                        assigned_to_banker += 1
+            if success:
+                bankers_df.at[banker_idx, 'CURRENT_ASSIGNED'] += 1
+                assigned_count += 1
+                break
     
     return assigned_count
 
