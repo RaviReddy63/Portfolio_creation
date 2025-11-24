@@ -17,19 +17,154 @@
 
 ## 2. RETENTION RULES (Steps 5-10)
 
-| Priority | Step | Target Segment | Assignment Rule | Banker Type |
-|----------|------|---------------|-----------------|-------------|
-| **1** | **Step 5** | Segment 4 HHs | HH ECNs currently in RC banker portfolios → Retain with same RC | **RC** |
-| **2** | **Step 6** | Segment 3 HHs | HH ECNs currently in RM banker portfolios → Retain with same RM | **RM** |
-| **3** | **Step 7** | All Segments | HHs in households_to_retain.csv → Retain with existing banker | **RM/RC** |
-| **4** | **Step 8** | Segment 2 HHs (in books) | **Priority 1:** Patronage AU = SBB AU → Assign to SBB<br>**Priority 2:** Within 10 miles of SBB → Assign to SBB | **SBB** |
-| **5** | **Step 9** | Segment 2 HHs (remaining) | Still in existing books → Retain with RM/RC | **RM/RC** |
-| **6** | **Step 10** | Segment 2 verification | All Seg 2 CG_ECNs verified:<br>• If unplaced → Check SBB AU match<br>• If unplaced → Check 10mi SBB proximity<br>• Else → Retain with RM/RC | **SBB/RM/RC** |
+| Step | Target | Assignment Logic | Banker | Output |
+|------|--------|------------------|--------|--------|
+| **Step 5** | Seg 4 HHs | • Map ECN → CG_ECN → CG_PORTFOLIO_CD → RC Banker<br>• Single RC → Assign<br>• Multiple RCs → Majority ECN count<br>• Mark as CUSTOMER_TYPE = 'Existing' | **RC** | hh_assignments.csv |
+| **Step 6** | Seg 3 HHs | • Map ECN → CG_ECN → CG_PORTFOLIO_CD → RM Banker<br>• Single RM → Assign<br>• Multiple RMs → Majority ECN count<br>• Mark as CUSTOMER_TYPE = 'Existing' | **RM** | hh_assignments.csv |
+| **Step 7** | All Segs<br>(retain list) | • Load households_to_retain.csv<br>• Map ECN → Banker (RM or RC)<br>• Single banker → Assign<br>• Multiple → Majority ECN count<br>• Mark as CUSTOMER_TYPE = 'Existing' | **RM/RC** | hh_assignments.csv |
+| **Step 8** | Seg 2 HHs<br>(in books) | • Must have ≥1 ECN in current RM/RC portfolio<br>• **Priority 1:** PATR_AU_STR = SBB AU → Assign to SBB<br>• **Priority 2:** Within 10mi of SBB branch → Nearest SBB<br>• All ECNs in HH → Same SBB AU<br>• Mark as CUSTOMER_TYPE = 'Existing' | **SBB** | SBB_MAPPING.csv<br>(ECN-level) |
+| **Step 9** | Seg 2 HHs<br>(remaining) | • Map ECN → Banker (RM or RC)<br>• Single banker → Assign<br>• Multiple → Majority ECN count<br>• Mark as CUSTOMER_TYPE = 'Existing' | **RM/RC** | hh_assignments.csv |
+| **Step 10** | Seg 2 CG<br>verification | • Get all CG_ECN where CS_NEW_NS = 2<br>• Find HHs containing these ECNs<br>• **Priority 1:** PATR_AU_STR = SBB AU → SBB<br>• **Priority 2:** Within 10mi SBB → Nearest SBB<br>• **Priority 3:** Has ECN in RM/RC → Retain (majority)<br>• Mark as CUSTOMER_TYPE = 'Existing' | **SBB/<br>RM/RC** | SBB_MAPPING.csv<br>(if SBB)<br>OR<br>hh_assignments.csv |
 
-**Key Notes:**
-- All ECNs in a HH assigned to same banker
-- "In existing books" = At least one ECN currently in RM/RC portfolio
-- Conflict resolution: When HH has ECNs across multiple bankers, assign to banker with majority ECN count
+---
+
+### **Key Principles:**
+
+| Rule | Description |
+|------|-------------|
+| **Household Assignment** | All ECNs in a HH go to same banker |
+| **Segment Filter** | NEW_SEGMENT determines which step processes the HH |
+| **ECN Mapping** | ECN → CG_ECN (clientgroup_data) → CG_PORTFOLIO_CD → Banker |
+| **Conflict Resolution** | Multiple bankers → Assign to banker with most ECNs in HH |
+| **Sequential** | Once assigned, HH excluded from later steps |
+| **"In Books"** | ≥1 ECN exists in clientgroup_data or relatedclient_data |
+| **Distance** | Haversine formula, 3959-mile Earth radius |
+
+---
+
+### 2.1 ECN RETENTION LOGIC - DETAILED EXAMPLES
+
+**Critical Rule:** Retention happens at **HOUSEHOLD level** based on **NEW_SEGMENT**, not individual ECN or old CG segment.
+
+---
+
+#### **Example 1: ECN Retention Within Same Household**
+
+**OLD Structure (Client Group):**
+- CG_ECN = 67890, CS_NEW_NS = 3, managed by RM Banker X
+- Related ECNs in CG: 67890, 1234
+
+**NEW Structure (Household):**
+- HH_ECN = 67890, NEW_SEGMENT = 4
+- ECNs in HH 67890: 67890, 1234
+
+**Result:**
+| Step | Evaluation | Outcome |
+|------|------------|---------|
+| Step 5 | • HH 67890 is Segment 4 ✓<br>• ECN 67890 in RM X (not RC) ✗ | NOT retained |
+| Step 6 | • HH 67890 is Segment 4 (not 3) ✗ | NOT retained |
+| Step 11 | Goes to spatial assignment | **Both ECNs 67890 and 1234 → Assigned to RC banker (New)** |
+
+**Key Point:** Both ECNs stay together in HH 67890, but NOT retained because HH segment (4) doesn't match banker type (RM).
+
+---
+
+#### **Example 2: ECN Split Across Different Households**
+
+**OLD Structure:**
+- CG_ECN = 67890, CS_NEW_NS = 3, managed by RM Banker X
+- Related ECNs: 67890, 1234
+
+**NEW Structure:**
+- HH_ECN = 67890, NEW_SEGMENT = 3, ECNs: [67890]
+- HH_ECN = 99999, NEW_SEGMENT = 4, ECNs: [1234]
+
+**Result:**
+
+| Household | Step | Evaluation | Outcome |
+|-----------|------|------------|---------|
+| **HH 67890** | Step 6 | • Segment 3 ✓<br>• ECN 67890 in RM X ✓ | **Retained with RM X (Existing)** |
+| **HH 99999** | Step 5 | • Segment 4 ✓<br>• ECN 1234 in RM X (not RC) ✗ | NOT retained |
+| **HH 99999** | Step 11 | Goes to spatial | **Assigned to RC banker (New)** |
+
+**Key Point:** Old CG relationship BREAKS. ECN 67890 and 1234 no longer stay with same banker.
+
+---
+
+#### **Example 3: Segment Mismatch - Old CG Seg 3 in RC Portfolio**
+
+**OLD Structure:**
+- CG_ECN = 67890, CS_NEW_NS = 3, managed by **RC Banker X** (unusual but possible)
+- Related ECNs: 67890, 1234
+
+**NEW Structure:**
+- HH_ECN = 67890, NEW_SEGMENT = 4, ECNs: [67890, 1234]
+
+**Result:**
+| Step | Evaluation | Outcome |
+|------|------------|---------|
+| Step 5 | • HH 67890 is Segment 4 ✓<br>• ECN 67890 in RC X ✓ | **Retained with RC X (Existing)** |
+
+**Key Point:** Retention succeeds because HH segment (4) matches banker type (RC), even though old CG was segment 3.
+
+---
+
+#### **Example 4: ECN in Different HH with Different Segment**
+
+**OLD Structure:**
+- CG_ECN = 67890, managed by RM Banker X
+- Related ECNs: 67890, 1234
+
+**NEW Structure:**
+- HH_ECN = 67890, NEW_SEGMENT = 3, ECNs: [67890]
+- HH_ECN = 99999, NEW_SEGMENT = 3, ECNs: [1234]
+
+**Result:**
+
+| Household | Step | Outcome |
+|-----------|------|---------|
+| **HH 67890** | Step 6 | **Retained with RM X (Existing)** |
+| **HH 99999** | Step 6 | **Retained with RM X (Existing)** |
+
+**Key Point:** Both households retained because:
+1. Both are Segment 3
+2. Both have ECNs in RM X portfolio
+3. Even though in different HHs, both individually qualify for retention
+
+---
+
+#### **Example 5: Segment 2 ECN Retention**
+
+**OLD Structure:**
+- CG_ECN = 67890, CS_NEW_NS = 2, managed by RM Banker X
+- Related ECNs: 67890, 1234
+
+**NEW Structure:**
+- HH_ECN = 99999, NEW_SEGMENT = 2, ECNs: [1234]
+
+**Result:**
+| Step | Evaluation | Outcome |
+|------|------------|---------|
+| Step 8 | • Segment 2 ✓<br>• ECN 1234 in RM X (in books) ✓<br>• Check SBB rules | If SBB match/proximity → SBB<br>Else → **Retained with RM X (Existing)** |
+| Step 9 | If not assigned in Step 8 | **Retained with RM X (Existing)** |
+
+**Key Point:** Segment 2 has SBB priority, but can fall back to RM/RC retention.
+
+---
+
+### 2.2 RETENTION DECISION MATRIX
+
+| Old CG Banker | Old CG Segment | New HH Segment | Retention Step | Result |
+|---------------|----------------|----------------|----------------|--------|
+| **RM** | 3 | 3 | Step 6 | ✓ Retained with RM |
+| **RM** | 3 | 4 | Step 5 (fail), Step 6 (skip) | ✗ Goes to Step 11 → RC |
+| **RM** | 3 | 2 | Step 8/9 | ✓ SBB priority, else RM |
+| **RC** | 4 | 4 | Step 5 | ✓ Retained with RC |
+| **RC** | 4 | 3 | Step 5 (skip), Step 6 (fail) | ✗ Goes to Step 11 → RM |
+| **RC** | 3 | 4 | Step 5 | ✓ Retained with RC |
+| **RM/RC** | Any | 2 | Step 8/9 | ✓ SBB priority, else RM/RC |
+
+**Rule:** Retention succeeds when **HH Segment** aligns with **Banker Type**, regardless of old CG segment.
 
 ---
 
