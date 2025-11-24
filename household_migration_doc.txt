@@ -1,0 +1,187 @@
+# Household Portfolio Migration Methodology
+## Business Sign-Off Document
+
+---
+
+## 1. DATA PREPARATION
+
+| Step | Activity | Details |
+|------|----------|---------|
+| **1.1** | **Load Input Files** | • clientgroup_data.csv (CG portfolios)<br>• relatedclient_data.csv (ECN relationships)<br>• banker_data.csv (RM/RC bankers)<br>• sbb_data.csv (SBB bankers)<br>• branch_data.csv (branch locations)<br>• household_data.csv (new HH structure)<br>• households_to_retain.csv (specific retention list) |
+| **1.2** | **Coordinate Imputation** | • Missing LAT/LON imputed using KNN (K=5)<br>• Based on BILLINGCITY + BILLINGSTATE<br>• Uses median of 5 nearest neighbors<br>• Flags imputed records with COORDS_IMPUTED=True |
+| **1.3** | **Banker Coordinates** | **IN MARKET:** Branch location (AU → branch_data)<br>**CENTRALIZED:** Portfolio centroid (PORT_CODE → clientgroup_data) |
+| **1.4** | **Deduplicate CG** | • Map each CG_ECN to single portfolio<br>• Create canonical ECN → CG → Portfolio mappings |
+| **1.5** | **Build Mappings** | • ECN → Current Banker<br>• HH → Current Banker(s)<br>• Conflict resolution: Majority ECN count |
+
+---
+
+## 2. RETENTION RULES (Steps 5-10)
+
+| Priority | Step | Target Segment | Assignment Rule | Banker Type |
+|----------|------|---------------|-----------------|-------------|
+| **1** | **Step 5** | Segment 4 HHs | HH ECNs currently in RC banker portfolios → Retain with same RC | **RC** |
+| **2** | **Step 6** | Segment 3 HHs | HH ECNs currently in RM banker portfolios → Retain with same RM | **RM** |
+| **3** | **Step 7** | All Segments | HHs in households_to_retain.csv → Retain with existing banker | **RM/RC** |
+| **4** | **Step 8** | Segment 2 HHs (in books) | **Priority 1:** Patronage AU = SBB AU → Assign to SBB<br>**Priority 2:** Within 10 miles of SBB → Assign to SBB | **SBB** |
+| **5** | **Step 9** | Segment 2 HHs (remaining) | Still in existing books → Retain with RM/RC | **RM/RC** |
+| **6** | **Step 10** | Segment 2 verification | All Seg 2 CG_ECNs verified:<br>• If unplaced → Check SBB AU match<br>• If unplaced → Check 10mi SBB proximity<br>• Else → Retain with RM/RC | **SBB/RM/RC** |
+
+**Key Notes:**
+- All ECNs in a HH assigned to same banker
+- "In existing books" = At least one ECN currently in RM/RC portfolio
+- Conflict resolution: When HH has ECNs across multiple bankers, assign to banker with majority ECN count
+
+---
+
+## 3. CAPACITY CALCULATION (Pre-Step 11)
+
+| Banker Type | Current Retained | MIN Target | MAX Target |
+|-------------|------------------|------------|------------|
+| **RM** | Segment 3 HHs from Steps 5-10 | 270 - retained | 350 - retained |
+| **RC** | Segment 4 HHs from Steps 5-10 | 220 - retained | 270 - retained |
+
+**Example:**
+- RM Banker X retained 50 Seg 3 HHs → MIN_NEEDED = 220, MAX_NEEDED = 300
+- RC Banker Y retained 30 Seg 4 HHs → MIN_NEEDED = 190, MAX_NEEDED = 240
+
+---
+
+## 4. SPATIAL ASSIGNMENT METHODOLOGY (Step 11)
+
+### 4.1 Assignment Groups
+
+| Group | Segment → Banker | Role Type | Initial Radius | Expanded Radius | Final Radius |
+|-------|------------------|-----------|----------------|-----------------|--------------|
+| **A** | Seg 3 → RM | IN MARKET | 40 miles | 60 miles | - |
+| **B** | Seg 3 → RM | CENTRALIZED | 200 miles | 400 miles | 600 miles |
+| **C** | Seg 4 → RC | IN MARKET | 40 miles | 60 miles | - |
+| **D** | Seg 4 → RC | CENTRALIZED | 200 miles | 400 miles | 600 miles |
+
+---
+
+### 4.2 Seven-Step Assignment Process (per group)
+
+| Phase | Step | Action | Objective |
+|-------|------|--------|-----------|
+| **Setup** | **1** | **Build Customer-Banker Mapping** | For each unassigned HH, find all bankers within *Initial Radius*<br>Create sorted list by distance |
+| **Initial** | **2** | **Assign to Nearest Banker** | Each HH → Nearest banker from mapping |
+| **Balance** | **3** | **Remove Excess (Keep MIN)** | For over-capacity bankers:<br>• Remove farthest HHs until at MIN target<br>• Removed HHs become unassigned |
+| **Fill MIN** | **4** | **Fill Undersized (*Initial Radius*)** | Undersized bankers (below MIN):<br>• Pull nearest unassigned HHs within radius<br>• Fill up to MIN target |
+| **Optimize** | **5** | **Assign Remaining (No Exceed MAX)** | Remaining unassigned HHs:<br>• Assign to nearest banker with capacity<br>• Do not exceed MAX target |
+| **Fill MIN** | **6** | **Fill Undersized (*Expanded Radius*)** | Still undersized bankers:<br>• Pull nearest unassigned HHs within expanded radius<br>• Fill up to MIN target |
+| **Fill MIN** | **7** | **Fill Undersized (*Final Radius*)** | **CENTRALIZED ONLY**<br>Still undersized bankers:<br>• Pull nearest unassigned HHs within final radius<br>• Fill up to MIN target |
+
+---
+
+### 4.3 Assignment Sequence
+
+```
+1. Process Group A: Seg 3 → RM IN MARKET (40mi → 60mi)
+2. Process Group B: Seg 3 → RM CENTRALIZED (200mi → 400mi → 600mi)
+3. Process Group C: Seg 4 → RC IN MARKET (40mi → 60mi)
+4. Process Group D: Seg 4 → RC CENTRALIZED (200mi → 400mi → 600mi)
+```
+
+---
+
+## 5. OUTPUT FILES
+
+| File | Contents | Purpose |
+|------|----------|---------|
+| **hh_assignments.csv** | All HH assignments (RM/RC only) | Main portfolio assignment file |
+| **SBB_MAPPING.csv** | ECN-level SBB assignments | Separate SBB assignments |
+| **ecn_assignments.csv** | All ECNs with HH mappings | Granular ECN-level view |
+| **banker_summary.csv** | Per-banker statistics | Portfolio composition & metrics |
+| **unassigned_households.csv** | Unassigned HHs | Exception handling |
+| **metrics_summary.csv** | Overall run statistics | Process validation |
+
+---
+
+## 6. OUTPUT SCHEMA: hh_assignments.csv
+
+| Column | Description |
+|--------|-------------|
+| HH_ECN | Household ECN (primary identifier) |
+| ASSIGNED_PORT_CODE | Portfolio code |
+| ASSIGNED_BANKER_EID | Banker employee ID |
+| ASSIGNED_BANKER_NAME | Banker name |
+| ASSIGNED_BANKER_AU | Banker AU (branch) |
+| ASSIGNED_BANKER_BRANCH_NAME | Branch name |
+| ASSIGNED_BANKER_TYPE | RM, RC |
+| DISTANCE_MILES | Distance from HH to banker |
+| CUSTOMER_LAT, CUSTOMER_LON | Household coordinates |
+| BANKER_LAT, BANKER_LON | Banker coordinates |
+| BANKER_ROLE_TYPE | IN MARKET / CENTRALIZED |
+| PROXIMITY_LIMIT_MILES | 40 (RM IN MARKET), 200 (CENTRALIZED) |
+| ASSIGNMENT_PHASE | Step identifier (e.g., STEP_5, STEP_11_RM_IM) |
+| ASSIGNMENT_REASON | Detailed reason code |
+| IS_WITHIN_PROXIMITY | Boolean: Within proximity limit |
+| EXCEPTION_FLAG | e.g., EXPANDED_RADIUS_60MI |
+| COORDS_IMPUTED | Boolean: Coordinates were imputed |
+| NEW_SEGMENT | Segment 1/2/3/4 |
+| DEPOSIT_BAL | Deposit balance |
+| CG_GROSS_SALES | Gross sales |
+| BANK_REVENUE | Bank revenue |
+| BILLINGCITY, BILLINGSTATE, BILLINGPOSTALCODE | Address |
+| PATR_AU_STR | Patronage AU |
+| BANKER_MANAGER_NAME | Banker's manager |
+| BANKER_DIRECTOR_NAME | Banker's director |
+| BANKER_COVERAGE | Coverage area |
+| ASSIGNMENT_TIMESTAMP | Run timestamp |
+| CUSTOMER_TYPE | Existing / New |
+| size_reach | 1 if banker met MIN, 0 otherwise |
+
+---
+
+## 7. KEY BUSINESS RULES
+
+| Rule | Description |
+|------|-------------|
+| **1:1 HH-Portfolio** | Each household assigned to exactly one portfolio |
+| **ECN Consistency** | All ECNs in a household go to same banker |
+| **SBB Separate** | SBB assignments tracked separately in SBB_MAPPING.csv |
+| **Retention Priority** | Existing relationships prioritized (Steps 5-10) before new assignments (Step 11) |
+| **Capacity Bounds** | All bankers stay between MIN and MAX targets |
+| **Distance Optimization** | Minimize distance while meeting capacity constraints |
+| **Segment Alignment** | Seg 3 → RM, Seg 4 → RC, Seg 2 → SBB (priority) |
+
+---
+
+## 8. SUCCESS METRICS
+
+| Metric | Target | Calculation |
+|--------|--------|-------------|
+| **Assignment Rate** | >95% | (Assigned HHs / Total HHs) × 100 |
+| **MIN Achievement** | >90% | (Bankers at/above MIN / Total Bankers) × 100 |
+| **Proximity Compliance** | >80% | (HHs within proximity limit / Assigned HHs) × 100 |
+| **Retention Rate** | >85% | (Retained HHs / Previously Assigned HHs) × 100 |
+| **Avg Distance** | <30 mi (RM IN MARKET)<br><150 mi (CENTRALIZED) | Mean distance across all assignments |
+
+---
+
+## 9. RISK MITIGATION
+
+| Risk | Mitigation |
+|------|-----------|
+| **Missing Coordinates** | KNN imputation using city/state similarity |
+| **Banker Over-capacity** | Step 3: Remove excess, keeping only MIN |
+| **Undersized Portfolios** | Multi-radius expansion (40→60mi or 200→400→600mi) |
+| **Conflicting Bankers** | Majority ECN count resolution |
+| **Unassigned HHs** | Tracked in separate file for manual review |
+
+---
+
+## SIGN-OFF
+
+| Stakeholder | Role | Date | Signature |
+|-------------|------|------|-----------|
+| | Business Owner | | |
+| | Data & Analytics Lead | | |
+| | Compliance | | |
+| | IT/Engineering | | |
+
+---
+
+**Version:** 1.0  
+**Date:** November 2024  
+**Prepared by:** Data Science Team
