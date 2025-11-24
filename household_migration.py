@@ -1124,7 +1124,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg3_unassigned, rm_in_market,
             'RM', 'STEP_11_RM_IM', 'SEG3_RM_IN_MARKET',
-            initial_radius=40, expanded_radius=60
+            initial_radius=40, expanded_radius=60, final_radius=100
         )
         seg3_assigned += assigned
         seg3_unassigned = get_unassigned_hh(data, segment=3)
@@ -1149,7 +1149,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg4_unassigned, rc_in_market,
             'RC', 'STEP_11_RC_IM', 'SEG4_RC_IN_MARKET',
-            initial_radius=40, expanded_radius=60
+            initial_radius=40, expanded_radius=60, final_radius=100
         )
         seg4_assigned += assigned
         seg4_unassigned = get_unassigned_hh(data, segment=4)
@@ -1185,7 +1185,7 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
     4. Fill undersized (initial radius)
     5. Assign remaining to nearest (no exceed MAX)
     6. Fill undersized (expanded radius)
-    7. Fill undersized (final radius) - for CENTRALIZED only
+    7. Fill undersized (final radius) - IN MARKET: 100mi, CENTRALIZED: 600mi
     """
     
     if len(unassigned_hh) == 0:
