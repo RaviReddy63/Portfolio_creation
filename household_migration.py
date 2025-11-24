@@ -1124,7 +1124,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg3_unassigned, rm_in_market,
             'RM', 'STEP_11_RM_IM', 'SEG3_RM_IN_MARKET',
-            initial_radius=40, expanded_radius=60, final_radius=100
+            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200]
         )
         seg3_assigned += assigned
         seg3_unassigned = get_unassigned_hh(data, segment=3)
@@ -1137,7 +1137,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg3_unassigned, rm_centralized,
             'RM', 'STEP_11_RM_CENT', 'SEG3_RM_CENTRALIZED',
-            initial_radius=200, expanded_radius=400, final_radius=600
+            initial_radius=200, expanded_radius=400, final_radii=[600]
         )
         seg3_assigned += assigned
     
@@ -1149,7 +1149,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg4_unassigned, rc_in_market,
             'RC', 'STEP_11_RC_IM', 'SEG4_RC_IN_MARKET',
-            initial_radius=40, expanded_radius=60, final_radius=100
+            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200]
         )
         seg4_assigned += assigned
         seg4_unassigned = get_unassigned_hh(data, segment=4)
@@ -1162,12 +1162,66 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg4_unassigned, rc_centralized,
             'RC', 'STEP_11_RC_CENT', 'SEG4_RC_CENTRALIZED',
-            initial_radius=200, expanded_radius=400, final_radius=600
+            initial_radius=200, expanded_radius=400, final_radii=[600]
         )
         seg4_assigned += assigned
     
+    # ==================== STEP 11B: FILL UNDERSIZED CENTRALIZED (NO DISTANCE LIMIT) ====================
+    seg3_unassigned = get_unassigned_hh(data, segment=3)
+    seg4_unassigned = get_unassigned_hh(data, segment=4)
+    
+    if len(seg3_unassigned) > 0 and len(rm_centralized) > 0:
+        print(f"\n  {'='*60}")
+        print(f"  STEP 11B: FILL UNDERSIZED RM CENTRALIZED (NO LIMIT)")
+        print(f"  {'='*60}")
+        assigned = fill_undersized_centralized_unlimited(
+            data, seg3_unassigned, rm_centralized, 'RM', 'STEP_11B', 'FILL_UNDERSIZED_UNLIMITED'
+        )
+        seg3_assigned += assigned
+        print(f"    ✓ Assigned {assigned} households")
+    
+    if len(seg4_unassigned) > 0 and len(rc_centralized) > 0:
+        print(f"\n  {'='*60}")
+        print(f"  STEP 11B: FILL UNDERSIZED RC CENTRALIZED (NO LIMIT)")
+        print(f"  {'='*60}")
+        assigned = fill_undersized_centralized_unlimited(
+            data, seg4_unassigned, rc_centralized, 'RC', 'STEP_11B', 'FILL_UNDERSIZED_UNLIMITED'
+        )
+        seg4_assigned += assigned
+        print(f"    ✓ Assigned {assigned} households")
+    
+    # ==================== STEP 11C: ASSIGN ALL REMAINING TO NEAREST CENTRALIZED ====================
+    seg3_unassigned = get_unassigned_hh(data, segment=3)
+    seg4_unassigned = get_unassigned_hh(data, segment=4)
+    
+    if len(seg3_unassigned) > 0 and len(rm_centralized) > 0:
+        print(f"\n  {'='*60}")
+        print(f"  STEP 11C: ASSIGN ALL REMAINING SEG 3 → RM CENTRALIZED")
+        print(f"  {'='*60}")
+        assigned = assign_all_remaining_to_centralized(
+            data, seg3_unassigned, rm_centralized, 'RM', 'STEP_11C', 'ASSIGN_ALL_REMAINING'
+        )
+        seg3_assigned += assigned
+        print(f"    ✓ Assigned {assigned} households")
+    
+    if len(seg4_unassigned) > 0 and len(rc_centralized) > 0:
+        print(f"\n  {'='*60}")
+        print(f"  STEP 11C: ASSIGN ALL REMAINING SEG 4 → RC CENTRALIZED")
+        print(f"  {'='*60}")
+        assigned = assign_all_remaining_to_centralized(
+            data, seg4_unassigned, rc_centralized, 'RC', 'STEP_11C', 'ASSIGN_ALL_REMAINING'
+        )
+        seg4_assigned += assigned
+        print(f"    ✓ Assigned {assigned} households")
+    
     print(f"\n  ✓ Total Segment 3 → RM assignments: {seg3_assigned}")
     print(f"  ✓ Total Segment 4 → RC assignments: {seg4_assigned}")
+    
+    # Final check
+    seg3_still_unassigned = get_unassigned_hh(data, segment=3)
+    seg4_still_unassigned = get_unassigned_hh(data, segment=4)
+    print(f"\n  Final unassigned Segment 3: {len(seg3_still_unassigned)}")
+    print(f"  Final unassigned Segment 4: {len(seg4_still_unassigned)}")
     
     return data, {
         'step11_seg3_rm': seg3_assigned,
@@ -1176,7 +1230,7 @@ def step11_spatial_assignment(data):
 
 
 def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, reason,
-                               initial_radius=40, expanded_radius=60, final_radius=None):
+                               initial_radius=40, expanded_radius=60, final_radii=None):
     """
     Full spatial assignment logic matching original code:
     1. Build customer-banker mapping
@@ -1185,7 +1239,7 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
     4. Fill undersized (initial radius)
     5. Assign remaining to nearest (no exceed MAX)
     6. Fill undersized (expanded radius)
-    7. Fill undersized (final radius) - IN MARKET: 100mi, CENTRALIZED: 600mi
+    7+. Fill undersized (final radii) - iterates through all final radii
     """
     
     if len(unassigned_hh) == 0:
@@ -1251,14 +1305,21 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
     total_assigned += assigned_count
     print(f"    ✓ Assigned {assigned_count} households")
     
-    # ==================== STEP 7: FILL UNDERSIZED (FINAL RADIUS - CENTRALIZED ONLY) ====================
-    if final_radius is not None:
-        print(f"\n  Step 7: Fill undersized portfolios ({final_radius} miles)...")
-        assigned_count = fill_undersized_portfolios(
-            data, bankers, final_radius, banker_type, f"{step}_FILL_FINAL", f"{reason}_{final_radius}MI", 'MIN'
-        )
-        total_assigned += assigned_count
-        print(f"    ✓ Assigned {assigned_count} households")
+    # ==================== STEP 7+: FILL UNDERSIZED (FINAL RADII) ====================
+    if final_radii is not None:
+        for phase_num, final_radius in enumerate(final_radii, start=7):
+            undersized = bankers[bankers['CURRENT_ASSIGNED'] < bankers['MIN_NEEDED']]
+            if len(undersized) == 0:
+                print(f"\n  Step {phase_num}: All portfolios at MIN, skipping {final_radius}mi phase")
+                break
+            
+            print(f"\n  Step {phase_num}: Fill undersized portfolios ({final_radius} miles)...")
+            assigned_count = fill_undersized_portfolios(
+                data, bankers, final_radius, banker_type, f"{step}_FILL_FINAL_{final_radius}", 
+                f"{reason}_{final_radius}MI", 'MIN'
+            )
+            total_assigned += assigned_count
+            print(f"    ✓ Assigned {assigned_count} households")
     
     return total_assigned
 
@@ -1511,6 +1572,153 @@ def assign_remaining_no_exceed_max(data, customer_banker_map, bankers_df, banker
                 bankers_df.at[banker_idx, 'CURRENT_ASSIGNED'] += 1
                 assigned_count += 1
                 break
+    
+    return assigned_count
+
+
+def fill_undersized_centralized_unlimited(data, unassigned_hhs, bankers_df, banker_type, step, reason):
+    """Fill undersized CENTRALIZED portfolios with no distance limit, up to MIN"""
+    
+    assigned_count = 0
+    
+    # Get undersized bankers
+    bankers_df['CURRENT_COUNT'] = 0
+    assigned_hh = data['hh_assignments'][
+        (data['hh_assignments']['ASSIGNED_BANKER_TYPE'] == banker_type) &
+        (data['hh_assignments']['IS_ASSIGNED'] == True)
+    ]
+    
+    if len(assigned_hh) > 0:
+        counts = assigned_hh.groupby('ASSIGNED_PORT_CODE').size()
+        bankers_df['CURRENT_COUNT'] = bankers_df['PORT_CODE'].map(counts).fillna(0)
+    
+    undersized = bankers_df[bankers_df['CURRENT_COUNT'] < bankers_df['MIN_NEEDED']].copy()
+    
+    if len(undersized) == 0:
+        return 0
+    
+    print(f"    Found {len(undersized)} undersized portfolios")
+    
+    # Filter bankers and unassigned with valid coords
+    undersized = undersized.dropna(subset=['BANKER_LAT_NUM', 'BANKER_LON_NUM'])
+    unassigned_valid = unassigned_hhs.dropna(subset=['LAT_NUM', 'LON_NUM'])
+    
+    if len(unassigned_valid) == 0 or len(undersized) == 0:
+        return 0
+    
+    # For each undersized banker, find nearest unassigned HHs
+    for idx, banker in undersized.iterrows():
+        needed = banker['MIN_NEEDED'] - banker['CURRENT_COUNT']
+        if needed <= 0:
+            continue
+        
+        # Get currently unassigned
+        still_unassigned = data['hh_assignments'][
+            data['hh_assignments']['IS_ASSIGNED'] == False
+        ].copy()
+        still_unassigned = still_unassigned.dropna(subset=['LAT_NUM', 'LON_NUM'])
+        
+        if len(still_unassigned) == 0:
+            break
+        
+        # Calculate distances to all unassigned
+        distances = []
+        for _, hh in still_unassigned.iterrows():
+            dist = haversine_distance(
+                hh['LAT_NUM'], hh['LON_NUM'],
+                banker['BANKER_LAT_NUM'], banker['BANKER_LON_NUM']
+            )
+            distances.append((hh['HH_ECN'], dist))
+        
+        # Sort by distance
+        distances.sort(key=lambda x: x[1])
+        
+        # Assign nearest up to MIN
+        assigned_to_banker = 0
+        for hh_ecn, dist in distances:
+            if assigned_to_banker >= needed:
+                break
+            
+            hh_idx = data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].index
+            if len(hh_idx) == 0 or data['hh_assignments'].at[hh_idx[0], 'IS_ASSIGNED']:
+                continue
+            
+            success = assign_household(
+                data, hh_ecn,
+                banker['PORT_CODE'],
+                banker['EID'],
+                banker['EMPLOYEE_NAME'],
+                banker_type,
+                step,
+                f"{reason}_DIST_{int(dist)}MI"
+            )
+            
+            if success:
+                assigned_count += 1
+                assigned_to_banker += 1
+    
+    return assigned_count
+
+
+def assign_all_remaining_to_centralized(data, unassigned_hhs, bankers_df, banker_type, step, reason):
+    """Assign ALL remaining unassigned HHs to nearest CENTRALIZED banker (no capacity limit)"""
+    
+    assigned_count = 0
+    
+    # Filter bankers with valid coords
+    bankers_valid = bankers_df.dropna(subset=['BANKER_LAT_NUM', 'BANKER_LON_NUM']).copy()
+    
+    if len(bankers_valid) == 0:
+        print(f"    ⚠ No bankers with valid coordinates")
+        return 0
+    
+    # Get all unassigned with valid coords
+    unassigned_valid = data['hh_assignments'][
+        data['hh_assignments']['IS_ASSIGNED'] == False
+    ].dropna(subset=['LAT_NUM', 'LON_NUM'])
+    
+    if len(unassigned_valid) == 0:
+        return 0
+    
+    print(f"    Assigning {len(unassigned_valid)} remaining households...")
+    
+    # For each unassigned, find nearest banker
+    for _, hh in unassigned_valid.iterrows():
+        hh_ecn = hh['HH_ECN']
+        
+        # Check if still unassigned
+        if data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].iloc[0]['IS_ASSIGNED']:
+            continue
+        
+        # Find nearest banker
+        min_dist = float('inf')
+        nearest_banker = None
+        
+        for _, banker in bankers_valid.iterrows():
+            dist = haversine_distance(
+                hh['LAT_NUM'], hh['LON_NUM'],
+                banker['BANKER_LAT_NUM'], banker['BANKER_LON_NUM']
+            )
+            if dist < min_dist:
+                min_dist = dist
+                nearest_banker = banker
+        
+        if nearest_banker is None:
+            continue
+        
+        # Assign to nearest (no capacity check)
+        success = assign_household(
+            data, hh_ecn,
+            nearest_banker['PORT_CODE'],
+            nearest_banker['EID'],
+            nearest_banker['EMPLOYEE_NAME'],
+            banker_type,
+            step,
+            f"{reason}_DIST_{int(min_dist)}MI"
+        )
+        
+        if success:
+            assigned_count += 1
     
     return assigned_count
 
