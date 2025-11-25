@@ -1124,7 +1124,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg4_unassigned, rc_in_market,
             'RC', 'STEP_11_RC_IM', 'SEG4_RC_IN_MARKET',
-            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200]
+            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200], segment=4
         )
         seg4_assigned += assigned
         seg4_unassigned = get_unassigned_hh(data, segment=4)
@@ -1137,7 +1137,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg4_unassigned, rc_centralized,
             'RC', 'STEP_11_RC_CENT', 'SEG4_RC_CENTRALIZED',
-            initial_radius=200, expanded_radius=400, final_radii=[600]
+            initial_radius=200, expanded_radius=400, final_radii=[600], segment=4
         )
         seg4_assigned += assigned
     
@@ -1149,7 +1149,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg3_unassigned, rm_in_market,
             'RM', 'STEP_11_RM_IM', 'SEG3_RM_IN_MARKET',
-            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200]
+            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200], segment=3
         )
         seg3_assigned += assigned
         seg3_unassigned = get_unassigned_hh(data, segment=3)
@@ -1162,7 +1162,7 @@ def step11_spatial_assignment(data):
         assigned = assign_full_spatial_logic(
             data, seg3_unassigned, rm_centralized,
             'RM', 'STEP_11_RM_CENT', 'SEG3_RM_CENTRALIZED',
-            initial_radius=200, expanded_radius=400, final_radii=[600]
+            initial_radius=200, expanded_radius=400, final_radii=[600], segment=3
         )
         seg3_assigned += assigned
     
@@ -1234,7 +1234,7 @@ def step11_spatial_assignment(data):
 
 
 def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, reason,
-                               initial_radius=40, expanded_radius=60, final_radii=None):
+                               initial_radius=40, expanded_radius=60, final_radii=None, segment=None):
     """
     Full spatial assignment logic matching original code:
     1. Build customer-banker mapping
@@ -1274,21 +1274,21 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
     # ==================== STEP 2: ASSIGN TO NEAREST BANKER ====================
     print(f"\n  Step 2: Assign to nearest banker...")
     assigned_count = assign_to_nearest_banker(
-        data, customer_banker_map, bankers, banker_type, f"{step}_NEAREST", reason
+        data, customer_banker_map, bankers, banker_type, f"{step}_NEAREST", reason, segment
     )
     total_assigned += assigned_count
     print(f"    ✓ Assigned {assigned_count} households")
     
     # ==================== STEP 3: REMOVE EXCESS (KEEP MIN) ====================
     print(f"\n  Step 3: Remove excess customers (keep MIN)...")
-    removed_count = remove_excess_keep_min(data, bankers)
+    removed_count = remove_excess_keep_min(data, bankers, segment)
     print(f"    ✓ Removed {removed_count} households from over-capacity bankers")
     total_assigned -= removed_count
     
     # ==================== STEP 4: FILL UNDERSIZED (INITIAL RADIUS) ====================
     print(f"\n  Step 4: Fill undersized portfolios ({initial_radius} miles)...")
     assigned_count = fill_undersized_portfolios(
-        data, bankers, initial_radius, banker_type, f"{step}_FILL_MIN", reason, 'MIN'
+        data, bankers, initial_radius, banker_type, f"{step}_FILL_MIN", reason, 'MIN', segment
     )
     total_assigned += assigned_count
     print(f"    ✓ Assigned {assigned_count} households")
@@ -1296,7 +1296,7 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
     # ==================== STEP 5: ASSIGN REMAINING (NO EXCEED MAX) ====================
     print(f"\n  Step 5: Assign remaining to nearest (no exceed MAX)...")
     assigned_count = assign_remaining_no_exceed_max(
-        data, customer_banker_map, bankers, banker_type, f"{step}_REMAINING", reason
+        data, customer_banker_map, bankers, banker_type, f"{step}_REMAINING", reason, segment
     )
     total_assigned += assigned_count
     print(f"    ✓ Assigned {assigned_count} households")
@@ -1304,7 +1304,7 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
     # ==================== STEP 6: FILL UNDERSIZED (EXPANDED RADIUS) ====================
     print(f"\n  Step 6: Fill undersized portfolios ({expanded_radius} miles)...")
     assigned_count = fill_undersized_portfolios(
-        data, bankers, expanded_radius, banker_type, f"{step}_FILL_EXPANDED", f"{reason}_{expanded_radius}MI", 'MIN'
+        data, bankers, expanded_radius, banker_type, f"{step}_FILL_EXPANDED", f"{reason}_{expanded_radius}MI", 'MIN', segment
     )
     total_assigned += assigned_count
     print(f"    ✓ Assigned {assigned_count} households")
@@ -1312,7 +1312,17 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
     # ==================== STEP 7+: FILL UNDERSIZED (FINAL RADII) ====================
     if final_radii is not None:
         for phase_num, final_radius in enumerate(final_radii, start=7):
-            undersized = bankers[bankers['CURRENT_ASSIGNED'] < bankers['MIN_NEEDED']]
+            # Check undersized with segment-specific counts
+            for idx, banker in bankers.iterrows():
+                port_code = banker['PORT_CODE']
+                segment_hh_count = len(data['hh_assignments'][
+                    (data['hh_assignments']['ASSIGNED_PORT_CODE'] == port_code) &
+                    (data['hh_assignments']['IS_ASSIGNED'] == True) &
+                    (data['hh_assignments']['NEW_SEGMENT'] == segment)
+                ])
+                bankers.at[idx, 'SEGMENT_ASSIGNED'] = segment_hh_count
+            
+            undersized = bankers[bankers['SEGMENT_ASSIGNED'] < bankers['MIN_NEEDED']]
             if len(undersized) == 0:
                 print(f"\n  Step {phase_num}: All portfolios at MIN, skipping {final_radius}mi phase")
                 break
@@ -1320,7 +1330,7 @@ def assign_full_spatial_logic(data, unassigned_hh, bankers, banker_type, step, r
             print(f"\n  Step {phase_num}: Fill undersized portfolios ({final_radius} miles)...")
             assigned_count = fill_undersized_portfolios(
                 data, bankers, final_radius, banker_type, f"{step}_FILL_FINAL_{final_radius}", 
-                f"{reason}_{final_radius}MI", 'MIN'
+                f"{reason}_{final_radius}MI", 'MIN', segment
             )
             total_assigned += assigned_count
             print(f"    ✓ Assigned {assigned_count} households")
@@ -1362,9 +1372,13 @@ def build_customer_banker_mapping_hh(customers_df, bankers_df, banker_tree, max_
     return customer_banker_map
 
 
-def assign_to_nearest_banker(data, customer_banker_map, bankers_df, banker_type, step, reason):
+def assign_to_nearest_banker(data, customer_banker_map, bankers_df, banker_type, step, reason, segment=None):
     """Assign each household to their nearest banker"""
     assigned_count = 0
+    
+    # Initialize segment-specific counts
+    for idx, banker in bankers_df.iterrows():
+        bankers_df.at[idx, 'SEGMENT_ASSIGNED'] = 0
     
     for hh_ecn, bankers_in_range in customer_banker_map.items():
         # Check if already assigned
@@ -1388,29 +1402,30 @@ def assign_to_nearest_banker(data, customer_banker_map, bankers_df, banker_type,
             )
             
             if success:
-                bankers_df.at[banker_idx, 'CURRENT_ASSIGNED'] += 1
+                bankers_df.at[banker_idx, 'SEGMENT_ASSIGNED'] += 1
                 assigned_count += 1
                 break
     
     return assigned_count
 
 
-def remove_excess_keep_min(data, bankers_df):
-    """Remove farthest households from over-capacity bankers (keep only MIN)"""
+def remove_excess_keep_min(data, bankers_df, segment=None):
+    """Remove farthest households from over-capacity bankers (keep only MIN) based on segment-specific count"""
     removed_count = 0
     
     for idx, banker in bankers_df.iterrows():
         port_code = banker['PORT_CODE']
         min_req = banker['MIN_NEEDED']
-        current_assigned = banker['CURRENT_ASSIGNED']
+        current_assigned = banker['SEGMENT_ASSIGNED']
         
         if current_assigned <= min_req:
             continue
         
-        # Get households assigned to this banker in current step
+        # Get segment-specific households assigned to this banker in current step
         assigned_hhs = data['hh_assignments'][
             (data['hh_assignments']['ASSIGNED_PORT_CODE'] == port_code) &
             (data['hh_assignments']['IS_ASSIGNED'] == True) &
+            (data['hh_assignments']['NEW_SEGMENT'] == segment) &
             (data['hh_assignments']['ASSIGNMENT_STEP'].str.contains('STEP_11', na=False))
         ].copy()
         
@@ -1445,26 +1460,42 @@ def remove_excess_keep_min(data, bankers_df):
             
             removed_count += 1
         
-        bankers_df.at[idx, 'CURRENT_ASSIGNED'] = min_req
+        bankers_df.at[idx, 'SEGMENT_ASSIGNED'] = min_req
     
     return removed_count
 
 
-def fill_undersized_portfolios(data, bankers_df, max_radius, banker_type, step, reason, target='MIN'):
+def fill_undersized_portfolios(data, bankers_df, max_radius, banker_type, step, reason, target='MIN', segment=None):
     """Fill undersized portfolios with nearest unassigned households"""
     assigned_count = 0
     
+    # Find undersized bankers based on segment-specific counts
+    for idx, banker in bankers_df.iterrows():
+        port_code = banker['PORT_CODE']
+        
+        # Count segment-specific HHs currently in this portfolio
+        segment_hh_count = len(data['hh_assignments'][
+            (data['hh_assignments']['ASSIGNED_PORT_CODE'] == port_code) &
+            (data['hh_assignments']['IS_ASSIGNED'] == True) &
+            (data['hh_assignments']['NEW_SEGMENT'] == segment)
+        ])
+        
+        bankers_df.at[idx, 'SEGMENT_ASSIGNED'] = segment_hh_count
+    
     # Find undersized bankers
     if target == 'MIN':
-        undersized = bankers_df[bankers_df['CURRENT_ASSIGNED'] < bankers_df['MIN_NEEDED']].copy()
+        undersized = bankers_df[bankers_df['SEGMENT_ASSIGNED'] < bankers_df['MIN_NEEDED']].copy()
     else:  # MAX
-        undersized = bankers_df[bankers_df['CURRENT_ASSIGNED'] < bankers_df['MAX_NEEDED']].copy()
+        undersized = bankers_df[bankers_df['SEGMENT_ASSIGNED'] < bankers_df['MAX_NEEDED']].copy()
     
     if len(undersized) == 0:
         return 0
     
-    # Get unassigned households
-    unassigned_hhs = data['hh_assignments'][data['hh_assignments']['IS_ASSIGNED'] == False].copy()
+    # Get unassigned households for specific segment
+    unassigned_hhs = data['hh_assignments'][
+        (data['hh_assignments']['IS_ASSIGNED'] == False) &
+        (data['hh_assignments']['NEW_SEGMENT'] == segment)
+    ].copy()
     unassigned_hhs = unassigned_hhs.dropna(subset=['LAT_NUM', 'LON_NUM'])
     
     if len(unassigned_hhs) == 0:
@@ -1484,9 +1515,9 @@ def fill_undersized_portfolios(data, bankers_df, max_radius, banker_type, step, 
         banker_name = banker['EMPLOYEE_NAME']
         
         if target == 'MIN':
-            needed = banker['MIN_NEEDED'] - banker['CURRENT_ASSIGNED']
+            needed = banker['MIN_NEEDED'] - banker['SEGMENT_ASSIGNED']
         else:
-            needed = banker['MAX_NEEDED'] - banker['CURRENT_ASSIGNED']
+            needed = banker['MAX_NEEDED'] - banker['SEGMENT_ASSIGNED']
         
         if needed <= 0:
             continue
@@ -1495,8 +1526,11 @@ def fill_undersized_portfolios(data, bankers_df, max_radius, banker_type, step, 
         banker_rad = np.radians([[banker_lat, banker_lon]])
         radius_rad = max_radius / 3959.0
         
-        # Refresh unassigned list
-        unassigned_hhs_current = data['hh_assignments'][data['hh_assignments']['IS_ASSIGNED'] == False].copy()
+        # Refresh unassigned list for this segment
+        unassigned_hhs_current = data['hh_assignments'][
+            (data['hh_assignments']['IS_ASSIGNED'] == False) &
+            (data['hh_assignments']['NEW_SEGMENT'] == segment)
+        ].copy()
         unassigned_hhs_current = unassigned_hhs_current.dropna(subset=['LAT_NUM', 'LON_NUM'])
         
         if len(unassigned_hhs_current) == 0:
@@ -1533,16 +1567,26 @@ def fill_undersized_portfolios(data, bankers_df, max_radius, banker_type, step, 
             )
             
             if success:
-                bankers_df.at[idx, 'CURRENT_ASSIGNED'] += 1
+                bankers_df.at[idx, 'SEGMENT_ASSIGNED'] += 1
                 assigned_count += 1
                 assigned_to_banker += 1
     
     return assigned_count
 
 
-def assign_remaining_no_exceed_max(data, customer_banker_map, bankers_df, banker_type, step, reason):
+def assign_remaining_no_exceed_max(data, customer_banker_map, bankers_df, banker_type, step, reason, segment=None):
     """Assign remaining unassigned households to nearest banker without exceeding MAX"""
     assigned_count = 0
+    
+    # Calculate segment-specific counts
+    for idx, banker in bankers_df.iterrows():
+        port_code = banker['PORT_CODE']
+        segment_hh_count = len(data['hh_assignments'][
+            (data['hh_assignments']['ASSIGNED_PORT_CODE'] == port_code) &
+            (data['hh_assignments']['IS_ASSIGNED'] == True) &
+            (data['hh_assignments']['NEW_SEGMENT'] == segment)
+        ])
+        bankers_df.at[idx, 'SEGMENT_ASSIGNED'] = segment_hh_count
     
     for hh_ecn, bankers_in_range in customer_banker_map.items():
         # Check if already assigned
@@ -1557,8 +1601,8 @@ def assign_remaining_no_exceed_max(data, customer_banker_map, bankers_df, banker
                 continue
             banker_idx = banker_idx[0]
             
-            # Check if banker can take more (not at MAX)
-            current = bankers_df.at[banker_idx, 'CURRENT_ASSIGNED']
+            # Check if banker can take more (not at MAX) based on segment-specific count
+            current = bankers_df.at[banker_idx, 'SEGMENT_ASSIGNED']
             max_allowed = bankers_df.at[banker_idx, 'MAX_NEEDED']
             
             if current >= max_allowed:
@@ -1573,7 +1617,7 @@ def assign_remaining_no_exceed_max(data, customer_banker_map, bankers_df, banker
             )
             
             if success:
-                bankers_df.at[banker_idx, 'CURRENT_ASSIGNED'] += 1
+                bankers_df.at[banker_idx, 'SEGMENT_ASSIGNED'] += 1
                 assigned_count += 1
                 break
     
@@ -1616,9 +1660,10 @@ def fill_undersized_centralized_unlimited(data, unassigned_hhs, bankers_df, bank
         if needed <= 0:
             continue
         
-        # Get currently unassigned
+        # Get currently unassigned from the specific segment passed as parameter
         still_unassigned = data['hh_assignments'][
-            data['hh_assignments']['IS_ASSIGNED'] == False
+            (data['hh_assignments']['IS_ASSIGNED'] == False) &
+            (data['hh_assignments']['HH_ECN'].isin(unassigned_valid['HH_ECN']))
         ].copy()
         still_unassigned = still_unassigned.dropna(subset=['LAT_NUM', 'LON_NUM'])
         
@@ -1676,10 +1721,8 @@ def assign_all_remaining_to_centralized(data, unassigned_hhs, bankers_df, banker
         print(f"    ⚠ No bankers with valid coordinates")
         return 0
     
-    # Get all unassigned with valid coords
-    unassigned_valid = data['hh_assignments'][
-        data['hh_assignments']['IS_ASSIGNED'] == False
-    ].dropna(subset=['LAT_NUM', 'LON_NUM'])
+    # Use the specific unassigned HHs passed as parameter (already filtered by segment)
+    unassigned_valid = unassigned_hhs.dropna(subset=['LAT_NUM', 'LON_NUM'])
     
     if len(unassigned_valid) == 0:
         return 0
@@ -1691,7 +1734,8 @@ def assign_all_remaining_to_centralized(data, unassigned_hhs, bankers_df, banker
         hh_ecn = hh['HH_ECN']
         
         # Check if still unassigned
-        if data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].iloc[0]['IS_ASSIGNED']:
+        hh_idx = data['hh_assignments'][data['hh_assignments']['HH_ECN'] == hh_ecn].index
+        if len(hh_idx) == 0 or data['hh_assignments'].at[hh_idx[0], 'IS_ASSIGNED']:
             continue
         
         # Find nearest banker
