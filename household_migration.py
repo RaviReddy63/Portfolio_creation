@@ -827,7 +827,7 @@ def step8_segment2_sbb_existing(data):
                                                         return_distance=True, sort_results=True)
             
             if len(indices[0]) > 0:
-                nearest_idx = indices[0][0]
+                nearest_idx = int(indices[0][0])
                 nearest_sbb = sbb_valid.iloc[nearest_idx]
                 
                 success = assign_household(
@@ -990,7 +990,7 @@ def step10_verify_segment2_placement(data):
                                                         return_distance=True, sort_results=True)
             
             if len(indices[0]) > 0:
-                nearest_idx = indices[0][0]
+                nearest_idx = int(indices[0][0])
                 nearest_sbb = sbb_valid.iloc[nearest_idx]
                 
                 success = assign_household(
@@ -1364,7 +1364,7 @@ def build_customer_banker_mapping_hh(customers_df, bankers_df, banker_tree, max_
             # Store as list of (banker_port_code, distance) tuples sorted by distance
             bankers_in_range = []
             for bidx, dist in zip(banker_indices, distances_miles):
-                banker_port = bankers_df.iloc[bidx]['PORT_CODE']
+                banker_port = bankers_df.iloc[int(bidx)]['PORT_CODE']
                 bankers_in_range.append((banker_port, dist))
             
             customer_banker_map[hh_ecn] = bankers_in_range
@@ -1555,7 +1555,7 @@ def fill_undersized_portfolios(data, bankers_df, max_radius, banker_type, step, 
             if assigned_to_banker >= needed:
                 break
             
-            actual_idx = unassigned_hhs_current.iloc[hidx].name
+            actual_idx = unassigned_hhs_current.iloc[int(hidx)].name
             hh_ecn = data['hh_assignments'].at[actual_idx, 'HH_ECN']
             
             if data['hh_assignments'].at[actual_idx, 'IS_ASSIGNED']:
