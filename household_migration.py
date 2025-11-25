@@ -1052,9 +1052,9 @@ def step10_verify_segment2_placement(data):
 def step11_spatial_assignment(data):
     """
     Step 11: Remaining segment 3 → RMs, segment 4 → RCs
-    Using FULL original BallTree spatial assignment logic with all phases
+    EXECUTION ORDER: RC FIRST, then RM
     """
-    print_step("11", "Spatial Assignment (Seg 3 → RM, Seg 4 → RC)")
+    print_step("11", "Spatial Assignment (RC FIRST, then RM)")
     
     # Calculate current retention counts per banker
     assigned_hh = data['hh_assignments'][data['hh_assignments']['IS_ASSIGNED'] == True]
@@ -1093,17 +1093,17 @@ def step11_spatial_assignment(data):
     rc_in_market = rc_bankers[rc_bankers['ROLE_TYPE'] == 'IN MARKET'].copy()
     rc_centralized = rc_bankers[rc_bankers['ROLE_TYPE'] == 'CENTRALIZED'].copy()
     
-    print(f"\n  RM Bankers:")
-    print(f"    IN MARKET: {len(rm_in_market)}")
-    print(f"    CENTRALIZED: {len(rm_centralized)}")
-    print(f"    Total MIN needed: {rm_bankers['MIN_NEEDED'].clip(lower=0).sum()}")
-    print(f"    Total MAX capacity: {rm_bankers['MAX_NEEDED'].clip(lower=0).sum()}")
-    
     print(f"\n  RC Bankers:")
     print(f"    IN MARKET: {len(rc_in_market)}")
     print(f"    CENTRALIZED: {len(rc_centralized)}")
     print(f"    Total MIN needed: {rc_bankers['MIN_NEEDED'].clip(lower=0).sum()}")
     print(f"    Total MAX capacity: {rc_bankers['MAX_NEEDED'].clip(lower=0).sum()}")
+    
+    print(f"\n  RM Bankers:")
+    print(f"    IN MARKET: {len(rm_in_market)}")
+    print(f"    CENTRALIZED: {len(rm_centralized)}")
+    print(f"    Total MIN needed: {rm_bankers['MIN_NEEDED'].clip(lower=0).sum()}")
+    print(f"    Total MAX capacity: {rm_bankers['MAX_NEEDED'].clip(lower=0).sum()}")
     
     # Get unassigned households
     seg3_unassigned = get_unassigned_hh(data, segment=3)
@@ -1116,32 +1116,7 @@ def step11_spatial_assignment(data):
     seg3_assigned = 0
     seg4_assigned = 0
     
-    # ==================== SEGMENT 3 → RM IN MARKET ====================
-    if len(rm_in_market) > 0 and len(seg3_unassigned) > 0:
-        print(f"\n  {'='*60}")
-        print(f"  SEGMENT 3 → RM IN MARKET")
-        print(f"  {'='*60}")
-        assigned = assign_full_spatial_logic(
-            data, seg3_unassigned, rm_in_market,
-            'RM', 'STEP_11_RM_IM', 'SEG3_RM_IN_MARKET',
-            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200]
-        )
-        seg3_assigned += assigned
-        seg3_unassigned = get_unassigned_hh(data, segment=3)
-    
-    # ==================== SEGMENT 3 → RM CENTRALIZED ====================
-    if len(rm_centralized) > 0 and len(seg3_unassigned) > 0:
-        print(f"\n  {'='*60}")
-        print(f"  SEGMENT 3 → RM CENTRALIZED")
-        print(f"  {'='*60}")
-        assigned = assign_full_spatial_logic(
-            data, seg3_unassigned, rm_centralized,
-            'RM', 'STEP_11_RM_CENT', 'SEG3_RM_CENTRALIZED',
-            initial_radius=200, expanded_radius=400, final_radii=[600]
-        )
-        seg3_assigned += assigned
-    
-    # ==================== SEGMENT 4 → RC IN MARKET ====================
+    # ==================== SEGMENT 4 → RC IN MARKET (FIRST) ====================
     if len(rc_in_market) > 0 and len(seg4_unassigned) > 0:
         print(f"\n  {'='*60}")
         print(f"  SEGMENT 4 → RC IN MARKET")
@@ -1154,7 +1129,7 @@ def step11_spatial_assignment(data):
         seg4_assigned += assigned
         seg4_unassigned = get_unassigned_hh(data, segment=4)
     
-    # ==================== SEGMENT 4 → RC CENTRALIZED ====================
+    # ==================== SEGMENT 4 → RC CENTRALIZED (SECOND) ====================
     if len(rc_centralized) > 0 and len(seg4_unassigned) > 0:
         print(f"\n  {'='*60}")
         print(f"  SEGMENT 4 → RC CENTRALIZED")
@@ -1166,56 +1141,85 @@ def step11_spatial_assignment(data):
         )
         seg4_assigned += assigned
     
-    # ==================== STEP 11B: FILL UNDERSIZED CENTRALIZED (NO DISTANCE LIMIT) ====================
+    # ==================== SEGMENT 3 → RM IN MARKET (THIRD) ====================
+    if len(rm_in_market) > 0 and len(seg3_unassigned) > 0:
+        print(f"\n  {'='*60}")
+        print(f"  SEGMENT 3 → RM IN MARKET")
+        print(f"  {'='*60}")
+        assigned = assign_full_spatial_logic(
+            data, seg3_unassigned, rm_in_market,
+            'RM', 'STEP_11_RM_IM', 'SEG3_RM_IN_MARKET',
+            initial_radius=40, expanded_radius=60, final_radii=[100, 150, 200]
+        )
+        seg3_assigned += assigned
+        seg3_unassigned = get_unassigned_hh(data, segment=3)
+    
+    # ==================== SEGMENT 3 → RM CENTRALIZED (FOURTH) ====================
+    if len(rm_centralized) > 0 and len(seg3_unassigned) > 0:
+        print(f"\n  {'='*60}")
+        print(f"  SEGMENT 3 → RM CENTRALIZED")
+        print(f"  {'='*60}")
+        assigned = assign_full_spatial_logic(
+            data, seg3_unassigned, rm_centralized,
+            'RM', 'STEP_11_RM_CENT', 'SEG3_RM_CENTRALIZED',
+            initial_radius=200, expanded_radius=400, final_radii=[600]
+        )
+        seg3_assigned += assigned
+    
+    # ==================== STEP 11C: FILL UNDERSIZED CENTRALIZED (NO DISTANCE LIMIT) ====================
     seg3_unassigned = get_unassigned_hh(data, segment=3)
     seg4_unassigned = get_unassigned_hh(data, segment=4)
     
-    if len(seg3_unassigned) > 0 and len(rm_centralized) > 0:
-        print(f"\n  {'='*60}")
-        print(f"  STEP 11B: FILL UNDERSIZED RM CENTRALIZED (NO LIMIT)")
-        print(f"  {'='*60}")
-        assigned = fill_undersized_centralized_unlimited(
-            data, seg3_unassigned, rm_centralized, 'RM', 'STEP_11B', 'FILL_UNDERSIZED_UNLIMITED'
-        )
-        seg3_assigned += assigned
-        print(f"    ✓ Assigned {assigned} households")
-    
+    # RC CENTRALIZED FIRST (Segment 4)
     if len(seg4_unassigned) > 0 and len(rc_centralized) > 0:
         print(f"\n  {'='*60}")
-        print(f"  STEP 11B: FILL UNDERSIZED RC CENTRALIZED (NO LIMIT)")
+        print(f"  STEP 11C: FILL UNDERSIZED RC CENTRALIZED (NO LIMIT)")
         print(f"  {'='*60}")
         assigned = fill_undersized_centralized_unlimited(
-            data, seg4_unassigned, rc_centralized, 'RC', 'STEP_11B', 'FILL_UNDERSIZED_UNLIMITED'
+            data, seg4_unassigned, rc_centralized, 'RC', 'STEP_11C', 'FILL_UNDERSIZED_UNLIMITED'
         )
         seg4_assigned += assigned
         print(f"    ✓ Assigned {assigned} households")
     
-    # ==================== STEP 11C: ASSIGN ALL REMAINING TO NEAREST CENTRALIZED ====================
-    seg3_unassigned = get_unassigned_hh(data, segment=3)
-    seg4_unassigned = get_unassigned_hh(data, segment=4)
-    
+    # RM CENTRALIZED SECOND (Segment 3)
     if len(seg3_unassigned) > 0 and len(rm_centralized) > 0:
         print(f"\n  {'='*60}")
-        print(f"  STEP 11C: ASSIGN ALL REMAINING SEG 3 → RM CENTRALIZED")
+        print(f"  STEP 11C: FILL UNDERSIZED RM CENTRALIZED (NO LIMIT)")
         print(f"  {'='*60}")
-        assigned = assign_all_remaining_to_centralized(
-            data, seg3_unassigned, rm_centralized, 'RM', 'STEP_11C', 'ASSIGN_ALL_REMAINING'
+        assigned = fill_undersized_centralized_unlimited(
+            data, seg3_unassigned, rm_centralized, 'RM', 'STEP_11C', 'FILL_UNDERSIZED_UNLIMITED'
         )
         seg3_assigned += assigned
         print(f"    ✓ Assigned {assigned} households")
     
+    # ==================== STEP 11D: ASSIGN ALL REMAINING TO NEAREST CENTRALIZED ====================
+    seg3_unassigned = get_unassigned_hh(data, segment=3)
+    seg4_unassigned = get_unassigned_hh(data, segment=4)
+    
+    # SEG 4 → RC CENTRALIZED FIRST
     if len(seg4_unassigned) > 0 and len(rc_centralized) > 0:
         print(f"\n  {'='*60}")
-        print(f"  STEP 11C: ASSIGN ALL REMAINING SEG 4 → RC CENTRALIZED")
+        print(f"  STEP 11D: ASSIGN ALL REMAINING SEG 4 → RC CENTRALIZED")
         print(f"  {'='*60}")
         assigned = assign_all_remaining_to_centralized(
-            data, seg4_unassigned, rc_centralized, 'RC', 'STEP_11C', 'ASSIGN_ALL_REMAINING'
+            data, seg4_unassigned, rc_centralized, 'RC', 'STEP_11D', 'ASSIGN_ALL_REMAINING'
         )
         seg4_assigned += assigned
         print(f"    ✓ Assigned {assigned} households")
     
+    # SEG 3 → RM CENTRALIZED SECOND
+    if len(seg3_unassigned) > 0 and len(rm_centralized) > 0:
+        print(f"\n  {'='*60}")
+        print(f"  STEP 11D: ASSIGN ALL REMAINING SEG 3 → RM CENTRALIZED")
+        print(f"  {'='*60}")
+        assigned = assign_all_remaining_to_centralized(
+            data, seg3_unassigned, rm_centralized, 'RM', 'STEP_11D', 'ASSIGN_ALL_REMAINING'
+        )
+        seg3_assigned += assigned
+        print(f"    ✓ Assigned {assigned} households")
+    
+    print(f"\n  ✓ Total Segment 4 → RC assignments: {seg4_assigned}")
     print(f"\n  ✓ Total Segment 3 → RM assignments: {seg3_assigned}")
-    print(f"  ✓ Total Segment 4 → RC assignments: {seg4_assigned}")
     
     # Final check
     seg3_still_unassigned = get_unassigned_hh(data, segment=3)
@@ -2149,17 +2153,17 @@ def run_household_migration(data_dir='', output_dir='output'):
     # Collect metrics
     all_metrics = {}
     
-    # Step 5: Segment 4 → RC retention
+    # Step 7: Households to retain (HIGHEST PRIORITY - FIRST)
+    data, m7 = step7_households_to_retain(data)
+    all_metrics.update(m7)
+    
+    # Step 5: Segment 4 → RC retention (SECOND)
     data, m5 = step5_segment4_rc_retention(data)
     all_metrics.update(m5)
     
-    # Step 6: Segment 3 → RM retention
+    # Step 6: Segment 3 → RM retention (THIRD)
     data, m6 = step6_segment3_rm_retention(data)
     all_metrics.update(m6)
-    
-    # Step 7: Households to retain
-    data, m7 = step7_households_to_retain(data)
-    all_metrics.update(m7)
     
     # Step 8: Segment 2 → SBB (existing books)
     data, m8 = step8_segment2_sbb_existing(data)
@@ -2173,7 +2177,7 @@ def run_household_migration(data_dir='', output_dir='output'):
     data, m10 = step10_verify_segment2_placement(data)
     all_metrics.update(m10)
     
-    # Step 11: Spatial assignment
+    # Step 11: Spatial assignment (RC FIRST, then RM)
     data, m11 = step11_spatial_assignment(data)
     all_metrics.update(m11)
     
