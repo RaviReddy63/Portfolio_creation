@@ -2,6 +2,8 @@ import pandas as pd
 import numpy as np
 from math import radians, sin, cos, sqrt, atan2
 import random
+from sklearn.neighbors import BallTree
+from sklearn.impute import KNNImputer
 
 # ==================== CONFIGURATION ====================
 # Portfolio constraints
@@ -25,6 +27,9 @@ SBB_RADIUS = 10
 EASTERN_US_LAT_RANGE = (35, 42)
 EASTERN_US_LON_RANGE = (-85, -75)
 
+# Earth's radius in miles
+EARTH_RADIUS_MILES = 3959
+
 
 # ==================== UTILITY FUNCTIONS ====================
 
@@ -32,8 +37,6 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     """
     Calculate the distance between two points on Earth in miles.
     """
-    R = 3959  # Earth's radius in miles
-    
     lat1, lon1, lat2, lon2 = map(radians, [lat1, lon1, lat2, lon2])
     
     dlat = lat2 - lat1
@@ -42,13 +45,13 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     a = sin(dlat/2)**2 + cos(lat1) * cos(lat2) * sin(dlon/2)**2
     c = 2 * atan2(sqrt(a), sqrt(1-a))
     
-    return R * c
+    return EARTH_RADIUS_MILES * c
 
 
 def impute_missing_coordinates(hh_df):
     """
-    Impute missing LAT_NUM and LON_NUM using BILLINGCITY, BILLINGSTATE, and PATR_AU_STR.
-    Simple approach: Use median coordinates of similar locations.
+    Impute missing LAT_NUM and LON_NUM using KNN based on BILLINGCITY, BILLINGSTATE.
+    Much faster than iterative approach.
     """
     hh_df = hh_df.copy()
     
@@ -56,36 +59,94 @@ def impute_missing_coordinates(hh_df):
     missing_mask = hh_df['LAT_NUM'].isna() | hh_df['LON_NUM'].isna()
     
     if missing_mask.sum() == 0:
+        print("No missing coordinates to impute.")
         return hh_df
     
-    # Impute based on BILLINGCITY and BILLINGSTATE
-    for idx in hh_df[missing_mask].index:
-        city = hh_df.loc[idx, 'BILLINGCITY']
-        state = hh_df.loc[idx, 'BILLINGSTATE']
-        au = hh_df.loc[idx, 'PATR_AU_STR']
-        
-        # Try to find similar records with coordinates
-        similar = hh_df[
-            (hh_df['BILLINGCITY'] == city) & 
-            (hh_df['BILLINGSTATE'] == state) & 
-            hh_df['LAT_NUM'].notna()
-        ]
-        
-        if len(similar) > 0:
-            hh_df.loc[idx, 'LAT_NUM'] = similar['LAT_NUM'].median()
-            hh_df.loc[idx, 'LON_NUM'] = similar['LON_NUM'].median()
-        else:
-            # Try state level
-            similar = hh_df[(hh_df['BILLINGSTATE'] == state) & hh_df['LAT_NUM'].notna()]
-            if len(similar) > 0:
-                hh_df.loc[idx, 'LAT_NUM'] = similar['LAT_NUM'].median()
-                hh_df.loc[idx, 'LON_NUM'] = similar['LON_NUM'].median()
-            else:
-                # Use Eastern US random location as last resort
-                hh_df.loc[idx, 'LAT_NUM'] = random.uniform(*EASTERN_US_LAT_RANGE)
-                hh_df.loc[idx, 'LON_NUM'] = random.uniform(*EASTERN_US_LON_RANGE)
+    print(f"Imputing {missing_mask.sum()} missing coordinates using KNN...")
     
+    # Create location groups based on BILLINGCITY and BILLINGSTATE
+    hh_df['location_group'] = hh_df['BILLINGCITY'].astype(str) + '_' + hh_df['BILLINGSTATE'].astype(str)
+    
+    # Impute by location group
+    for group in hh_df['location_group'].unique():
+        group_mask = hh_df['location_group'] == group
+        group_data = hh_df[group_mask].copy()
+        
+        group_missing = group_data['LAT_NUM'].isna() | group_data['LON_NUM'].isna()
+        
+        if group_missing.sum() > 0 and group_missing.sum() < len(group_data):
+            # Has both missing and non-missing in this group
+            coords = group_data[['LAT_NUM', 'LON_NUM']].values
+            
+            # Use KNN imputer
+            imputer = KNNImputer(n_neighbors=min(5, len(group_data) - group_missing.sum()))
+            coords_imputed = imputer.fit_transform(coords)
+            
+            # Update the main dataframe
+            hh_df.loc[group_mask, 'LAT_NUM'] = coords_imputed[:, 0]
+            hh_df.loc[group_mask, 'LON_NUM'] = coords_imputed[:, 1]
+        elif group_missing.sum() == len(group_data):
+            # All missing in this group, use state-level imputation
+            state = group_data['BILLINGSTATE'].iloc[0]
+            state_data = hh_df[
+                (hh_df['BILLINGSTATE'] == state) & 
+                hh_df['LAT_NUM'].notna()
+            ]
+            
+            if len(state_data) > 0:
+                median_lat = state_data['LAT_NUM'].median()
+                median_lon = state_data['LON_NUM'].median()
+                hh_df.loc[group_mask, 'LAT_NUM'] = median_lat
+                hh_df.loc[group_mask, 'LON_NUM'] = median_lon
+            else:
+                # Use Eastern US random as last resort
+                hh_df.loc[group_mask, 'LAT_NUM'] = random.uniform(*EASTERN_US_LAT_RANGE)
+                hh_df.loc[group_mask, 'LON_NUM'] = random.uniform(*EASTERN_US_LON_RANGE)
+    
+    # Clean up temporary column
+    hh_df.drop('location_group', axis=1, inplace=True)
+    
+    print("Coordinate imputation complete.")
     return hh_df
+
+
+def create_balltree(lat_lon_array):
+    """
+    Create a BallTree for efficient distance queries.
+    Input: array of [lat, lon] in degrees
+    Returns: BallTree object
+    """
+    # Convert to radians for haversine metric
+    lat_lon_radians = np.radians(lat_lon_array)
+    return BallTree(lat_lon_radians, metric='haversine')
+
+
+def query_balltree(tree, query_points, radius_miles):
+    """
+    Query BallTree for points within radius.
+    
+    Args:
+        tree: BallTree object
+        query_points: array of [lat, lon] in degrees
+        radius_miles: search radius in miles
+    
+    Returns:
+        indices, distances (in miles)
+    """
+    query_radians = np.radians(query_points)
+    radius_radians = radius_miles / EARTH_RADIUS_MILES
+    
+    indices, distances = tree.query_radius(
+        query_radians, 
+        r=radius_radians, 
+        return_distance=True,
+        sort_results=True
+    )
+    
+    # Convert distances back to miles
+    distances_miles = [d * EARTH_RADIUS_MILES for d in distances]
+    
+    return indices, distances_miles
 
 
 def create_portfolio_location_map(rbrm_data, branch_data, portfolio_centroids):
@@ -137,6 +198,7 @@ def create_portfolio_location_map(rbrm_data, branch_data, portfolio_centroids):
 def assign_sbb_bankers(hh_df, sbb_data, branch_data):
     """
     Assign Segment 2 HH_ECNs with RULE='SBB/RETAIN' to SBB bankers if available.
+    Uses BallTree for efficient distance calculations.
     Returns updated hh_df and a separate dataframe of SBB assignments.
     """
     hh_df = hh_df.copy()
@@ -148,64 +210,87 @@ def assign_sbb_bankers(hh_df, sbb_data, branch_data):
     
     print(f"Processing {len(sbb_candidates)} Segment 2 SBB/RETAIN households...")
     
-    for idx, hh in sbb_candidates.iterrows():
+    if len(sbb_candidates) == 0:
+        return hh_df, pd.DataFrame()
+    
+    # Create SBB banker location mapping
+    sbb_locations = []
+    sbb_info = []
+    
+    for _, sbb in sbb_data.iterrows():
+        sbb_au = sbb['AU']
+        branch = branch_data[branch_data['AU'] == sbb_au]
+        
+        if len(branch) > 0:
+            sbb_locations.append([
+                branch.iloc[0]['BRANCH_LAT_NUM'],
+                branch.iloc[0]['BRANCH_LON_NUM']
+            ])
+            sbb_info.append({
+                'full_name': sbb['FULL NAME'],
+                'au': sbb_au
+            })
+    
+    if len(sbb_locations) == 0:
+        print("No SBB bankers with valid branch locations found.")
+        # Convert all to RETAIN
+        hh_df.loc[sbb_retain_mask, 'RULE'] = 'RETAIN'
+        return hh_df, pd.DataFrame()
+    
+    # Create BallTree for SBB locations
+    sbb_tree = create_balltree(np.array(sbb_locations))
+    
+    # Query for each household
+    hh_locations = sbb_candidates[['LAT_NUM', 'LON_NUM']].values
+    
+    for idx, (hh_idx, hh) in enumerate(sbb_candidates.iterrows()):
         assigned = False
-        hh_lat = hh['LAT_NUM']
-        hh_lon = hh['LON_NUM']
         hh_au = hh['PATR_AU_STR']
         
         # Check if SBB banker exists in same AU
-        sbb_in_au = sbb_data[sbb_data['AU'] == hh_au]
+        sbb_in_au = [i for i, info in enumerate(sbb_info) if info['au'] == hh_au]
         
         if len(sbb_in_au) > 0:
             # Assign to first SBB banker in AU
-            sbb_banker = sbb_in_au.iloc[0]
+            sbb_idx = sbb_in_au[0]
+            sbb_banker = sbb_info[sbb_idx]
             sbb_assignments.append({
                 'BHH_SKEY': hh['BHH_SKEY'],
                 'HH_ECN': hh['HH_ECN'],
-                'SBB_BANKER': sbb_banker['FULL NAME'],
-                'SBB_AU': sbb_banker['AU'],
+                'SBB_BANKER': sbb_banker['full_name'],
+                'SBB_AU': sbb_banker['au'],
                 'ASSIGNMENT_TYPE': 'Same AU'
             })
             # Remove from HH_DF (unassign from portfolio)
-            hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = None
-            hh_df.loc[idx, 'BANKER_TYPE'] = 'SBB'
+            hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = None
+            hh_df.loc[hh_idx, 'BANKER_TYPE'] = 'SBB'
             assigned = True
         else:
-            # Check within 10-mile radius
-            min_distance = float('inf')
-            closest_sbb = None
+            # Check within 10-mile radius using BallTree
+            query_point = hh_locations[idx:idx+1]
+            indices, distances = query_balltree(sbb_tree, query_point, SBB_RADIUS)
             
-            for _, sbb in sbb_data.iterrows():
-                sbb_au = sbb['AU']
-                branch = branch_data[branch_data['AU'] == sbb_au]
+            if len(indices[0]) > 0:
+                # Assign to closest SBB banker within radius
+                closest_idx = indices[0][0]
+                closest_distance = distances[0][0]
+                sbb_banker = sbb_info[closest_idx]
                 
-                if len(branch) > 0:
-                    branch_lat = branch.iloc[0]['BRANCH_LAT_NUM']
-                    branch_lon = branch.iloc[0]['BRANCH_LON_NUM']
-                    
-                    distance = haversine_distance(hh_lat, hh_lon, branch_lat, branch_lon)
-                    
-                    if distance <= SBB_RADIUS and distance < min_distance:
-                        min_distance = distance
-                        closest_sbb = sbb
-            
-            if closest_sbb is not None:
                 sbb_assignments.append({
                     'BHH_SKEY': hh['BHH_SKEY'],
                     'HH_ECN': hh['HH_ECN'],
-                    'SBB_BANKER': closest_sbb['FULL NAME'],
-                    'SBB_AU': closest_sbb['AU'],
-                    'ASSIGNMENT_TYPE': f'Within {min_distance:.1f} miles'
+                    'SBB_BANKER': sbb_banker['full_name'],
+                    'SBB_AU': sbb_banker['au'],
+                    'ASSIGNMENT_TYPE': f'Within {closest_distance:.1f} miles'
                 })
                 # Remove from HH_DF (unassign from portfolio)
-                hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = None
-                hh_df.loc[idx, 'BANKER_TYPE'] = 'SBB'
+                hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = None
+                hh_df.loc[hh_idx, 'BANKER_TYPE'] = 'SBB'
                 assigned = True
         
         # If not assigned, convert to RETAIN
         if not assigned:
-            hh_df.loc[idx, 'RULE'] = 'RETAIN'
+            hh_df.loc[hh_idx, 'RULE'] = 'RETAIN'
     
     sbb_assignments_df = pd.DataFrame(sbb_assignments)
     print(f"Assigned {len(sbb_assignments_df)} households to SBB bankers")
@@ -262,9 +347,9 @@ def calculate_portfolio_requirements(hh_df, portfolio_locations):
 
 # ==================== STEP 3: FIND NEAREST HOUSEHOLDS ====================
 
-def find_nearest_households(hh_df, portfolio_cd, portfolio_stats, radius, segment):
+def find_nearest_households_balltree(hh_df, portfolio_cd, portfolio_stats, radius, segment):
     """
-    Find nearest POOL households of given segment within radius for a portfolio.
+    Find nearest POOL households of given segment within radius for a portfolio using BallTree.
     Returns list of (hh_index, distance) tuples sorted by distance.
     """
     portfolio_info = portfolio_stats[portfolio_cd]
@@ -278,17 +363,23 @@ def find_nearest_households(hh_df, portfolio_cd, portfolio_stats, radius, segmen
         (hh_df['CG_PORTFOLIO_CD'].isna())
     ]
     
-    candidates = []
-    for idx, hh in available_hhs.iterrows():
-        distance = haversine_distance(
-            portfolio_lat, portfolio_lon,
-            hh['LAT_NUM'], hh['LON_NUM']
-        )
-        if distance <= radius:
-            candidates.append((idx, distance))
+    if len(available_hhs) == 0:
+        return []
     
-    # Sort by distance
-    candidates.sort(key=lambda x: x[1])
+    # Create BallTree for available households
+    hh_locations = available_hhs[['LAT_NUM', 'LON_NUM']].values
+    hh_tree = create_balltree(hh_locations)
+    
+    # Query for households within radius
+    query_point = np.array([[portfolio_lat, portfolio_lon]])
+    indices, distances = query_balltree(hh_tree, query_point, radius)
+    
+    # Convert to list of (index, distance) tuples with original dataframe indices
+    candidates = []
+    if len(indices[0]) > 0:
+        original_indices = available_hhs.index.values
+        for i, dist in zip(indices[0], distances[0]):
+            candidates.append((original_indices[i], dist))
     
     return candidates
 
@@ -298,6 +389,7 @@ def find_nearest_households(hh_df, portfolio_cd, portfolio_stats, radius, segmen
 def trim_oversized_portfolios(hh_df, portfolio_stats):
     """
     For portfolios exceeding MAX, remove the farthest households and return them to POOL.
+    Uses BallTree for efficient distance calculation.
     Returns updated hh_df.
     """
     hh_df = hh_df.copy()
@@ -311,24 +403,36 @@ def trim_oversized_portfolios(hh_df, portfolio_stats):
                 (hh_df['RULE'] == 'POOL')  # Only trim POOL households
             ]
             
-            # Calculate distances
-            distances = []
-            for idx, hh in portfolio_hhs.iterrows():
-                distance = haversine_distance(
-                    stats['lat'], stats['lon'],
-                    hh['LAT_NUM'], hh['LON_NUM']
-                )
-                distances.append((idx, distance))
+            if len(portfolio_hhs) == 0:
+                continue
+            
+            # Calculate distances using vectorized haversine
+            hh_locations = portfolio_hhs[['LAT_NUM', 'LON_NUM']].values
+            portfolio_location = np.array([[stats['lat'], stats['lon']]])
+            
+            # Create tree and query
+            hh_tree = create_balltree(hh_locations)
+            indices, distances = query_balltree(
+                hh_tree, 
+                portfolio_location, 
+                radius_miles=10000  # Large radius to get all
+            )
+            
+            # Create distance mapping
+            distances_list = []
+            original_indices = portfolio_hhs.index.values
+            for i, dist in zip(indices[0], distances[0]):
+                distances_list.append((original_indices[i], dist))
             
             # Sort by distance (farthest first)
-            distances.sort(key=lambda x: x[1], reverse=True)
+            distances_list.sort(key=lambda x: x[1], reverse=True)
             
             # Remove excess households (farthest ones)
-            num_to_remove = stats['excess']
-            for i in range(min(num_to_remove, len(distances))):
-                idx = distances[i][0]
+            num_to_remove = min(stats['excess'], len(distances_list))
+            for i in range(num_to_remove):
+                idx, dist = distances_list[i]
                 hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = None
-                print(f"  Trimmed HH_ECN {hh_df.loc[idx, 'HH_ECN']} from {portfolio_cd} (distance: {distances[i][1]:.1f} miles)")
+                print(f"  Trimmed HH_ECN {hh_df.loc[idx, 'HH_ECN']} from {portfolio_cd} (distance: {dist:.1f} miles)")
     
     return hh_df
 
@@ -352,6 +456,7 @@ def find_undersized_portfolios(portfolio_stats):
 def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
     """
     Optimize IN MARKET portfolios using iterative radius expansion (20-200 miles).
+    Uses BallTree for efficient distance calculations.
     """
     hh_df = hh_df.copy()
     
@@ -385,7 +490,7 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
         
         for portfolio_cd in undersized:
             deficit = portfolio_stats[portfolio_cd]['deficit']
-            candidates = find_nearest_households(hh_df, portfolio_cd, portfolio_stats, radius, segment)
+            candidates = find_nearest_households_balltree(hh_df, portfolio_cd, portfolio_stats, radius, segment)
             
             assigned_count = 0
             for idx, distance in candidates:
@@ -418,6 +523,7 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
 def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment):
     """
     Optimize CENTRALIZED portfolios using iterative radius expansion (200-1000 miles).
+    Uses BallTree for efficient distance calculations.
     """
     hh_df = hh_df.copy()
     
@@ -451,7 +557,7 @@ def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment
         
         for portfolio_cd in undersized:
             deficit = portfolio_stats[portfolio_cd]['deficit']
-            candidates = find_nearest_households(hh_df, portfolio_cd, portfolio_stats, radius, segment)
+            candidates = find_nearest_households_balltree(hh_df, portfolio_cd, portfolio_stats, radius, segment)
             
             assigned_count = 0
             for idx, distance in candidates:
@@ -485,6 +591,7 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
     """
     Final cleanup: Assign all remaining unassigned households of given segment.
     First fills undersized CENTRALIZED portfolios to MIN, then assigns rest to nearest.
+    Uses BallTree for efficient distance calculations.
     """
     hh_df = hh_df.copy()
     
@@ -522,22 +629,22 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
             if len(unassigned) == 0:
                 break
             
-            # Calculate distances to all unassigned
-            distances = []
-            for idx, hh in unassigned.iterrows():
-                distance = haversine_distance(
-                    portfolio_stats[portfolio_cd]['lat'],
-                    portfolio_stats[portfolio_cd]['lon'],
-                    hh['LAT_NUM'], hh['LON_NUM']
-                )
-                distances.append((idx, distance))
+            # Use BallTree to find nearest
+            hh_locations = unassigned[['LAT_NUM', 'LON_NUM']].values
+            hh_tree = create_balltree(hh_locations)
             
-            distances.sort(key=lambda x: x[1])
+            portfolio_location = np.array([[portfolio_stats[portfolio_cd]['lat'], 
+                                           portfolio_stats[portfolio_cd]['lon']]])
             
+            indices, distances = query_balltree(hh_tree, portfolio_location, radius_miles=10000)
+            
+            # Assign nearest households
             assigned_count = 0
-            for idx, distance in distances:
+            original_indices = unassigned.index.values
+            for i, dist in zip(indices[0], distances[0]):
                 if assigned_count >= deficit:
                     break
+                idx = original_indices[i]
                 hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = portfolio_cd
                 hh_df.loc[idx, 'BANKER_TYPE'] = banker_type
                 assigned_count += 1
@@ -561,28 +668,27 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
     
     print(f"  Phase B: Assigning {len(remaining)} remaining households to nearest portfolio")
     
-    for idx, hh in remaining.iterrows():
-        hh_lat = hh['LAT_NUM']
-        hh_lon = hh['LON_NUM']
+    if len(remaining) > 0 and len(centralized_portfolios) > 0:
+        # Create BallTree for all centralized portfolio locations
+        portfolio_locations = np.array([
+            [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
+            for p in centralized_portfolios
+        ])
+        portfolio_tree = create_balltree(portfolio_locations)
         
-        # Find nearest centralized portfolio
-        min_distance = float('inf')
-        nearest_portfolio = None
+        # Query for each remaining household
+        hh_locations = remaining[['LAT_NUM', 'LON_NUM']].values
         
-        for portfolio_cd in centralized_portfolios:
-            distance = haversine_distance(
-                hh_lat, hh_lon,
-                portfolio_stats[portfolio_cd]['lat'],
-                portfolio_stats[portfolio_cd]['lon']
-            )
+        for idx, hh_loc in zip(remaining.index, hh_locations):
+            query_point = np.array([hh_loc])
+            indices, distances = query_balltree(portfolio_tree, query_point, radius_miles=10000)
             
-            if distance < min_distance:
-                min_distance = distance
-                nearest_portfolio = portfolio_cd
-        
-        if nearest_portfolio:
-            hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
-            hh_df.loc[idx, 'BANKER_TYPE'] = banker_type
+            if len(indices[0]) > 0:
+                nearest_portfolio_idx = indices[0][0]
+                nearest_portfolio = centralized_portfolios[nearest_portfolio_idx]
+                
+                hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
+                hh_df.loc[idx, 'BANKER_TYPE'] = banker_type
     
     # Verify no unassigned left
     final_unassigned = hh_df[
@@ -608,7 +714,7 @@ def run_portfolio_reconstruction(hh_df, branch_data, rbrm_data, sbb_data, portfo
     
     # ========== INITIALIZATION ==========
     print("\n[INITIALIZATION]")
-    print("Imputing missing coordinates...")
+    print("Imputing missing coordinates using KNN...")
     hh_df = impute_missing_coordinates(hh_df)
     
     print("Creating portfolio location map...")
