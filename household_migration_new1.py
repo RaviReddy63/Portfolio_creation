@@ -122,6 +122,7 @@ def create_balltree(lat_lon_array):
     Returns: BallTree object
     """
     # Convert to radians for haversine metric
+    lat_lon_array = np.array(lat_lon_array, dtype = np.float64)
     lat_lon_radians = np.radians(lat_lon_array)
     return BallTree(lat_lon_radians, metric='haversine')
 
@@ -258,7 +259,7 @@ def assign_sbb_bankers(hh_df, sbb_data, branch_data):
     
     for idx, (hh_idx, hh) in enumerate(sbb_candidates.iterrows()):
         assigned = False
-        hh_au = int(hh['PATR_AU_STR'])
+        hh_au = int(hh['PATR_AU_STR']) if pd.notna(hh['PATR_AU_STR']) else 0
         
         # Check if SBB banker exists in same AU
         sbb_in_au = [i for i, info in enumerate(sbb_info) if info['au'] == hh_au]
