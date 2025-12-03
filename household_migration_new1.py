@@ -452,6 +452,7 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
     """
     Optimize IN MARKET portfolios using iterative radius expansion (20-200 miles).
     Assigns each household to nearest undersized portfolio.
+    Uses portfolio_locations BallTree created once.
     """
     hh_df = hh_df.copy()
     
@@ -462,6 +463,13 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
     ]
     
     print(f"\nOptimizing {len(in_market_portfolios)} {banker_type} IN MARKET portfolios (Segment {segment})...")
+    
+    # Create BallTree ONCE for all IN MARKET portfolios
+    portfolio_locs_array = np.array([
+        [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
+        for p in in_market_portfolios
+    ])
+    portfolio_tree = create_balltree(portfolio_locs_array)
     
     for radius in range(IN_MARKET_START_RADIUS, IN_MARKET_MAX_RADIUS + 1, IN_MARKET_RADIUS_INCREMENT):
         print(f"\n  Radius: {radius} miles")
@@ -474,14 +482,14 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
                  'banker_type': portfolio_stats[p]['banker_type']} 
              for p in portfolio_stats})
         
-        # Get undersized portfolios
-        undersized = [p for p in in_market_portfolios if portfolio_stats[p]['deficit'] > 0]
+        # Get undersized portfolio indices
+        undersized_indices = [i for i, p in enumerate(in_market_portfolios) if portfolio_stats[p]['deficit'] > 0]
         
-        if not undersized:
+        if not undersized_indices:
             print(f"  No undersized portfolios. Breaking loop.")
             break
         
-        print(f"  Found {len(undersized)} undersized portfolios")
+        print(f"  Found {len(undersized_indices)} undersized portfolios")
         
         # Get all unassigned households of target segment
         unassigned_hhs = hh_df[
@@ -494,16 +502,13 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
             print(f"  No unassigned households available.")
             break
         
-        # Create BallTree ONCE for undersized portfolios
-        portfolio_locations = np.array([
-            [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
-            for p in undersized
-        ])
-        portfolio_tree = create_balltree(portfolio_locations)
+        # Track current counts for portfolios
+        portfolio_counts = {in_market_portfolios[i]: portfolio_stats[in_market_portfolios[i]]['current_count'] 
+                           for i in undersized_indices}
         
         assigned_count = 0
         
-        # Query for all households
+        # Query for all households using the SAME BallTree
         hh_locations = unassigned_hhs[['LAT_NUM', 'LON_NUM']].values
         indices_list, distances_list = query_balltree(portfolio_tree, hh_locations, radius)
         
@@ -512,30 +517,42 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
             if len(indices) == 0:
                 continue
             
-            # Find nearest portfolio that still has deficit
+            # Find nearest undersized portfolio
+            assigned = False
             for i, dist in zip(indices, distances):
-                nearest_portfolio = undersized[i]
+                # Check if this portfolio index is in undersized list
+                if i not in undersized_indices:
+                    continue
+                    
+                portfolio_cd = in_market_portfolios[i]
+                
+                # Calculate current deficit using tracked counts
+                current_count = portfolio_counts.get(portfolio_cd, portfolio_stats[portfolio_cd]['current_count'])
+                deficit = portfolio_stats[portfolio_cd]['min_required'] - current_count
                 
                 # Check if this portfolio still needs households
-                if portfolio_stats[nearest_portfolio]['deficit'] > 0:
+                if deficit > 0:
                     # Assign household
-                    hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
+                    hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = portfolio_cd
                     hh_df.loc[hh_idx, 'BANKER_TYPE'] = banker_type
                     assigned_count += 1
                     
-                    # Update portfolio stats
-                    portfolio_stats[nearest_portfolio]['current_count'] += 1
-                    deficit_val = portfolio_stats[nearest_portfolio]['min_required'] - portfolio_stats[nearest_portfolio]['current_count']
-                    portfolio_stats[nearest_portfolio]['deficit'] = builtins.max(0, deficit_val)
+                    # Update tracked count
+                    portfolio_counts[portfolio_cd] = current_count + 1
                     
-                    # Remove from undersized list if now at MIN
-                    if portfolio_stats[nearest_portfolio]['deficit'] == 0:
-                        undersized.remove(nearest_portfolio)
+                    # Remove from undersized if reached MIN
+                    new_deficit = portfolio_stats[portfolio_cd]['min_required'] - portfolio_counts[portfolio_cd]
+                    if new_deficit <= 0:
+                        undersized_indices.remove(i)
                     
-                    break  # Assigned, move to next household
+                    assigned = True
+                    break
+            
+            if not assigned:
+                continue
             
             # Break if no more undersized portfolios
-            if len(undersized) == 0:
+            if len(undersized_indices) == 0:
                 break
         
         print(f"  Assigned {assigned_count} households to nearest portfolios")
@@ -562,6 +579,7 @@ def fill_in_market_to_max(hh_df, portfolio_stats, banker_type, segment, radius=2
     """
     Fill IN MARKET portfolios up to MAX by assigning nearby households to nearest portfolio.
     Each household is assigned to the nearest portfolio that has capacity.
+    Uses portfolio_locations BallTree created once.
     """
     hh_df = hh_df.copy()
     
@@ -582,13 +600,13 @@ def fill_in_market_to_max(hh_df, portfolio_stats, banker_type, segment, radius=2
              'banker_type': portfolio_stats[p]['banker_type']} 
          for p in portfolio_stats})
     
-    # Get portfolios with capacity (below MAX)
-    portfolios_with_capacity = [
-        p for p in in_market_portfolios 
+    # Get portfolio indices with capacity (below MAX)
+    portfolios_with_capacity_indices = [
+        i for i, p in enumerate(in_market_portfolios) 
         if portfolio_stats[p]['current_count'] < portfolio_stats[p]['max_allowed']
     ]
     
-    if not portfolios_with_capacity:
+    if not portfolios_with_capacity_indices:
         print("  All portfolios are at MAX capacity.")
         return hh_df
     
@@ -603,16 +621,20 @@ def fill_in_market_to_max(hh_df, portfolio_stats, banker_type, segment, radius=2
         print("  No unassigned households available.")
         return hh_df
     
-    # Create BallTree ONCE for portfolios with capacity
-    portfolio_locations = np.array([
+    # Create BallTree ONCE for all IN MARKET portfolios
+    portfolio_locs_array = np.array([
         [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
-        for p in portfolios_with_capacity
+        for p in in_market_portfolios
     ])
-    portfolio_tree = create_balltree(portfolio_locations)
+    portfolio_tree = create_balltree(portfolio_locs_array)
+    
+    # Track current counts for portfolios
+    portfolio_counts = {in_market_portfolios[i]: portfolio_stats[in_market_portfolios[i]]['current_count'] 
+                       for i in portfolios_with_capacity_indices}
     
     assigned_count = 0
     
-    # Query for all households
+    # Query for all households using the SAME BallTree
     hh_locations = unassigned_hhs[['LAT_NUM', 'LON_NUM']].values
     indices_list, distances_list = query_balltree(portfolio_tree, hh_locations, radius)
     
@@ -621,28 +643,42 @@ def fill_in_market_to_max(hh_df, portfolio_stats, banker_type, segment, radius=2
         if len(indices) == 0:
             continue
         
-        if len(portfolios_with_capacity) == 0:
-            break
-        
-        # Find nearest portfolio that still has capacity
+        # Find nearest portfolio with capacity
+        assigned = False
         for i, dist in zip(indices, distances):
-            nearest_portfolio = portfolios_with_capacity[i]
+            # Check if this portfolio index has capacity
+            if i not in portfolios_with_capacity_indices:
+                continue
+                
+            portfolio_cd = in_market_portfolios[i]
+            
+            # Calculate current capacity using tracked counts
+            current_count = portfolio_counts.get(portfolio_cd, portfolio_stats[portfolio_cd]['current_count'])
+            max_allowed = portfolio_stats[portfolio_cd]['max_allowed']
             
             # Check if this portfolio still has capacity
-            if portfolio_stats[nearest_portfolio]['current_count'] < portfolio_stats[nearest_portfolio]['max_allowed']:
+            if current_count < max_allowed:
                 # Assign household
-                hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
+                hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = portfolio_cd
                 hh_df.loc[hh_idx, 'BANKER_TYPE'] = banker_type
                 assigned_count += 1
                 
-                # Update portfolio stats
-                portfolio_stats[nearest_portfolio]['current_count'] += 1
+                # Update tracked count
+                portfolio_counts[portfolio_cd] = current_count + 1
                 
                 # Remove from capacity list if now at MAX
-                if portfolio_stats[nearest_portfolio]['current_count'] >= portfolio_stats[nearest_portfolio]['max_allowed']:
-                    portfolios_with_capacity.remove(nearest_portfolio)
+                if portfolio_counts[portfolio_cd] >= max_allowed:
+                    portfolios_with_capacity_indices.remove(i)
                 
-                break  # Assigned, move to next household
+                assigned = True
+                break
+        
+        if not assigned:
+            continue
+        
+        # Break if no more portfolios with capacity
+        if len(portfolios_with_capacity_indices) == 0:
+            break
     
     print(f"  Assigned {assigned_count} additional households to nearest portfolios with capacity")
     
@@ -655,6 +691,7 @@ def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment
     """
     Optimize CENTRALIZED portfolios using iterative radius expansion (200-1000 miles).
     Assigns each household to nearest undersized portfolio.
+    Uses portfolio_locations BallTree created once.
     """
     hh_df = hh_df.copy()
     
@@ -665,6 +702,13 @@ def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment
     ]
     
     print(f"\nOptimizing {len(centralized_portfolios)} {banker_type} CENTRALIZED portfolios (Segment {segment})...")
+    
+    # Create BallTree ONCE for all CENTRALIZED portfolios
+    portfolio_locs_array = np.array([
+        [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
+        for p in centralized_portfolios
+    ])
+    portfolio_tree = create_balltree(portfolio_locs_array)
     
     for radius in range(CENTRALIZED_START_RADIUS, CENTRALIZED_MAX_RADIUS + 1, CENTRALIZED_RADIUS_INCREMENT):
         print(f"\n  Radius: {radius} miles")
@@ -677,14 +721,14 @@ def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment
                  'banker_type': portfolio_stats[p]['banker_type']} 
              for p in portfolio_stats})
         
-        # Get undersized portfolios
-        undersized = [p for p in centralized_portfolios if portfolio_stats[p]['deficit'] > 0]
+        # Get undersized portfolio indices
+        undersized_indices = [i for i, p in enumerate(centralized_portfolios) if portfolio_stats[p]['deficit'] > 0]
         
-        if not undersized:
+        if not undersized_indices:
             print(f"  No undersized portfolios. Breaking loop.")
             break
         
-        print(f"  Found {len(undersized)} undersized portfolios")
+        print(f"  Found {len(undersized_indices)} undersized portfolios")
         
         # Get all unassigned households of target segment
         unassigned_hhs = hh_df[
@@ -697,16 +741,13 @@ def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment
             print(f"  No unassigned households available.")
             break
         
-        # Create BallTree ONCE for undersized portfolios
-        portfolio_locations = np.array([
-            [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
-            for p in undersized
-        ])
-        portfolio_tree = create_balltree(portfolio_locations)
+        # Track current counts for portfolios
+        portfolio_counts = {centralized_portfolios[i]: portfolio_stats[centralized_portfolios[i]]['current_count'] 
+                           for i in undersized_indices}
         
         assigned_count = 0
         
-        # Query for all households
+        # Query for all households using the SAME BallTree
         hh_locations = unassigned_hhs[['LAT_NUM', 'LON_NUM']].values
         indices_list, distances_list = query_balltree(portfolio_tree, hh_locations, radius)
         
@@ -715,30 +756,42 @@ def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment
             if len(indices) == 0:
                 continue
             
-            # Find nearest portfolio that still has deficit
+            # Find nearest undersized portfolio
+            assigned = False
             for i, dist in zip(indices, distances):
-                nearest_portfolio = undersized[i]
+                # Check if this portfolio index is in undersized list
+                if i not in undersized_indices:
+                    continue
+                    
+                portfolio_cd = centralized_portfolios[i]
+                
+                # Calculate current deficit using tracked counts
+                current_count = portfolio_counts.get(portfolio_cd, portfolio_stats[portfolio_cd]['current_count'])
+                deficit = portfolio_stats[portfolio_cd]['min_required'] - current_count
                 
                 # Check if this portfolio still needs households
-                if portfolio_stats[nearest_portfolio]['deficit'] > 0:
+                if deficit > 0:
                     # Assign household
-                    hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
+                    hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = portfolio_cd
                     hh_df.loc[hh_idx, 'BANKER_TYPE'] = banker_type
                     assigned_count += 1
                     
-                    # Update portfolio stats
-                    portfolio_stats[nearest_portfolio]['current_count'] += 1
-                    deficit_val = portfolio_stats[nearest_portfolio]['min_required'] - portfolio_stats[nearest_portfolio]['current_count']
-                    portfolio_stats[nearest_portfolio]['deficit'] = builtins.max(0, deficit_val)
+                    # Update tracked count
+                    portfolio_counts[portfolio_cd] = current_count + 1
                     
-                    # Remove from undersized list if now at MIN
-                    if portfolio_stats[nearest_portfolio]['deficit'] == 0:
-                        undersized.remove(nearest_portfolio)
+                    # Remove from undersized if reached MIN
+                    new_deficit = portfolio_stats[portfolio_cd]['min_required'] - portfolio_counts[portfolio_cd]
+                    if new_deficit <= 0:
+                        undersized_indices.remove(i)
                     
-                    break  # Assigned, move to next household
+                    assigned = True
+                    break
+            
+            if not assigned:
+                continue
             
             # Break if no more undersized portfolios
-            if len(undersized) == 0:
+            if len(undersized_indices) == 0:
                 break
         
         print(f"  Assigned {assigned_count} households to nearest portfolios")
@@ -766,6 +819,7 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
     Final cleanup: Assign all remaining unassigned households of given segment.
     First fills undersized CENTRALIZED portfolios to MIN, then assigns rest to nearest.
     Each household is assigned to nearest portfolio.
+    Uses portfolio_locations BallTree created once.
     """
     hh_df = hh_df.copy()
     
@@ -777,6 +831,13 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
     
     print(f"\nFinal cleanup for Segment {segment} ({banker_type} CENTRALIZED)...")
     
+    # Create BallTree ONCE for all CENTRALIZED portfolios
+    portfolio_locs_array = np.array([
+        [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
+        for p in centralized_portfolios
+    ])
+    portfolio_tree = create_balltree(portfolio_locs_array)
+    
     # Phase A: Fill undersized portfolios to MIN
     portfolio_stats = calculate_portfolio_requirements(hh_df, 
         {p: {'lat': portfolio_stats[p]['lat'], 
@@ -785,10 +846,10 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
              'banker_type': portfolio_stats[p]['banker_type']} 
          for p in portfolio_stats})
     
-    undersized = [p for p in centralized_portfolios if portfolio_stats[p]['deficit'] > 0]
+    undersized_indices = [i for i, p in enumerate(centralized_portfolios) if portfolio_stats[p]['deficit'] > 0]
     
-    if undersized:
-        print(f"  Phase A: Filling {len(undersized)} undersized portfolios to MIN")
+    if undersized_indices:
+        print(f"  Phase A: Filling {len(undersized_indices)} undersized portfolios to MIN")
         
         # Get all unassigned households of target segment
         unassigned = hh_df[
@@ -798,12 +859,9 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
         ]
         
         if len(unassigned) > 0:
-            # Create BallTree ONCE for undersized portfolios
-            portfolio_locations = np.array([
-                [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
-                for p in undersized
-            ])
-            portfolio_tree = create_balltree(portfolio_locations)
+            # Track current counts for portfolios
+            portfolio_counts = {centralized_portfolios[i]: portfolio_stats[centralized_portfolios[i]]['current_count'] 
+                               for i in undersized_indices}
             
             assigned_count = 0
             
@@ -816,30 +874,43 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
                 if len(indices) == 0:
                     continue
                 
-                if len(undersized) == 0:
-                    break
-                
-                # Find nearest portfolio that still has deficit
+                # Find nearest undersized portfolio
+                assigned = False
                 for i, dist in zip(indices, distances):
-                    nearest_portfolio = undersized[i]
+                    # Check if this portfolio index is in undersized list
+                    if i not in undersized_indices:
+                        continue
+                        
+                    portfolio_cd = centralized_portfolios[i]
+                    
+                    # Calculate current deficit using tracked counts
+                    current_count = portfolio_counts.get(portfolio_cd, portfolio_stats[portfolio_cd]['current_count'])
+                    deficit = portfolio_stats[portfolio_cd]['min_required'] - current_count
                     
                     # Check if this portfolio still needs households
-                    if portfolio_stats[nearest_portfolio]['deficit'] > 0:
+                    if deficit > 0:
                         # Assign household
-                        hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
+                        hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = portfolio_cd
                         hh_df.loc[hh_idx, 'BANKER_TYPE'] = banker_type
                         assigned_count += 1
                         
-                        # Update portfolio stats
-                        portfolio_stats[nearest_portfolio]['current_count'] += 1
-                        deficit_val = portfolio_stats[nearest_portfolio]['min_required'] - portfolio_stats[nearest_portfolio]['current_count']
-                        portfolio_stats[nearest_portfolio]['deficit'] = builtins.max(0, deficit_val)
+                        # Update tracked count
+                        portfolio_counts[portfolio_cd] = current_count + 1
                         
-                        # Remove from undersized list if now at MIN
-                        if portfolio_stats[nearest_portfolio]['deficit'] == 0:
-                            undersized.remove(nearest_portfolio)
+                        # Remove from undersized if reached MIN
+                        new_deficit = portfolio_stats[portfolio_cd]['min_required'] - portfolio_counts[portfolio_cd]
+                        if new_deficit <= 0:
+                            undersized_indices.remove(i)
                         
-                        break  # Assigned, move to next household
+                        assigned = True
+                        break
+                
+                if not assigned:
+                    continue
+                
+                # Break if no more undersized portfolios
+                if len(undersized_indices) == 0:
+                    break
             
             print(f"    Assigned {assigned_count} households to reach MIN")
     
@@ -853,16 +924,9 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
     print(f"  Phase B: Assigning {len(remaining)} remaining households to nearest portfolio")
     
     if len(remaining) > 0 and len(centralized_portfolios) > 0:
-        # Create BallTree ONCE for all centralized portfolios
-        portfolio_locations = np.array([
-            [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']] 
-            for p in centralized_portfolios
-        ])
-        portfolio_tree = create_balltree(portfolio_locations)
-        
         assigned_count = 0
         
-        # Query for all households (no radius limit)
+        # Query for all households (no radius limit) using the SAME BallTree
         hh_locations = remaining[['LAT_NUM', 'LON_NUM']].values
         indices_list, distances_list = query_balltree(portfolio_tree, hh_locations, radius=10000)
         
@@ -871,7 +935,7 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
             if len(indices) == 0:
                 continue
             
-            # Assign to nearest portfolio
+            # Assign to nearest portfolio (first in list)
             nearest_idx = indices[0]
             nearest_portfolio = centralized_portfolios[nearest_idx]
             
