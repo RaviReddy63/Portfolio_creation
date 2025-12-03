@@ -4,6 +4,7 @@ from math import radians, sin, cos, sqrt, atan2
 import random
 from sklearn.neighbors import BallTree
 from sklearn.impute import KNNImputer
+import builtins
 
 # ==================== CONFIGURATION ====================
 # Portfolio constraints
@@ -78,8 +79,12 @@ def impute_missing_coordinates(hh_df):
             # Has both missing and non-missing in this group
             coords = group_data[['LAT_NUM', 'LON_NUM']].values
             
+            # Calculate number of valid neighbors
+            num_valid = len(group_data) - group_missing.sum()
+            n_neighbors = 5 if num_valid >= 5 else num_valid
+            
             # Use KNN imputer
-            imputer = KNNImputer(n_neighbors=min(5, len(group_data) - group_missing.sum()))
+            imputer = KNNImputer(n_neighbors=n_neighbors)
             coords_imputed = imputer.fit_transform(coords)
             
             # Update the main dataframe
@@ -156,13 +161,17 @@ def create_portfolio_location_map(rbrm_data, branch_data, portfolio_centroids):
     """
     portfolio_locations = {}
     
+    # Convert branch_data AU to int for matching
+    branch_data = branch_data.copy()
+    branch_data['AU'] = branch_data['AU'].astype(int)
+    
     for _, row in rbrm_data.iterrows():
         portfolio_cd = row['CG_PORTFOLIO_CD']
         placement = row['PLACEMENT']
         
         if placement == 'IN MARKET':
             # Use branch location
-            au = row['AU']
+            au = int(row['AU'])
             branch = branch_data[branch_data['AU'] == au]
             if len(branch) > 0:
                 portfolio_locations[portfolio_cd] = {
@@ -213,12 +222,16 @@ def assign_sbb_bankers(hh_df, sbb_data, branch_data):
     if len(sbb_candidates) == 0:
         return hh_df, pd.DataFrame()
     
+    # Convert branch_data AU to int for matching
+    branch_data = branch_data.copy()
+    branch_data['AU'] = branch_data['AU'].astype(int)
+    
     # Create SBB banker location mapping
     sbb_locations = []
     sbb_info = []
     
     for _, sbb in sbb_data.iterrows():
-        sbb_au = sbb['AU']
+        sbb_au = int(sbb['AU'])
         branch = branch_data[branch_data['AU'] == sbb_au]
         
         if len(branch) > 0:
@@ -245,7 +258,7 @@ def assign_sbb_bankers(hh_df, sbb_data, branch_data):
     
     for idx, (hh_idx, hh) in enumerate(sbb_candidates.iterrows()):
         assigned = False
-        hh_au = hh['PATR_AU_STR']
+        hh_au = int(hh['PATR_AU_STR'])
         
         # Check if SBB banker exists in same AU
         sbb_in_au = [i for i, info in enumerate(sbb_info) if info['au'] == hh_au]
@@ -328,6 +341,9 @@ def calculate_portfolio_requirements(hh_df, portfolio_locations):
             min_required = RC_MIN
             max_allowed = RC_MAX
         
+        deficit_val = min_required - segment_count
+        excess_val = segment_count - max_allowed
+        
         portfolio_stats[portfolio_cd] = {
             'banker_type': banker_type,
             'placement': placement,
@@ -336,8 +352,8 @@ def calculate_portfolio_requirements(hh_df, portfolio_locations):
             'total_count': len(portfolio_hhs),
             'min_required': min_required,
             'max_allowed': max_allowed,
-            'deficit': max(0, min_required - segment_count),
-            'excess': max(0, segment_count - max_allowed),
+            'deficit': builtins.max(0, deficit_val),
+            'excess': builtins.max(0, excess_val),
             'lat': location_info['lat'],
             'lon': location_info['lon']
         }
@@ -428,7 +444,7 @@ def trim_oversized_portfolios(hh_df, portfolio_stats):
             distances_list.sort(key=lambda x: x[1], reverse=True)
             
             # Remove excess households (farthest ones)
-            num_to_remove = min(stats['excess'], len(distances_list))
+            num_to_remove = builtins.min(stats['excess'], len(distances_list))
             for i in range(num_to_remove):
                 idx, dist = distances_list[i]
                 hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = None
@@ -514,6 +530,55 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, banker_type, segment):
         if oversized:
             print(f"  Trimming {len(oversized)} oversized portfolios")
             hh_df = trim_oversized_portfolios(hh_df, portfolio_stats)
+    
+    return hh_df
+
+# ==================== STEP 6.5: FILL IN MARKET PORTFOLIOS TO MAX ====================
+
+def fill_in_market_to_max(hh_df, portfolio_stats, banker_type, segment, radius=20):
+    """
+    Fill IN MARKET portfolios up to MAX by assigning nearby households within radius.
+    """
+    hh_df = hh_df.copy()
+    
+    # Filter IN MARKET portfolios of given banker type
+    in_market_portfolios = [
+        p for p, s in portfolio_stats.items() 
+        if s['placement'] == 'IN MARKET' and s['banker_type'] == banker_type
+    ]
+    
+    print(f"\nFilling {len(in_market_portfolios)} {banker_type} IN MARKET portfolios to MAX (Segment {segment})...")
+    print(f"  Using {radius} mile radius")
+    
+    # Recalculate portfolio stats
+    portfolio_stats = calculate_portfolio_requirements(hh_df, 
+        {p: {'lat': portfolio_stats[p]['lat'], 
+             'lon': portfolio_stats[p]['lon'],
+             'placement': portfolio_stats[p]['placement'],
+             'banker_type': portfolio_stats[p]['banker_type']} 
+         for p in portfolio_stats})
+    
+    for portfolio_cd in in_market_portfolios:
+        current_count = portfolio_stats[portfolio_cd]['current_count']
+        max_allowed = portfolio_stats[portfolio_cd]['max_allowed']
+        capacity = max_allowed - current_count
+        
+        if capacity <= 0:
+            continue
+        
+        # Find households within radius
+        candidates = find_nearest_households_balltree(hh_df, portfolio_cd, portfolio_stats, radius, segment)
+        
+        assigned_count = 0
+        for idx, distance in candidates:
+            if assigned_count >= capacity:
+                break
+            hh_df.loc[idx, 'CG_PORTFOLIO_CD'] = portfolio_cd
+            hh_df.loc[idx, 'BANKER_TYPE'] = banker_type
+            assigned_count += 1
+        
+        if assigned_count > 0:
+            print(f"    Portfolio {portfolio_cd}: Assigned {assigned_count} additional households (capacity was {capacity})")
     
     return hh_df
 
@@ -741,6 +806,11 @@ def run_portfolio_reconstruction(hh_df, branch_data, rbrm_data, sbb_data, portfo
     # ========== STEPS 3-6: RM IN MARKET OPTIMIZATION ==========
     print("\n[STEPS 3-6: RM IN MARKET OPTIMIZATION]")
     hh_df = optimize_in_market_portfolios(hh_df, portfolio_stats, 'RM', 3)
+    
+    # ========== STEP 6.5: FILL RM IN MARKET TO MAX ==========
+    print("\n[STEP 6.5: FILL RM IN MARKET TO MAX]")
+    portfolio_stats = calculate_portfolio_requirements(hh_df, portfolio_locations)
+    hh_df = fill_in_market_to_max(hh_df, portfolio_stats, 'RM', 3, radius=20)
     
     # ========== STEP 7: RM CENTRALIZED OPTIMIZATION ==========
     print("\n[STEP 7: RM CENTRALIZED OPTIMIZATION]")
