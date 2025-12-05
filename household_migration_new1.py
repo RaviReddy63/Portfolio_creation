@@ -817,7 +817,7 @@ def optimize_centralized_portfolios(hh_df, portfolio_stats, banker_type, segment
 def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
     """
     Final cleanup: Assign all remaining unassigned households of given segment.
-    First fills ALL CENTRALIZED portfolios to MAX, then assigns rest to nearest.
+    First fills ALL CENTRALIZED portfolios to MAX, then assigns rest to nearest portfolio below MAX.
     Each household is assigned to nearest portfolio.
     Uses portfolio_locations BallTree created once.
     """
@@ -919,38 +919,70 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
             
             print(f"    Assigned {assigned_count} households to reach MAX")
     
-    # Phase B: Assign all remaining to nearest portfolio
+    # Phase B: Assign remaining to nearest portfolio that is BELOW MAX
+    # Recalculate portfolio stats after Phase A
+    portfolio_stats = calculate_portfolio_requirements(hh_df, 
+        {p: {'lat': portfolio_stats[p]['lat'], 
+             'lon': portfolio_stats[p]['lon'],
+             'placement': portfolio_stats[p]['placement'],
+             'banker_type': portfolio_stats[p]['banker_type']} 
+         for p in portfolio_stats})
+    
     remaining = hh_df[
         (hh_df['NEW_SEGMENT'] == segment) & 
         (hh_df['RULE'] == 'POOL') & 
         (hh_df['CG_PORTFOLIO_CD'].isna())
     ]
     
-    print(f"  Phase B: Assigning {len(remaining)} remaining households to nearest portfolio")
+    print(f"  Phase B: Assigning {len(remaining)} remaining households to nearest portfolio (without exceeding MAX)")
     
     if len(remaining) > 0 and len(centralized_portfolios) > 0:
+        # Track current counts for all portfolios
+        portfolio_counts = {p: portfolio_stats[p]['current_count'] for p in centralized_portfolios}
+        
         assigned_count = 0
+        not_assigned_count = 0
         
         # Query for all households (no radius limit) using the SAME BallTree
         hh_locations = remaining[['LAT_NUM', 'LON_NUM']].values
         indices_list, distances_list = query_balltree(portfolio_tree, hh_locations, radius_miles=10000)
         
-        # For each household, assign to nearest portfolio
+        # For each household, assign to nearest portfolio that is below MAX
         for hh_idx, (indices, distances) in zip(remaining.index, zip(indices_list, distances_list)):
             if len(indices) == 0:
+                not_assigned_count += 1
                 continue
             
-            # Assign to nearest portfolio (first in list)
-            nearest_idx = indices[0]
-            nearest_portfolio = centralized_portfolios[nearest_idx]
+            # Try to find nearest portfolio that is below MAX
+            assigned = False
+            for idx_pos, (i, dist) in enumerate(zip(indices, distances)):
+                nearest_portfolio = centralized_portfolios[i]
+                
+                # Get current count
+                current_count = portfolio_counts.get(nearest_portfolio, portfolio_stats[nearest_portfolio]['current_count'])
+                max_allowed = portfolio_stats[nearest_portfolio]['max_allowed']
+                
+                # Check if portfolio is below MAX
+                if current_count < max_allowed:
+                    # Assign household
+                    hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
+                    hh_df.loc[hh_idx, 'BANKER_TYPE'] = banker_type
+                    assigned_count += 1
+                    
+                    # Update tracked count
+                    portfolio_counts[nearest_portfolio] = current_count + 1
+                    
+                    assigned = True
+                    break
             
-            hh_df.loc[hh_idx, 'CG_PORTFOLIO_CD'] = nearest_portfolio
-            hh_df.loc[hh_idx, 'BANKER_TYPE'] = banker_type
-            assigned_count += 1
+            if not assigned:
+                not_assigned_count += 1
         
-        print(f"    Assigned {assigned_count} households to nearest portfolio")
+        print(f"    Assigned {assigned_count} households to nearest portfolio below MAX")
+        if not_assigned_count > 0:
+            print(f"    Could not assign {not_assigned_count} households (all nearest portfolios at MAX)")
     
-    # Verify no unassigned left
+    # Verify unassigned count
     final_unassigned = hh_df[
         (hh_df['NEW_SEGMENT'] == segment) & 
         (hh_df['RULE'] == 'POOL') & 
@@ -960,7 +992,6 @@ def assign_remaining_households(hh_df, portfolio_stats, segment, banker_type):
     print(f"  Final unassigned Segment {segment}: {len(final_unassigned)}")
     
     return hh_df
-
 # ==================== MAIN ORCHESTRATOR ====================
 
 def run_portfolio_reconstruction(hh_df, branch_data, rbrm_data, sbb_data, portfolio_centroids):
