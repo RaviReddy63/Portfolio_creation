@@ -2,6 +2,21 @@ import pandas as pd
 import numpy as np
 from sklearn.neighbors import BallTree
 
+# State name to code mapping
+STATE_NAME_TO_CODE = {
+    'ALABAMA': 'AL', 'ALASKA': 'AK', 'ARIZONA': 'AZ', 'ARKANSAS': 'AR', 'CALIFORNIA': 'CA',
+    'COLORADO': 'CO', 'CONNECTICUT': 'CT', 'DELAWARE': 'DE', 'FLORIDA': 'FL', 'GEORGIA': 'GA',
+    'HAWAII': 'HI', 'IDAHO': 'ID', 'ILLINOIS': 'IL', 'INDIANA': 'IN', 'IOWA': 'IA',
+    'KANSAS': 'KS', 'KENTUCKY': 'KY', 'LOUISIANA': 'LA', 'MAINE': 'ME', 'MARYLAND': 'MD',
+    'MASSACHUSETTS': 'MA', 'MICHIGAN': 'MI', 'MINNESOTA': 'MN', 'MISSISSIPPI': 'MS', 'MISSOURI': 'MO',
+    'MONTANA': 'MT', 'NEBRASKA': 'NE', 'NEVADA': 'NV', 'NEW HAMPSHIRE': 'NH', 'NEW JERSEY': 'NJ',
+    'NEW MEXICO': 'NM', 'NEW YORK': 'NY', 'NORTH CAROLINA': 'NC', 'NORTH DAKOTA': 'ND', 'OHIO': 'OH',
+    'OKLAHOMA': 'OK', 'OREGON': 'OR', 'PENNSYLVANIA': 'PA', 'RHODE ISLAND': 'RI', 'SOUTH CAROLINA': 'SC',
+    'SOUTH DAKOTA': 'SD', 'TENNESSEE': 'TN', 'TEXAS': 'TX', 'UTAH': 'UT', 'VERMONT': 'VT',
+    'VIRGINIA': 'VA', 'WASHINGTON': 'WA', 'WEST VIRGINIA': 'WV', 'WISCONSIN': 'WI', 'WYOMING': 'WY',
+    'DISTRICT OF COLUMBIA': 'DC', 'PUERTO RICO': 'PR', 'GUAM': 'GU', 'VIRGIN ISLANDS': 'VI'
+}
+
 def haversine_distance(lat1, lon1, lat2, lon2):
     """Calculate distance in miles between two points"""
     R = 3959  # Earth radius in miles
@@ -10,6 +25,20 @@ def haversine_distance(lat1, lon1, lat2, lon2):
     dlon = lon2 - lon1
     a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
     return 2 * R * np.arcsin(np.sqrt(a))
+
+def convert_state_name_to_code(state_name):
+    """Convert full state name to state code"""
+    if pd.isna(state_name):
+        return None
+    
+    state_name_clean = str(state_name).strip().upper()
+    
+    # If already a 2-letter code, return as is
+    if len(state_name_clean) == 2:
+        return state_name_clean
+    
+    # Otherwise, look up in mapping
+    return STATE_NAME_TO_CODE.get(state_name_clean, None)
 
 def get_banker_locations(active_bankers, branch_data, portfolio_centroids):
     """Get banker locations based on ROLE_TYPE"""
@@ -79,13 +108,14 @@ def assign_by_state(customers_no_coords, active_bankers, banker_type):
     unmatched_states = set()
     
     for _, customer in customers_no_coords.iterrows():
-        customer_state = str(customer['BILLINGSTATE']).strip().upper()
+        # Convert full state name to state code
+        customer_state_code = convert_state_name_to_code(customer['BILLINGSTATE'])
         
-        if not customer_state or customer_state == 'NAN':
+        if not customer_state_code:
             continue
         
-        # Find bankers covering this state
-        matching_bankers = bankers_by_state[bankers_by_state['STATE'] == customer_state]
+        # Find bankers covering this state code
+        matching_bankers = bankers_by_state[bankers_by_state['STATE'] == customer_state_code]
         
         if len(matching_bankers) > 0:
             # Assign to first matching banker (or you can implement load balancing)
@@ -98,10 +128,10 @@ def assign_by_state(customers_no_coords, active_bankers, banker_type):
                 'BANKER_TYPE': banker_type
             })
         else:
-            unmatched_states.add(customer_state)
+            unmatched_states.add(customer_state_code)
     
     if unmatched_states:
-        print(f"  Warning: No {banker_type} coverage for states: {sorted(unmatched_states)}")
+        print(f"  Warning: No {banker_type} coverage for state codes: {sorted(unmatched_states)}")
     
     return pd.DataFrame(assignments)
 
