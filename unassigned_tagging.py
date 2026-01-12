@@ -35,8 +35,8 @@ def get_banker_locations(active_bankers, branch_data, portfolio_centroids):
     
     # Combine both
     banker_locations = pd.concat([
-        in_market[['PORT_CODE', 'BANKER_TYPE', 'ROLE_TYPE', 'LAT', 'LON']],
-        centralized[['PORT_CODE', 'BANKER_TYPE', 'ROLE_TYPE', 'LAT', 'LON']]
+        in_market[['PORT_CODE', 'BANKER_TYPE', 'ROLE_TYPE', 'LAT', 'LON', 'COVERAGE']],
+        centralized[['PORT_CODE', 'BANKER_TYPE', 'ROLE_TYPE', 'LAT', 'LON', 'COVERAGE']]
     ])
     
     # Remove rows with missing coordinates
@@ -44,118 +44,73 @@ def get_banker_locations(active_bankers, branch_data, portfolio_centroids):
     
     return banker_locations
 
-def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type, 
-                     max_radius, in_market_radius=None):
-    """Assign customers to nearest bankers within radius"""
+def assign_by_state(customers_no_coords, active_bankers, banker_type):
+    """Assign customers without coordinates based on state coverage"""
     
-    # Filter customers and bankers
-    customers = unassigned_pop[unassigned_pop['PROM_SEG_RAW'] == prom_seg].copy()
-    
-    # Remove customers with missing coordinates
-    customers = customers.dropna(subset=['ECN_LAT', 'ECN_LON'])
-    
-    bankers = banker_locations[banker_locations['BANKER_TYPE'] == banker_type].copy()
-    
-    if len(customers) == 0 or len(bankers) == 0:
+    if len(customers_no_coords) == 0:
         return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE'])
+    
+    # Filter bankers by type
+    bankers = active_bankers[active_bankers['BANKER_TYPE'] == banker_type].copy()
+    
+    # Expand COVERAGE column (comma-separated states) into multiple rows
+    bankers['COVERAGE'] = bankers['COVERAGE'].fillna('')
+    bankers_expanded = []
+    
+    for _, banker in bankers.iterrows():
+        states = [s.strip() for s in str(banker['COVERAGE']).split(',') if s.strip()]
+        for state in states:
+            banker_row = banker.copy()
+            banker_row['STATE'] = state
+            bankers_expanded.append(banker_row)
+    
+    if len(bankers_expanded) == 0:
+        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE'])
+    
+    bankers_by_state = pd.DataFrame(bankers_expanded)
     
     assignments = []
     
-    # For RM (PROM_SEG_RAW=3), try IN MARKET first
-    if in_market_radius is not None:
-        in_market_bankers = bankers[bankers['ROLE_TYPE'] == 'IN MARKET'].copy()
+    for _, customer in customers_no_coords.iterrows():
+        customer_state = str(customer['BILLINGSTATE']).strip()
         
-        if len(in_market_bankers) > 0:
-            # Build BallTree for IN MARKET bankers
-            banker_coords = in_market_bankers[['LAT', 'LON']].values.astype(float)
-            banker_coords_rad = np.radians(banker_coords)
-            tree = BallTree(banker_coords_rad, metric='haversine')
-            
-            customer_coords = customers[['ECN_LAT', 'ECN_LON']].values.astype(float)
-            customer_coords_rad = np.radians(customer_coords)
-            distances, indices = tree.query(customer_coords_rad, k=1)
-            distances_miles = distances.flatten() * 3959  # Convert to miles
-            
-            # Assign customers within IN MARKET radius
-            mask = distances_miles <= in_market_radius
-            assigned_indices = np.where(mask)[0]
-            
-            for idx in assigned_indices:
-                banker_idx = indices[idx][0]
-                assignments.append({
-                    'CG_ECN': customers.iloc[idx]['CG_ECN'],
-                    'HH_ECN': customers.iloc[idx]['HH_ECN'],
-                    'PORT_CODE': in_market_bankers.iloc[banker_idx]['PORT_CODE'],
-                    'PROM_SEG_RAW': prom_seg,
-                    'BANKER_TYPE': banker_type
-                })
-            
-            # Remove assigned customers
-            customers = customers.iloc[~mask].copy()
-    
-    # Assign remaining customers to any banker (CENTRALIZED or all bankers)
-    if len(customers) > 0 and len(bankers) > 0:
-        banker_coords = bankers[['LAT', 'LON']].values.astype(float)
-        banker_coords_rad = np.radians(banker_coords)
-        tree = BallTree(banker_coords_rad, metric='haversine')
+        # Find bankers covering this state
+        matching_bankers = bankers_by_state[bankers_by_state['STATE'] == customer_state]
         
-        customer_coords = customers[['ECN_LAT', 'ECN_LON']].values.astype(float)
-        customer_coords_rad = np.radians(customer_coords)
-        distances, indices = tree.query(customer_coords_rad, k=1)
-        distances_miles = distances.flatten() * 3959
-        
-        # Assign customers within max radius
-        mask = distances_miles <= max_radius
-        assigned_indices = np.where(mask)[0]
-        
-        for idx in assigned_indices:
-            banker_idx = indices[idx][0]
+        if len(matching_bankers) > 0:
+            # Assign to first matching banker (you can randomize or load balance here)
+            banker = matching_bankers.iloc[0]
             assignments.append({
-                'CG_ECN': customers.iloc[idx]['CG_ECN'],
-                'HH_ECN': customers.iloc[idx]['HH_ECN'],
-                'PORT_CODE': bankers.iloc[banker_idx]['PORT_CODE'],
-                'PROM_SEG_RAW': prom_seg,
+                'CG_ECN': customer['CG_ECN'],
+                'HH_ECN': customer['HH_ECN'],
+                'PORT_CODE': banker['PORT_CODE'],
+                'PROM_SEG_RAW': customer['PROM_SEG_RAW'],
                 'BANKER_TYPE': banker_type
             })
     
     return pd.DataFrame(assignments)
 
-# Main execution
-def main(df1, df2, df3, df4):
-    """Main function to assign all customers"""
+def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type, 
+                     max_radius, in_market_radius=None, centralized_radius=600):
+    """Assign customers to nearest bankers within radius"""
     
-    # Get banker locations
-    banker_locations = get_banker_locations(df2, df3, df4)
+    # Filter customers by segment
+    customers = unassigned_pop[unassigned_pop['PROM_SEG_RAW'] == prom_seg].copy()
     
-    print(f"Total bankers with valid locations: {len(banker_locations)}")
-    print(f"RC bankers: {len(banker_locations[banker_locations['BANKER_TYPE']=='RC'])}")
-    print(f"RM bankers: {len(banker_locations[banker_locations['BANKER_TYPE']=='RM'])}")
+    # Separate customers with and without coordinates
+    customers_with_coords = customers.dropna(subset=['ECN_LAT', 'ECN_LON'])
+    customers_no_coords = customers[customers['ECN_LAT'].isna() | customers['ECN_LON'].isna()]
     
-    # Step 1: Assign PROM_SEG_RAW=4 to RC bankers (400 miles max)
-    rc_assignments = assign_customers(
-        df1, banker_locations, 
-        prom_seg=4, 
-        banker_type='RC', 
-        max_radius=400
-    )
-    print(f"RC assignments: {len(rc_assignments)}")
+    bankers = banker_locations[banker_locations['BANKER_TYPE'] == banker_type].copy()
     
-    # Step 2: Assign PROM_SEG_RAW=3 to RM bankers (40 miles IN MARKET, then 400 miles CENTRALIZED)
-    rm_assignments = assign_customers(
-        df1, banker_locations, 
-        prom_seg=3, 
-        banker_type='RM', 
-        max_radius=400,
-        in_market_radius=40
-    )
-    print(f"RM assignments: {len(rm_assignments)}")
+    if len(customers_with_coords) == 0 and len(customers_no_coords) == 0:
+        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']), customers_no_coords
     
-    # Combine all assignments
-    final_assignments = pd.concat([rc_assignments, rm_assignments], ignore_index=True)
+    assignments = []
     
-    return final_assignments[['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']]
-
-# Run the assignment
-result = main(df1, df2, df3, df4)
-print(f"\nTotal assignments: {len(result)}")
-print(result.head())
+    # Process customers WITH coordinates
+    if len(customers_with_coords) > 0 and len(bankers) > 0:
+        
+        # For RM (PROM_SEG_RAW=3), try IN MARKET first
+        if in_market_radius is not None:
+            in_market_bankers = bankers[bankers['ROLE_TYPE'] == 'IN MARKET'].copy()
