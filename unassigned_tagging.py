@@ -77,15 +77,15 @@ def assign_by_state(customers_no_coords, active_bankers, banker_type):
     """Assign customers without coordinates based on state coverage"""
     
     if len(customers_no_coords) == 0:
-        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE'])
+        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']), pd.DataFrame()
     
     # Filter bankers by type
     bankers = active_bankers[active_bankers['BANKER_TYPE'] == banker_type].copy()
     
     if len(bankers) == 0:
-        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE'])
+        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']), customers_no_coords
     
-    # Expand COVERAGE column (comma-separated states) into multiple rows
+    # Expand COVERAGE column (/ separated states) into multiple rows
     bankers['COVERAGE'] = bankers['COVERAGE'].fillna('')
     bankers_expanded = []
     
@@ -100,11 +100,12 @@ def assign_by_state(customers_no_coords, active_bankers, banker_type):
     
     if len(bankers_expanded) == 0:
         print(f"  Warning: No {banker_type} bankers with valid COVERAGE found")
-        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE'])
+        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']), customers_no_coords
     
     bankers_by_state = pd.DataFrame(bankers_expanded)
     
     assignments = []
+    unmatched_customers = []
     unmatched_states = set()
     
     for _, customer in customers_no_coords.iterrows():
@@ -112,6 +113,7 @@ def assign_by_state(customers_no_coords, active_bankers, banker_type):
         customer_state_code = convert_state_name_to_code(customer['BILLINGSTATE'])
         
         if not customer_state_code:
+            unmatched_customers.append(customer)
             continue
         
         # Find bankers covering this state code
@@ -129,11 +131,14 @@ def assign_by_state(customers_no_coords, active_bankers, banker_type):
             })
         else:
             unmatched_states.add(customer_state_code)
+            unmatched_customers.append(customer)
     
     if unmatched_states:
         print(f"  Warning: No {banker_type} coverage for state codes: {sorted(unmatched_states)}")
     
-    return pd.DataFrame(assignments)
+    unmatched_df = pd.DataFrame(unmatched_customers) if unmatched_customers else pd.DataFrame()
+    
+    return pd.DataFrame(assignments), unmatched_df
 
 def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type, 
                      max_radius, in_market_radius=None, centralized_radius=600):
@@ -153,6 +158,7 @@ def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type,
     bankers = banker_locations[banker_locations['BANKER_TYPE'] == banker_type].copy()
     
     assignments = []
+    unassigned_with_coords = []
     
     # Process customers WITH coordinates
     if len(customers_with_coords) > 0 and len(bankers) > 0:
@@ -223,12 +229,55 @@ def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type,
                         'PROM_SEG_RAW': prom_seg,
                         'BANKER_TYPE': banker_type
                     })
+                
+                # Track unassigned customers beyond radius
+                unassigned_mask = ~mask
+                for idx in np.where(unassigned_mask)[0]:
+                    unassigned_with_coords.append(customers_with_coords.iloc[idx])
     
     assignments_df = pd.DataFrame(assignments) if assignments else pd.DataFrame(
         columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']
     )
     
-    return assignments_df, customers_no_coords
+    # Combine unassigned with coords and no coords
+    all_unassigned = pd.concat([
+        pd.DataFrame(unassigned_with_coords) if unassigned_with_coords else pd.DataFrame(),
+        customers_no_coords
+    ], ignore_index=True)
+    
+    return assignments_df, all_unassigned
+
+def assign_randomly(customers_unassigned, active_bankers, banker_type):
+    """Randomly assign remaining unassigned customers"""
+    
+    if len(customers_unassigned) == 0:
+        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE'])
+    
+    # Filter bankers by type
+    bankers = active_bankers[active_bankers['BANKER_TYPE'] == banker_type].copy()
+    
+    if len(bankers) == 0:
+        print(f"  Warning: No {banker_type} bankers available for random assignment")
+        return pd.DataFrame(columns=['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE'])
+    
+    # Get unique PORT_CODEs
+    available_portfolios = bankers['PORT_CODE'].unique()
+    
+    assignments = []
+    
+    for _, customer in customers_unassigned.iterrows():
+        # Randomly select a portfolio
+        random_portfolio = np.random.choice(available_portfolios)
+        
+        assignments.append({
+            'CG_ECN': customer['CG_ECN'],
+            'HH_ECN': customer['HH_ECN'],
+            'PORT_CODE': random_portfolio,
+            'PROM_SEG_RAW': customer['PROM_SEG_RAW'],
+            'BANKER_TYPE': banker_type
+        })
+    
+    return pd.DataFrame(assignments)
 
 def main(df1, df2, df3, df4):
     """Main function to assign all customers"""
@@ -236,6 +285,9 @@ def main(df1, df2, df3, df4):
     print("="*60)
     print("CUSTOMER-BANKER ASSIGNMENT PROCESS")
     print("="*60)
+    
+    # Transform PROM_SEG_RAW to max HH_SEG per CG_ECN
+    df1['PROM_SEG_RAW'] = df1.groupby('CG_ECN')['HH_SEG'].transform('max')
     
     # Get banker locations
     banker_locations = get_banker_locations(df2, df3, df4)
@@ -262,25 +314,30 @@ def main(df1, df2, df3, df4):
     print("STEP 1: Assigning Segment 4 customers to RC bankers")
     print(f"{'='*60}")
     
-    rc_assignments, rc_no_coords = assign_customers(
+    rc_assignments, rc_unassigned = assign_customers(
         df1, banker_locations, 
         prom_seg=4, 
         banker_type='RC', 
         max_radius=400
     )
     print(f"  RC assignments (geographic): {len(rc_assignments)}")
-    print(f"  RC customers without coords: {len(rc_no_coords)}")
+    print(f"  RC customers remaining: {len(rc_unassigned)}")
     
-    # Step 1b: Assign RC customers without coordinates by state
-    rc_state_assignments = assign_by_state(rc_no_coords, df2, 'RC')
+    # Step 1b: Assign RC customers by state
+    rc_state_assignments, rc_still_unassigned = assign_by_state(rc_unassigned, df2, 'RC')
     print(f"  RC assignments (by state): {len(rc_state_assignments)}")
+    print(f"  RC customers still unassigned: {len(rc_still_unassigned)}")
+    
+    # Step 1c: Randomly assign remaining RC customers
+    rc_random_assignments = assign_randomly(rc_still_unassigned, df2, 'RC')
+    print(f"  RC assignments (random): {len(rc_random_assignments)}")
     
     # Step 2: Assign PROM_SEG_RAW=3 to RM bankers (40 miles IN MARKET, then 600 miles CENTRALIZED)
     print(f"\n{'='*60}")
     print("STEP 2: Assigning Segment 3 customers to RM bankers")
     print(f"{'='*60}")
     
-    rm_assignments, rm_no_coords = assign_customers(
+    rm_assignments, rm_unassigned = assign_customers(
         df1, banker_locations, 
         prom_seg=3, 
         banker_type='RM', 
@@ -289,14 +346,22 @@ def main(df1, df2, df3, df4):
         centralized_radius=600
     )
     print(f"  RM assignments (geographic): {len(rm_assignments)}")
-    print(f"  RM customers without coords: {len(rm_no_coords)}")
+    print(f"  RM customers remaining: {len(rm_unassigned)}")
     
-    # Step 2b: Assign RM customers without coordinates by state
-    rm_state_assignments = assign_by_state(rm_no_coords, df2, 'RM')
+    # Step 2b: Assign RM customers by state
+    rm_state_assignments, rm_still_unassigned = assign_by_state(rm_unassigned, df2, 'RM')
     print(f"  RM assignments (by state): {len(rm_state_assignments)}")
+    print(f"  RM customers still unassigned: {len(rm_still_unassigned)}")
+    
+    # Step 2c: Randomly assign remaining RM customers
+    rm_random_assignments = assign_randomly(rm_still_unassigned, df2, 'RM')
+    print(f"  RM assignments (random): {len(rm_random_assignments)}")
     
     # Combine all assignments
-    all_assignments = [rc_assignments, rc_state_assignments, rm_assignments, rm_state_assignments]
+    all_assignments = [
+        rc_assignments, rc_state_assignments, rc_random_assignments,
+        rm_assignments, rm_state_assignments, rm_random_assignments
+    ]
     final_assignments = pd.concat([df for df in all_assignments if len(df) > 0], ignore_index=True)
     
     # Final summary
@@ -323,9 +388,11 @@ def main(df1, df2, df3, df4):
 
 # Run the assignment
 if __name__ == "__main__":
+    # Set random seed for reproducibility
+    np.random.seed(42)
+    
     # Assuming df1, df2, df3, df4 are already loaded
     result = main(df1, df2, df3, df4)
-    df1['PROM_SEG_RAW'] = df1.groupby('CG_ECN')['HH_SEG'].transform('max')
     
     # Display sample results
     print(f"\n{'='*60}")
