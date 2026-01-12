@@ -325,6 +325,7 @@ def main(df1, df2, df3, df4):
 if __name__ == "__main__":
     # Assuming df1, df2, df3, df4 are already loaded
     result = main(df1, df2, df3, df4)
+    df1['PROM_SEG_RAW'] = df1.groupby('CG_ECN')['HH_SEG'].transform('max')
     
     # Display sample results
     print(f"\n{'='*60}")
