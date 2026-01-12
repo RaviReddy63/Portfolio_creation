@@ -39,7 +39,10 @@ def get_banker_locations(active_bankers, branch_data, portfolio_centroids):
         centralized[['PORT_CODE', 'BANKER_TYPE', 'ROLE_TYPE', 'LAT', 'LON']]
     ])
     
-    return banker_locations.dropna(subset=['LAT', 'LON'])
+    # Remove rows with missing coordinates
+    banker_locations = banker_locations.dropna(subset=['LAT', 'LON'])
+    
+    return banker_locations
 
 def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type, 
                      max_radius, in_market_radius=None):
@@ -47,6 +50,10 @@ def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type,
     
     # Filter customers and bankers
     customers = unassigned_pop[unassigned_pop['PROM_SEG_RAW'] == prom_seg].copy()
+    
+    # Remove customers with missing coordinates
+    customers = customers.dropna(subset=['ECN_LAT', 'ECN_LON'])
+    
     bankers = banker_locations[banker_locations['BANKER_TYPE'] == banker_type].copy()
     
     if len(customers) == 0 or len(bankers) == 0:
@@ -56,15 +63,17 @@ def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type,
     
     # For RM (PROM_SEG_RAW=3), try IN MARKET first
     if in_market_radius is not None:
-        in_market_bankers = bankers[bankers['ROLE_TYPE'] == 'IN MARKET']
+        in_market_bankers = bankers[bankers['ROLE_TYPE'] == 'IN MARKET'].copy()
         
         if len(in_market_bankers) > 0:
             # Build BallTree for IN MARKET bankers
-            banker_coords = np.radians(in_market_bankers[['LAT', 'LON']].values)
-            tree = BallTree(banker_coords, metric='haversine')
+            banker_coords = in_market_bankers[['LAT', 'LON']].values.astype(float)
+            banker_coords_rad = np.radians(banker_coords)
+            tree = BallTree(banker_coords_rad, metric='haversine')
             
-            customer_coords = np.radians(customers[['ECN_LAT', 'ECN_LON']].values)
-            distances, indices = tree.query(customer_coords, k=1)
+            customer_coords = customers[['ECN_LAT', 'ECN_LON']].values.astype(float)
+            customer_coords_rad = np.radians(customer_coords)
+            distances, indices = tree.query(customer_coords_rad, k=1)
             distances_miles = distances.flatten() * 3959  # Convert to miles
             
             # Assign customers within IN MARKET radius
@@ -86,11 +95,13 @@ def assign_customers(unassigned_pop, banker_locations, prom_seg, banker_type,
     
     # Assign remaining customers to any banker (CENTRALIZED or all bankers)
     if len(customers) > 0 and len(bankers) > 0:
-        banker_coords = np.radians(bankers[['LAT', 'LON']].values)
-        tree = BallTree(banker_coords, metric='haversine')
+        banker_coords = bankers[['LAT', 'LON']].values.astype(float)
+        banker_coords_rad = np.radians(banker_coords)
+        tree = BallTree(banker_coords_rad, metric='haversine')
         
-        customer_coords = np.radians(customers[['ECN_LAT', 'ECN_LON']].values)
-        distances, indices = tree.query(customer_coords, k=1)
+        customer_coords = customers[['ECN_LAT', 'ECN_LON']].values.astype(float)
+        customer_coords_rad = np.radians(customer_coords)
+        distances, indices = tree.query(customer_coords_rad, k=1)
         distances_miles = distances.flatten() * 3959
         
         # Assign customers within max radius
@@ -116,6 +127,10 @@ def main(df1, df2, df3, df4):
     # Get banker locations
     banker_locations = get_banker_locations(df2, df3, df4)
     
+    print(f"Total bankers with valid locations: {len(banker_locations)}")
+    print(f"RC bankers: {len(banker_locations[banker_locations['BANKER_TYPE']=='RC'])}")
+    print(f"RM bankers: {len(banker_locations[banker_locations['BANKER_TYPE']=='RM'])}")
+    
     # Step 1: Assign PROM_SEG_RAW=4 to RC bankers (400 miles max)
     rc_assignments = assign_customers(
         df1, banker_locations, 
@@ -123,6 +138,7 @@ def main(df1, df2, df3, df4):
         banker_type='RC', 
         max_radius=400
     )
+    print(f"RC assignments: {len(rc_assignments)}")
     
     # Step 2: Assign PROM_SEG_RAW=3 to RM bankers (40 miles IN MARKET, then 400 miles CENTRALIZED)
     rm_assignments = assign_customers(
@@ -132,6 +148,7 @@ def main(df1, df2, df3, df4):
         max_radius=400,
         in_market_radius=40
     )
+    print(f"RM assignments: {len(rm_assignments)}")
     
     # Combine all assignments
     final_assignments = pd.concat([rc_assignments, rm_assignments], ignore_index=True)
@@ -140,5 +157,5 @@ def main(df1, df2, df3, df4):
 
 # Run the assignment
 result = main(df1, df2, df3, df4)
-print(f"Total assignments: {len(result)}")
+print(f"\nTotal assignments: {len(result)}")
 print(result.head())
