@@ -383,8 +383,13 @@ def main(df1, df2, df3, df4):
         seg_counts = final_assignments['PROM_SEG_RAW'].value_counts()
         for seg, count in seg_counts.items():
             print(f"  Segment {seg}: {count}")
+
+    final_assignments = final_assignments.merge(
+    df1[['CG_ECN', 'HH_ECN', 'ECN_LAT', 'ECN_LON']].drop_duplicates(),
+    on=['CG_ECN', 'HH_ECN'],
+    how='left')
     
-    return final_assignments[['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']]
+    return final_assignments[['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE', 'ECN_LAT', 'ECN_LON']]
 
 # Run the assignment
 if __name__ == "__main__":
