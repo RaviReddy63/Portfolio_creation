@@ -92,7 +92,7 @@ def assign_by_state(customers_no_coords, active_bankers, banker_type):
     for _, banker in bankers.iterrows():
         coverage_str = str(banker['COVERAGE']).strip()
         if coverage_str:
-            states = [s.strip().upper() for s in coverage_str.split(',') if s.strip()]
+            states = [s.strip().upper() for s in coverage_str.split('/') if s.strip()]
             for state in states:
                 banker_row = banker.to_dict()
                 banker_row['STATE'] = state
