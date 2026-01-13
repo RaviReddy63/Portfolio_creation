@@ -279,7 +279,7 @@ def assign_randomly(customers_unassigned, active_bankers, banker_type):
     
     return pd.DataFrame(assignments)
 
-def main(df1, df2, df3, df4):
+def main(df1, df2, df3, df4, df5):
     """Main function to assign all customers"""
     
     print("="*60)
@@ -288,6 +288,39 @@ def main(df1, df2, df3, df4):
     
     # Transform PROM_SEG_RAW to max HH_SEG per CG_ECN
     df1['PROM_SEG_RAW'] = df1.groupby('CG_ECN')['HH_SEG'].transform('max')
+    
+    # Filter df5 to only include CG_ECNs that exist in df1
+    df5_filtered = df5[df5['CG_ECN'].isin(df1['CG_ECN'])].copy()
+    
+    print(f"\nBackfill Portfolio Summary:")
+    print(f"  Total CG_ECNs in backfill file: {len(df5)}")
+    print(f"  CG_ECNs in backfill that exist in df1: {len(df5_filtered)}")
+    print(f"  CG_ECNs excluded (not in df1): {len(df5) - len(df5_filtered)}")
+    
+    # Separate customers into backfill and needs-assignment
+    backfill_cg_ecns = set(df5_filtered['CG_ECN'].unique())
+    df1_backfill = df1[df1['CG_ECN'].isin(backfill_cg_ecns)].copy()
+    df1_to_assign = df1[~df1['CG_ECN'].isin(backfill_cg_ecns)].copy()
+    
+    print(f"\nCustomer Split:")
+    print(f"  Customers with backfill portfolios: {len(df1_backfill)}")
+    print(f"  Customers needing assignment: {len(df1_to_assign)}")
+    
+    # Create backfill assignments by merging df1_backfill with df5_filtered
+    backfill_assignments = df1_backfill[['CG_ECN', 'HH_ECN', 'PROM_SEG_RAW']].merge(
+        df5_filtered[['CG_ECN', 'PORT_CODE']], 
+        on='CG_ECN', 
+        how='left'
+    )
+    
+    # Get BANKER_TYPE from df2 based on PORT_CODE
+    backfill_assignments = backfill_assignments.merge(
+        df2[['PORT_CODE', 'BANKER_TYPE']].drop_duplicates(),
+        on='PORT_CODE',
+        how='left'
+    )
+    
+    print(f"  Backfill assignments created: {len(backfill_assignments)}")
     
     # Get banker locations
     banker_locations = get_banker_locations(df2, df3, df4)
@@ -299,13 +332,13 @@ def main(df1, df2, df3, df4):
     print(f"  IN MARKET: {len(banker_locations[banker_locations['ROLE_TYPE']=='IN MARKET'])}")
     print(f"  CENTRALIZED: {len(banker_locations[banker_locations['ROLE_TYPE']=='CENTRALIZED'])}")
     
-    # Customer summary
-    total_customers = len(df1)
-    seg4_customers = len(df1[df1['PROM_SEG_RAW'] == 4])
-    seg3_customers = len(df1[df1['PROM_SEG_RAW'] == 3])
+    # Customer summary for assignment
+    total_customers_to_assign = len(df1_to_assign)
+    seg4_customers = len(df1_to_assign[df1_to_assign['PROM_SEG_RAW'] == 4])
+    seg3_customers = len(df1_to_assign[df1_to_assign['PROM_SEG_RAW'] == 3])
     
-    print(f"\nCustomer Summary:")
-    print(f"  Total unassigned customers: {total_customers}")
+    print(f"\nCustomer Assignment Summary:")
+    print(f"  Total customers needing assignment: {total_customers_to_assign}")
     print(f"  Segment 4 (RC): {seg4_customers}")
     print(f"  Segment 3 (RM): {seg3_customers}")
     
@@ -315,7 +348,7 @@ def main(df1, df2, df3, df4):
     print(f"{'='*60}")
     
     rc_assignments, rc_unassigned = assign_customers(
-        df1, banker_locations, 
+        df1_to_assign, banker_locations, 
         prom_seg=4, 
         banker_type='RC', 
         max_radius=400
@@ -338,7 +371,7 @@ def main(df1, df2, df3, df4):
     print(f"{'='*60}")
     
     rm_assignments, rm_unassigned = assign_customers(
-        df1, banker_locations, 
+        df1_to_assign, banker_locations, 
         prom_seg=3, 
         banker_type='RM', 
         max_radius=400,
@@ -357,8 +390,9 @@ def main(df1, df2, df3, df4):
     rm_random_assignments = assign_randomly(rm_still_unassigned, df2, 'RM')
     print(f"  RM assignments (random): {len(rm_random_assignments)}")
     
-    # Combine all assignments
+    # Combine all assignments (backfill + new assignments)
     all_assignments = [
+        backfill_assignments[['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE']],
         rc_assignments, rc_state_assignments, rc_random_assignments,
         rm_assignments, rm_state_assignments, rm_random_assignments
     ]
@@ -369,8 +403,10 @@ def main(df1, df2, df3, df4):
     print("FINAL ASSIGNMENT SUMMARY")
     print(f"{'='*60}")
     print(f"  Total customers assigned: {len(final_assignments)}")
-    print(f"  Total customers unassigned: {total_customers - len(final_assignments)}")
-    print(f"  Assignment rate: {len(final_assignments)/total_customers*100:.2f}%")
+    print(f"  - From backfill: {len(backfill_assignments)}")
+    print(f"  - From assignment logic: {len(final_assignments) - len(backfill_assignments)}")
+    print(f"  Total customers unassigned: {len(df1) - len(final_assignments)}")
+    print(f"  Assignment rate: {len(final_assignments)/len(df1)*100:.2f}%")
     
     print(f"\nBreakdown by Banker Type:")
     if len(final_assignments) > 0:
@@ -384,10 +420,46 @@ def main(df1, df2, df3, df4):
         for seg, count in seg_counts.items():
             print(f"  Segment {seg}: {count}")
 
+    # Merge with df1 to get ECN_LAT and ECN_LON
     final_assignments = final_assignments.merge(
-    df1[['CG_ECN', 'HH_ECN', 'ECN_LAT', 'ECN_LON']].drop_duplicates(),
-    on=['CG_ECN', 'HH_ECN'],
-    how='left')
+        df1[['CG_ECN', 'HH_ECN', 'ECN_LAT', 'ECN_LON']].drop_duplicates(),
+        on=['CG_ECN', 'HH_ECN'],
+        how='left'
+    )
+    
+    # Create banker output file with locations
+    banker_output = df2.copy()
+    
+    # Merge IN MARKET bankers with branch locations
+    banker_output = banker_output.merge(
+        df3[['AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM']], 
+        on='AU', 
+        how='left'
+    )
+    
+    # Merge all bankers with portfolio centroids
+    banker_output = banker_output.merge(
+        df4[['PORT_CODE', 'PORT_CENTROID_LAT', 'PORT_CENTROID_LON']], 
+        on='PORT_CODE', 
+        how='left'
+    )
+    
+    # Set LAT and LON based on ROLE_TYPE
+    banker_output['BANKER_LAT'] = banker_output.apply(
+        lambda row: row['BRANCH_LAT_NUM'] if row['ROLE_TYPE'] == 'IN MARKET' else row['PORT_CENTROID_LAT'],
+        axis=1
+    )
+    banker_output['BANKER_LON'] = banker_output.apply(
+        lambda row: row['BRANCH_LON_NUM'] if row['ROLE_TYPE'] == 'IN MARKET' else row['PORT_CENTROID_LON'],
+        axis=1
+    )
+    
+    # Drop temporary columns
+    banker_output = banker_output.drop(columns=['BRANCH_LAT_NUM', 'BRANCH_LON_NUM', 'PORT_CENTROID_LAT', 'PORT_CENTROID_LON'])
+    
+    # Save banker output
+    banker_output.to_csv('active_bankers_with_locations.csv', index=False)
+    print(f"\n✓ Banker locations saved to: active_bankers_with_locations.csv")
     
     return final_assignments[['CG_ECN', 'HH_ECN', 'PORT_CODE', 'PROM_SEG_RAW', 'BANKER_TYPE', 'ECN_LAT', 'ECN_LON']]
 
@@ -396,8 +468,8 @@ if __name__ == "__main__":
     # Set random seed for reproducibility
     np.random.seed(42)
     
-    # Assuming df1, df2, df3, df4 are already loaded
-    result = main(df1, df2, df3, df4)
+    # Assuming df1, df2, df3, df4, df5 are already loaded
+    result = main(df1, df2, df3, df4, df5)
     
     # Display sample results
     print(f"\n{'='*60}")
