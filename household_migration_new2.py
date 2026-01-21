@@ -52,18 +52,25 @@ def haversine_distance(lat1, lon1, lat2, lon2):
 def impute_missing_coordinates(hh_df):
     """
     Impute missing LAT_NUM and LON_NUM using KNN based on BILLINGCITY, BILLINGSTATE.
+    Treats NULL, 0, 0.00, and any value equal to 0 as missing coordinates.
     Much faster than iterative approach.
     """
     hh_df = hh_df.copy()
     
-    # Find rows with missing coordinates
-    missing_mask = hh_df['LAT_NUM'].isna() | hh_df['LON_NUM'].isna()
+    # Find rows with missing coordinates (NULL or any form of 0)
+    # Using abs() < 1e-9 to handle floating point precision issues
+    missing_mask = (hh_df['LAT_NUM'].isna() | hh_df['LON_NUM'].isna() | 
+                   (hh_df['LAT_NUM'].abs() < 1e-9) | (hh_df['LON_NUM'].abs() < 1e-9))
     
     if missing_mask.sum() == 0:
         print("No missing coordinates to impute.")
         return hh_df
     
     print(f"Imputing {missing_mask.sum()} missing coordinates using KNN...")
+    
+    # Replace any form of 0 values with NaN for processing
+    hh_df.loc[hh_df['LAT_NUM'].abs() < 1e-9, 'LAT_NUM'] = np.nan
+    hh_df.loc[hh_df['LON_NUM'].abs() < 1e-9, 'LON_NUM'] = np.nan
     
     # Create location groups based on BILLINGCITY and BILLINGSTATE
     hh_df['location_group'] = hh_df['BILLINGCITY'].astype(str) + '_' + hh_df['BILLINGSTATE'].astype(str)
@@ -113,7 +120,6 @@ def impute_missing_coordinates(hh_df):
     
     print("Coordinate imputation complete.")
     return hh_df
-
 
 def create_balltree(lat_lon_array):
     """
