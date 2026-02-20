@@ -573,6 +573,9 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, placement='IN MARKET')
         if not undersized_indices:
             print(f"  No undersized portfolios. Breaking loop.")
             break
+
+        assigned_count = 0
+        skipped_state_mismatch = 0
         
         print(f"  Found {len(undersized_indices)} undersized portfolios")
         
