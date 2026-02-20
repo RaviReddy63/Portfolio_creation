@@ -139,16 +139,22 @@ def assign_au_to_clusters(clusters, branch_data, used_aus=None):
     Returns updated clusters with 'portfolio_cd' and 'au' fields.
     """
     if used_aus is None:
-        used_aus = set()
+        used_aus = set(
+            pd.to_numeric(branch_data['AU'], errors='coerce')
+            .dropna()
+            .astype(int)
+            .tolist()
+        )
 
     branch_data = branch_data.copy()
+    branch_data['AU'] = pd.to_numeric(branch_data['AU'], errors='coerce')
+    branch_data['BRANCH_LAT_NUM'] = pd.to_numeric(branch_data['BRANCH_LAT_NUM'], errors='coerce')
+    branch_data['BRANCH_LON_NUM'] = pd.to_numeric(branch_data['BRANCH_LON_NUM'], errors='coerce')
+    branch_data = branch_data.dropna(subset=['AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM'])
     branch_data['AU'] = branch_data['AU'].astype(int)
 
     # Valid branches only
-    valid_branches = branch_data[
-        branch_data['BRANCH_LAT_NUM'].notna() &
-        branch_data['BRANCH_LON_NUM'].notna()
-    ].copy()
+    valid_branches = branch_data.copy()
 
     branch_coords = valid_branches[['BRANCH_LAT_NUM', 'BRANCH_LON_NUM']].values
     branch_tree = BallTree(np.radians(branch_coords), metric='haversine')
@@ -184,7 +190,6 @@ def assign_au_to_clusters(clusters, branch_data, used_aus=None):
             assigned_clusters.append(cluster)
 
     return assigned_clusters, used_aus
-
 
 # ==================== STEP 3: CENTRALIZED CLUSTERING ====================
 
