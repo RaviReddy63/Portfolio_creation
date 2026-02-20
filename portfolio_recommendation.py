@@ -393,7 +393,12 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
 
     # Collect existing AUs to avoid conflicts
     if used_aus is None:
-        existing_aus = set(rbrm_data['AU'].dropna().astype(int).tolist())
+        existing_aus = set(
+            pd.to_numeric(rbrm_data['AU'], errors='coerce')
+            .dropna()
+            .astype(int)
+            .tolist()
+        )
     else:
         existing_aus = used_aus
 
