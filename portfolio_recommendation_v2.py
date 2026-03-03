@@ -458,7 +458,10 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
 
     # ---- FINAL SUMMARY ----
     total_new = len(in_market_clusters) + len(centralized_clusters)
-    total_assigned = sum(len(c['customers']) for c in in_market_clusters + centralized_clusters)
+    # total_assigned = sum(len(c['customers']) for c in in_market_clusters + centralized_clusters)
+    total_assigned = 0
+    for c in in_market_clusters + centralized_clusters:
+        total_assigned += len(c['customers'])
     still_unassigned = hh_df[
         (hh_df['NEW_SEGMENT'].isin([3, 4])) &
         (hh_df['RULE'] == 'POOL') &
