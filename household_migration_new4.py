@@ -24,7 +24,7 @@ CENTRALIZED_RADIUS_INCREMENT = 100
 
 SBB_RADIUS = 10
 
-# Eastern US bounds for missing centroids
+# Eastern US bounds for missing centroids (last resort fallback)
 EASTERN_US_LAT_RANGE = (35, 42)
 EASTERN_US_LON_RANGE = (-85, -75)
 
@@ -46,6 +46,64 @@ STATE_NAME_TO_CODE = {
     'DISTRICT OF COLUMBIA': 'DC', 'PUERTO RICO': 'PR', 'GUAM': 'GU', 'VIRGIN ISLANDS': 'VI'
 }
 
+# Approximate geographic centroids for each US state (lat, lon)
+STATE_CENTROIDS = {
+    'AL': (32.7794,  -86.8287),
+    'AK': (64.0685, -153.3694),
+    'AZ': (34.2744, -111.6602),
+    'AR': (34.8938,  -92.4426),
+    'CA': (37.1841, -119.4696),
+    'CO': (38.9972, -105.5478),
+    'CT': (41.6219,  -72.7273),
+    'DE': (38.9896,  -75.5050),
+    'FL': (28.6305,  -82.4497),
+    'GA': (32.6415,  -83.4426),
+    'HI': (20.2927, -156.3737),
+    'ID': (44.3509, -114.6130),
+    'IL': (40.0417,  -89.1965),
+    'IN': (39.8942,  -86.2816),
+    'IA': (42.0751,  -93.4960),
+    'KS': (38.4937,  -98.3804),
+    'KY': (37.5347,  -85.3021),
+    'LA': (31.0689,  -91.9968),
+    'ME': (45.3695,  -69.2428),
+    'MD': (39.0550,  -76.7909),
+    'MA': (42.2596,  -71.8083),
+    'MI': (44.3467,  -85.4102),
+    'MN': (46.2807,  -94.3053),
+    'MS': (32.7364,  -89.6678),
+    'MO': (38.3566,  -92.4580),
+    'MT': (46.8797, -110.3626),
+    'NE': (41.5378,  -99.7951),
+    'NV': (38.4199, -116.7515),
+    'NH': (43.6805,  -71.5811),
+    'NJ': (40.1907,  -74.6728),
+    'NM': (34.4071, -106.1126),
+    'NY': (42.9538,  -75.5268),
+    'NC': (35.5557,  -79.3877),
+    'ND': (47.4501, -100.4659),
+    'OH': (40.2862,  -82.7937),
+    'OK': (35.5889,  -97.4943),
+    'OR': (43.9336, -120.5583),
+    'PA': (40.8781,  -77.7996),
+    'RI': (41.6762,  -71.5562),
+    'SC': (33.9169,  -80.8964),
+    'SD': (44.4443,  -99.8700),
+    'TN': (35.8580,  -86.3505),
+    'TX': (31.4757,  -99.3312),
+    'UT': (39.3210, -111.0937),
+    'VT': (44.0687,  -72.6658),
+    'VA': (37.5215,  -78.8537),
+    'WA': (47.3826, -120.4472),
+    'WV': (38.6409,  -80.6227),
+    'WI': (44.6243,  -89.9941),
+    'WY': (42.9957, -107.5512),
+    'DC': (38.9072,  -77.0369),
+    'PR': (18.2208,  -66.5901),
+    'GU': (13.4443,  144.7937),
+    'VI': (18.3358,  -64.8963),
+}
+
 
 # ==================== UTILITY FUNCTIONS ====================
 
@@ -59,6 +117,38 @@ def convert_state_to_code(state_name):
 
     state_upper = str(state_name).strip().upper()
     return STATE_NAME_TO_CODE.get(state_upper, None)
+
+
+def get_state_centroid(coverage_states):
+    """
+    Given a set of coverage state codes, return the centroid lat/lon.
+    If multiple states, returns the average of their centroids.
+    Falls back to Eastern US random if no state centroid found.
+
+    Args:
+        coverage_states: set or list of 2-letter state codes
+
+    Returns:
+        (lat, lon) tuple
+    """
+    lats = []
+    lons = []
+
+    for state in coverage_states:
+        state = str(state).strip().upper()
+        if state in STATE_CENTROIDS:
+            lat, lon = STATE_CENTROIDS[state]
+            lats.append(lat)
+            lons.append(lon)
+
+    if lats:
+        return (np.mean(lats), np.mean(lons))
+
+    # Last resort fallback
+    return (
+        random.uniform(*EASTERN_US_LAT_RANGE),
+        random.uniform(*EASTERN_US_LON_RANGE)
+    )
 
 
 def build_portfolio_coverage_map(rbrm_data):
@@ -82,7 +172,6 @@ def build_portfolio_coverage_map(rbrm_data):
     for portfolio_cd, group in rbrm_data.groupby('CG_PORTFOLIO_CD'):
         states = set()
         for val in group['COVERAGE'].dropna():
-            # Handle comma-separated values within a single cell
             for state in str(val).split(','):
                 state = state.strip().upper()
                 if state:
@@ -98,8 +187,8 @@ def check_portfolio_state_match(customer_state_code, portfolio_cd, portfolio_cov
     Check if a customer's state code is in the portfolio's allowed coverage states.
 
     Args:
-        customer_state_code : 2-letter state code (e.g., 'LA')
-        portfolio_cd        : Portfolio code (e.g., 'P1')
+        customer_state_code   : 2-letter state code (e.g., 'LA')
+        portfolio_cd          : Portfolio code (e.g., 'P1')
         portfolio_coverage_map: dict returned by build_portfolio_coverage_map()
 
     Returns:
@@ -111,7 +200,6 @@ def check_portfolio_state_match(customer_state_code, portfolio_cd, portfolio_cov
 
     allowed_states = portfolio_coverage_map.get(portfolio_cd, None)
 
-    # If no coverage defined for this portfolio, allow all states
     if allowed_states is None or len(allowed_states) == 0:
         return True
 
@@ -232,13 +320,21 @@ def query_balltree(tree, query_points, radius_miles):
 def create_portfolio_location_map(rbrm_data, branch_data, portfolio_centroids):
     """
     Create a mapping of portfolio code to location (lat, lon).
-    IN MARKET portfolios use branch locations, CENTRALIZED use centroids.
-    Director field is retained for reference but no longer used for state matching.
+
+    Priority for CENTRALIZED portfolio location:
+        1. Use centroid from portfolio_centroids if available and non-null
+        2. Use geographic centroid of coverage state(s) from STATE_CENTROIDS
+        3. Last resort: random Eastern US location
+
+    IN MARKET portfolios always use their branch location.
     """
     portfolio_locations = {}
 
     branch_data = branch_data.copy()
     branch_data['AU'] = branch_data['AU'].astype(int)
+
+    # Pre-build coverage map for fallback centroid lookup
+    coverage_map = build_portfolio_coverage_map(rbrm_data)
 
     for _, row in rbrm_data.iterrows():
         portfolio_cd = row['CG_PORTFOLIO_CD']
@@ -254,19 +350,43 @@ def create_portfolio_location_map(rbrm_data, branch_data, portfolio_centroids):
                     'placement': 'IN MARKET',
                     'banker_type': row['BANKER_TYPE'],
                 }
+
         else:  # CENTRALIZED
-            centroid = portfolio_centroids[portfolio_centroids['CG_PORTFOLIO_CD'] == portfolio_cd]
-            if len(centroid) > 0 and pd.notna(centroid.iloc[0]['CENTROID_LAT_NUM']):
+            centroid = portfolio_centroids[
+                portfolio_centroids['CG_PORTFOLIO_CD'] == portfolio_cd
+            ]
+
+            # Priority 1: Use centroid from portfolio_centroids if available
+            if (len(centroid) > 0
+                    and pd.notna(centroid.iloc[0]['CENTROID_LAT_NUM'])
+                    and pd.notna(centroid.iloc[0]['CENTROID_LON_NUM'])):
+
                 portfolio_locations[portfolio_cd] = {
                     'lat': centroid.iloc[0]['CENTROID_LAT_NUM'],
                     'lon': centroid.iloc[0]['CENTROID_LON_NUM'],
                     'placement': 'CENTRALIZED',
                     'banker_type': row['BANKER_TYPE'],
                 }
+
             else:
+                # Priority 2: Use geographic centroid of coverage state(s)
+                coverage_states = coverage_map.get(portfolio_cd, set())
+
+                if coverage_states:
+                    fallback_lat, fallback_lon = get_state_centroid(coverage_states)
+                    source = f"state centroid ({', '.join(sorted(coverage_states))})"
+                else:
+                    # Priority 3: Last resort random Eastern US
+                    fallback_lat = random.uniform(*EASTERN_US_LAT_RANGE)
+                    fallback_lon = random.uniform(*EASTERN_US_LON_RANGE)
+                    source = "random Eastern US (no coverage states defined)"
+
+                print(f"  Portfolio {portfolio_cd}: No centroid in portfolio_centroids, "
+                      f"using {source}")
+
                 portfolio_locations[portfolio_cd] = {
-                    'lat': random.uniform(*EASTERN_US_LAT_RANGE),
-                    'lon': random.uniform(*EASTERN_US_LON_RANGE),
+                    'lat': fallback_lat,
+                    'lon': fallback_lon,
                     'placement': 'CENTRALIZED',
                     'banker_type': row['BANKER_TYPE'],
                 }
@@ -547,7 +667,6 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, portfolio_coverage_map
 
         print(f"  Found {len(undersized_indices)} undersized portfolios")
 
-        # Get all unassigned households of BOTH Segment 3 and 4
         unassigned_hhs = hh_df[
             (hh_df['NEW_SEGMENT'].isin([3, 4])) &
             (hh_df['RULE'] == 'POOL') &
@@ -558,7 +677,6 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, portfolio_coverage_map
             print(f"  No unassigned households available.")
             break
 
-        # Add state code column for portfolio coverage matching
         unassigned_hhs['STATE_CODE'] = unassigned_hhs['BILLINGSTATE'].apply(convert_state_to_code)
 
         portfolio_counts = {portfolios[i]: portfolio_stats[portfolios[i]]['current_count']
@@ -583,7 +701,6 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, portfolio_coverage_map
 
                 portfolio_cd = portfolios[i]
 
-                # Portfolio-level coverage check
                 if not check_portfolio_state_match(customer_state_code, portfolio_cd, portfolio_coverage_map):
                     skipped_coverage_mismatch += 1
                     continue
@@ -614,7 +731,6 @@ def optimize_in_market_portfolios(hh_df, portfolio_stats, portfolio_coverage_map
         print(f"  Assigned {assigned_count} households to nearest portfolios")
         print(f"  Skipped {skipped_coverage_mismatch} assignments due to portfolio coverage mismatch")
 
-        # Trim oversized portfolios
         portfolio_stats = calculate_portfolio_requirements(hh_df,
             {p: {'lat': portfolio_stats[p]['lat'],
                  'lon': portfolio_stats[p]['lon'],
@@ -654,7 +770,6 @@ def fill_portfolios_to_max(hh_df, portfolio_stats, portfolio_coverage_map, place
         print(f"  No {placement} portfolios found.")
         return hh_df
 
-    # Recalculate portfolio stats
     portfolio_stats = calculate_portfolio_requirements(hh_df,
         {p: {'lat': portfolio_stats[p]['lat'],
              'lon': portfolio_stats[p]['lon'],
@@ -681,10 +796,8 @@ def fill_portfolios_to_max(hh_df, portfolio_stats, portfolio_coverage_map, place
         print("  No unassigned households available.")
         return hh_df
 
-    # Add state code column for portfolio coverage matching
     unassigned_hhs['STATE_CODE'] = unassigned_hhs['BILLINGSTATE'].apply(convert_state_to_code)
 
-    # Create BallTree ONCE for all portfolios
     portfolio_locs_array = np.array([
         [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']]
         for p in portfolios
@@ -713,7 +826,6 @@ def fill_portfolios_to_max(hh_df, portfolio_stats, portfolio_coverage_map, place
 
             portfolio_cd = portfolios[i]
 
-            # Portfolio-level coverage check
             if not check_portfolio_state_match(customer_state_code, portfolio_cd, portfolio_coverage_map):
                 skipped_coverage_mismatch += 1
                 continue
@@ -757,8 +869,6 @@ def assign_remaining_households(hh_df, portfolio_stats, portfolio_coverage_map, 
     Phase A: Fill ALL portfolios to MAX
     Phase B: Assign remaining to nearest portfolio below MAX
     Phase C: If still unassigned, increase MAX by 20 iteratively and assign
-
-    Uses portfolio_locations BallTree created once.
     """
     hh_df = hh_df.copy()
 
@@ -773,7 +883,6 @@ def assign_remaining_households(hh_df, portfolio_stats, portfolio_coverage_map, 
         print(f"  No {placement} portfolios found.")
         return hh_df
 
-    # Create BallTree ONCE for all portfolios
     portfolio_locs_array = np.array([
         [portfolio_stats[p]['lat'], portfolio_stats[p]['lon']]
         for p in portfolios
@@ -832,7 +941,6 @@ def assign_remaining_households(hh_df, portfolio_stats, portfolio_coverage_map, 
 
                     portfolio_cd = portfolios[i]
 
-                    # Portfolio-level coverage check
                     if not check_portfolio_state_match(customer_state_code, portfolio_cd, portfolio_coverage_map):
                         skipped_coverage_mismatch += 1
                         continue
@@ -898,7 +1006,6 @@ def assign_remaining_households(hh_df, portfolio_stats, portfolio_coverage_map, 
             for i, dist in zip(indices, distances):
                 nearest_portfolio = portfolios[i]
 
-                # Portfolio-level coverage check
                 if not check_portfolio_state_match(customer_state_code, nearest_portfolio, portfolio_coverage_map):
                     skipped_coverage_mismatch += 1
                     continue
@@ -971,7 +1078,6 @@ def assign_remaining_households(hh_df, portfolio_stats, portfolio_coverage_map, 
                     nearest_portfolio = portfolios[i]
                     banker_type = portfolio_stats[nearest_portfolio]['banker_type']
 
-                    # Portfolio-level coverage check
                     if not check_portfolio_state_match(customer_state_code, nearest_portfolio, portfolio_coverage_map):
                         skipped_coverage_mismatch += 1
                         continue
@@ -1011,7 +1117,6 @@ def assign_remaining_households(hh_df, portfolio_stats, portfolio_coverage_map, 
         if len(remaining) > 0:
             print(f"    Warning: {len(remaining)} households still unassigned after {iteration-1} iterations")
 
-    # Verify final unassigned count
     final_unassigned = hh_df[
         (hh_df['NEW_SEGMENT'].isin([3, 4])) &
         (hh_df['RULE'] == 'POOL') &
@@ -1029,8 +1134,10 @@ def run_portfolio_reconstruction(hh_df, branch_data, rbrm_data, sbb_data, portfo
     """
     Main function to orchestrate the entire portfolio reconstruction process.
     Assigns BOTH Segment 3 and Segment 4 to both RM and RC portfolios.
-    Uses portfolio-level COVERAGE state matching (from rbrm_data COVERAGE column)
-    instead of the previous director-level state matching.
+    Uses portfolio-level COVERAGE state matching (from rbrm_data COVERAGE column).
+
+    For CENTRALIZED portfolios with no centroid in portfolio_centroids,
+    falls back to the geographic centroid of the portfolio's coverage state(s).
     """
     print("="*70)
     print("PORTFOLIO RECONSTRUCTION - START")
@@ -1045,7 +1152,6 @@ def run_portfolio_reconstruction(hh_df, branch_data, rbrm_data, sbb_data, portfo
     portfolio_locations = create_portfolio_location_map(rbrm_data, branch_data, portfolio_centroids)
     print(f"Created location map for {len(portfolio_locations)} portfolios")
 
-    # Build portfolio coverage map from rbrm_data COVERAGE column
     print("Building portfolio coverage map from COVERAGE column...")
     portfolio_coverage_map = build_portfolio_coverage_map(rbrm_data)
 
@@ -1057,10 +1163,10 @@ def run_portfolio_reconstruction(hh_df, branch_data, rbrm_data, sbb_data, portfo
     print("\n[STEP 2: CALCULATE PORTFOLIO REQUIREMENTS]")
     portfolio_stats = calculate_portfolio_requirements(hh_df, portfolio_locations)
 
-    rm_in_market    = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RM' and s['placement'] == 'IN MARKET']
-    rm_centralized  = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RM' and s['placement'] == 'CENTRALIZED']
-    rc_in_market    = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RC' and s['placement'] == 'IN MARKET']
-    rc_centralized  = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RC' and s['placement'] == 'CENTRALIZED']
+    rm_in_market   = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RM' and s['placement'] == 'IN MARKET']
+    rm_centralized = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RM' and s['placement'] == 'CENTRALIZED']
+    rc_in_market   = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RC' and s['placement'] == 'IN MARKET']
+    rc_centralized = [p for p, s in portfolio_stats.items() if s['banker_type'] == 'RC' and s['placement'] == 'CENTRALIZED']
 
     print(f"RM IN MARKET portfolios:    {len(rm_in_market)}")
     print(f"RM CENTRALIZED portfolios:  {len(rm_centralized)}")
