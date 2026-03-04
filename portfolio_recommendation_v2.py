@@ -9,27 +9,8 @@ NEW_PORTFOLIO_MAX = 330
 IN_MARKET_MAX_RADIUS = 20       # miles
 EARTH_RADIUS_MILES = 3959
 
-# Director to States mapping
-DIRECTOR_STATES = {
-    'JOHN KLEINER': ['AZ', 'CO', 'ID', 'MT', 'NV', 'NM', 'UT', 'WY', 'AK', 'HI', 'OR'],
-    'SEAN APPENRODT': ['IL', 'IN', 'IA', 'KS', 'KY', 'MI', 'MN', 'MO', 'NE', 'ND', 'OH', 'SD', 'WI'],
-    'MOJGAN MADADI': ['CA'],
-    'MEHNOOSH ASKARI': ['CT', 'DE', 'DC', 'ME', 'MD', 'MA', 'NH', 'NJ', 'NY', 'PA', 'RI', 'VT',
-                        'AL', 'AR', 'FL', 'GA', 'LA', 'MS', 'NC', 'OK', 'SC', 'TN', 'TX', 'VA', 'WV', 'WA']
-}
-
 
 # ==================== UTILITY ====================
-
-def get_director_for_state(state_code):
-    """Return director name for a given state code."""
-    if pd.isna(state_code) or not state_code:
-        return None
-    for director, states in DIRECTOR_STATES.items():
-        if state_code.strip().upper() in states:
-            return director
-    return None
-
 
 def compute_centroid(lats, lons):
     """Compute geographic centroid of a set of lat/lon points."""
@@ -53,10 +34,9 @@ def build_in_market_clusters(unassigned_df, max_radius=IN_MARKET_MAX_RADIUS):
     - Cluster radius: max 20 miles (uses smallest radius that fits 280-330 customers)
     - Cluster size: 280-330 customers
     - Each cluster contains customers from ONE state only (no cross-state mixing)
-    - Director tagged from DIRECTOR_STATES based on state
 
     Returns list of cluster dicts with keys:
-        customers, centroid_lat, centroid_lon, state_code, director, placement, radius_used
+        customers (list of indices), centroid_lat, centroid_lon, state_code, placement, radius_used
     """
     clusters = []
     unassigned_df = unassigned_df.copy()
@@ -77,12 +57,7 @@ def build_in_market_clusters(unassigned_df, max_radius=IN_MARKET_MAX_RADIUS):
         if pd.isna(state_code) or not state_code:
             continue
 
-        director = get_director_for_state(state_code)
-        if director is None:
-            print(f"    State {state_code}: No director found, skipping")
-            continue
-
-        print(f"\n    State: {state_code} | Director: {director} — {len(state_df)} customers")
+        print(f"\n    State: {state_code} — {len(state_df)} customers")
 
         # Build BallTree once per state
         coords = state_df[['LAT_NUM', 'LON_NUM']].values
@@ -95,14 +70,21 @@ def build_in_market_clusters(unassigned_df, max_radius=IN_MARKET_MAX_RADIUS):
                 continue
 
             query_point = np.radians([[row['LAT_NUM'], row['LON_NUM']]])
+
             best_cluster = None
 
             for radius_miles in range(5, max_radius + 1, 5):
                 radius_rad = radius_miles / EARTH_RADIUS_MILES
                 neighbor_indices = tree.query_radius(query_point, r=radius_rad)[0]
 
+                # Map back to original df indices
                 candidate_df_indices = state_df.iloc[neighbor_indices].index.tolist()
-                eligible = [i for i in candidate_df_indices if i not in state_assigned]
+
+                # Filter: not already assigned, same state (guaranteed by groupby)
+                eligible = [
+                    i for i in candidate_df_indices
+                    if i not in state_assigned
+                ]
 
                 if len(eligible) >= NEW_PORTFOLIO_MIN:
                     cluster_indices = eligible[:NEW_PORTFOLIO_MAX]
@@ -116,7 +98,6 @@ def build_in_market_clusters(unassigned_df, max_radius=IN_MARKET_MAX_RADIUS):
                         'centroid_lat': centroid_lat,
                         'centroid_lon': centroid_lon,
                         'state_code': state_code,
-                        'director': director,
                         'placement': 'IN MARKET',
                         'radius_used': radius_miles
                     }
@@ -127,7 +108,7 @@ def build_in_market_clusters(unassigned_df, max_radius=IN_MARKET_MAX_RADIUS):
                 state_assigned.update(best_cluster['customers'])
                 all_assigned_indices.update(best_cluster['customers'])
                 print(f"      IN MARKET cluster formed: {len(best_cluster['customers'])} customers, "
-                      f"radius={best_cluster['radius_used']}mi, state={state_code}, director={director}")
+                      f"radius={best_cluster['radius_used']}mi, state={state_code}")
 
     print(f"\n  Formed {len(clusters)} IN MARKET clusters")
     print(f"  Customers assigned: {sum(len(c['customers']) for c in clusters)}")
@@ -143,7 +124,6 @@ def assign_au_to_clusters(clusters, branch_data, used_aus=None):
     For each IN MARKET cluster, find the nearest AU (branch) to the centroid.
     Each AU can only be used once across ALL new portfolios.
     Assigns portfolio code as 'P{AU}'.
-    Director already tagged from clustering step.
 
     Returns updated clusters with 'portfolio_cd' and 'au' fields.
     """
@@ -186,12 +166,11 @@ def assign_au_to_clusters(clusters, branch_data, used_aus=None):
             cluster['au'] = assigned_au
             cluster['portfolio_cd'] = f'P{assigned_au}'
             assigned_clusters.append(cluster)
-            print(f"    Cluster → Portfolio {cluster['portfolio_cd']} "
-                  f"(AU={assigned_au}, state={cluster['state_code']}, director={cluster['director']})")
+            print(f"    Cluster → Portfolio {cluster['portfolio_cd']} (AU={assigned_au}, "
+                  f"state={cluster['state_code']})")
         else:
             print(f"    Warning: No available AU found for cluster at "
-                  f"({cluster['centroid_lat']:.2f}, {cluster['centroid_lon']:.2f}), "
-                  f"state={cluster['state_code']}")
+                  f"({cluster['centroid_lat']:.2f}, {cluster['centroid_lon']:.2f})")
             cluster['au'] = None
             cluster['portfolio_cd'] = None
             assigned_clusters.append(cluster)
@@ -206,13 +185,13 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
     Cluster remaining unassigned customers into CENTRALIZED portfolios.
     No radius constraint. Cluster size: 280-330.
     Each cluster contains customers from ONE state only (no cross-state mixing).
-    No AU assigned — director tagged from DIRECTOR_STATES.
     Portfolio codes: PC1, PC2, ...
 
     Returns list of cluster dicts.
     """
     clusters = []
 
+    # Exclude already assigned customers
     remaining_df = unassigned_df[
         ~unassigned_df.index.isin(assigned_in_market_indices)
     ].copy()
@@ -234,11 +213,6 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
         if pd.isna(state_code) or not state_code:
             continue
 
-        director = get_director_for_state(state_code)
-        if director is None:
-            print(f"    State {state_code}: No director found, skipping")
-            continue
-
         # Skip already assigned
         state_df = state_df[~state_df.index.isin(all_assigned_indices)].copy()
 
@@ -246,7 +220,7 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
             print(f"    State {state_code}: Only {len(state_df)} customers — insufficient for a cluster, skipping")
             continue
 
-        print(f"\n    State: {state_code} | Director: {director} — {len(state_df)} customers")
+        print(f"\n    State: {state_code} — {len(state_df)} customers")
 
         # Build BallTree for this state's customers
         coords = state_df[['LAT_NUM', 'LON_NUM']].values
@@ -258,6 +232,7 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
             if idx in state_assigned:
                 continue
 
+            # Check enough remaining in state
             remaining_in_state = [
                 i for i in state_df.index
                 if i not in state_assigned
@@ -266,6 +241,7 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
             if len(remaining_in_state) < NEW_PORTFOLIO_MIN:
                 break
 
+            # Find nearest NEW_PORTFOLIO_MAX customers to this seed point
             query_point = np.radians([[row['LAT_NUM'], row['LON_NUM']]])
             k = builtins.min(NEW_PORTFOLIO_MAX, len(remaining_in_state))
             distances, indices = tree.query(query_point, k=k)
@@ -289,10 +265,9 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
                 'centroid_lat': centroid_lat,
                 'centroid_lon': centroid_lon,
                 'state_code': state_code,
-                'director': director,
                 'placement': 'CENTRALIZED',
                 'portfolio_cd': portfolio_cd,
-                'au': None           # No AU for CENTRALIZED
+                'au': None
             })
 
             state_assigned.update(cluster_indices)
@@ -300,7 +275,7 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
             pc_counter += 1
 
             print(f"      CENTRALIZED cluster {portfolio_cd}: {len(cluster_indices)} customers, "
-                  f"state={state_code}, director={director}")
+                  f"state={state_code}")
 
     print(f"\n  Formed {len(clusters)} CENTRALIZED clusters")
     print(f"  Customers assigned: {sum(len(c['customers']) for c in clusters)}")
@@ -315,9 +290,6 @@ def update_hh_and_portfolio_structures(hh_df, rbrm_data, portfolio_stats,
     """
     Assign portfolio codes back to hh_df and update rbrm_data + portfolio_stats
     with new IN MARKET and CENTRALIZED portfolios.
-
-    IN MARKET  : portfolio_cd = P{AU},  has AU,  has director
-    CENTRALIZED: portfolio_cd = PC{n},  no AU,   has director
     """
     hh_df = hh_df.copy()
     rbrm_data = rbrm_data.copy()
@@ -330,12 +302,11 @@ def update_hh_and_portfolio_structures(hh_df, rbrm_data, portfolio_stats,
         if portfolio_cd is None:
             continue
 
-        placement    = cluster['placement']
-        state_code   = cluster['state_code']
-        director     = cluster['director']
+        placement = cluster['placement']
+        state_code = cluster['state_code']
         centroid_lat = cluster['centroid_lat']
         centroid_lon = cluster['centroid_lon']
-        au           = cluster.get('au', None)   # None for CENTRALIZED
+        au = cluster.get('au', None)
 
         # Assign portfolio code to households in hh_df
         for hh_idx in cluster['customers']:
@@ -347,7 +318,6 @@ def update_hh_and_portfolio_structures(hh_df, rbrm_data, portfolio_stats,
             'banker_type': 'RM',
             'placement': placement,
             'state_code': state_code,
-            'director': director,
             'current_count': len(cluster['customers']),
             'total_count': len(cluster['customers']),
             'min_required': NEW_PORTFOLIO_MIN,
@@ -363,10 +333,9 @@ def update_hh_and_portfolio_structures(hh_df, rbrm_data, portfolio_stats,
             'CG_PORTFOLIO_CD': portfolio_cd,
             'PLACEMENT': placement,
             'BANKER_TYPE': 'RM',
-            'DIRECTOR': director,
             'STATE_CODE': state_code,
-            'COVERAGE': state_code,        # Single state coverage
-            'AU': au if au else np.nan,    # NaN for CENTRALIZED
+            'COVERAGE': state_code,           # Single state coverage
+            'AU': au if au else np.nan,
             'CENTROID_LAT_NUM': centroid_lat,
             'CENTROID_LON_NUM': centroid_lon,
             'IS_NEW_PORTFOLIO': True
@@ -390,11 +359,11 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
 
     Steps:
         1. Cluster unassigned into IN MARKET portfolios
-           (single-state, max 20mi radius, 280-330 size, director tagged)
-        2. Assign nearest available AU → portfolio code P{AU}
-        3. Cluster remaining into CENTRALIZED portfolios
-           (single-state, no radius, 280-330 size, no AU, director tagged)
-           → portfolio code PC1, PC2, ...
+           - Max 20 mile radius, 280-330 size
+           - Customers from ONE state only per cluster
+        2. Assign nearest available AU to each IN MARKET cluster → portfolio code P{AU}
+        3. Cluster remaining into CENTRALIZED portfolios → portfolio code PC1, PC2, ...
+           - Customers from ONE state only per cluster
         4. Update hh_df, rbrm_data, portfolio_stats
 
     Returns:
@@ -444,7 +413,7 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
     )
 
     # ---- STEP 3: CENTRALIZED CLUSTERING ----
-    print("\n[STEP 3: CENTRALIZED CLUSTERING (single-state per cluster, no AU)]")
+    print("\n[STEP 3: CENTRALIZED CLUSTERING (single-state per cluster)]")
     centralized_clusters, centralized_assigned = build_centralized_clusters(
         unassigned_df, in_market_assigned
     )
@@ -458,10 +427,7 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
 
     # ---- FINAL SUMMARY ----
     total_new = len(in_market_clusters) + len(centralized_clusters)
-    # total_assigned = sum(len(c['customers']) for c in in_market_clusters + centralized_clusters)
-    total_assigned = 0
-    for c in in_market_clusters + centralized_clusters:
-        total_assigned += len(c['customers'])
+    total_assigned = sum(len(c['customers']) for c in in_market_clusters + centralized_clusters)
     still_unassigned = hh_df[
         (hh_df['NEW_SEGMENT'].isin([3, 4])) &
         (hh_df['RULE'] == 'POOL') &
@@ -477,17 +443,17 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
     print(f"  Customers assigned                 : {total_assigned}")
     print(f"  Still unassigned                   : {len(still_unassigned)}")
 
-    # Per-state and per-director summary
+    # Per-state summary
     print("\n  Per-state breakdown:")
     all_clusters = in_market_clusters + centralized_clusters
     state_summary = {}
     for c in all_clusters:
         s = c['state_code']
-        state_summary.setdefault(s, {'portfolios': 0, 'customers': 0, 'director': c['director']})
+        state_summary.setdefault(s, {'portfolios': 0, 'customers': 0})
         state_summary[s]['portfolios'] += 1
         state_summary[s]['customers'] += len(c['customers'])
     for state, info in sorted(state_summary.items()):
-        print(f"    {state} ({info['director']}): {info['portfolios']} portfolios, {info['customers']} customers")
+        print(f"    {state}: {info['portfolios']} portfolios, {info['customers']} customers")
 
     return hh_df, rbrm_data, portfolio_stats
 
