@@ -8,10 +8,10 @@ import builtins
 
 # ==================== CONFIGURATION ====================
 # Portfolio constraints
-RM_MIN = 270
-RM_MAX = 350
-RC_MIN = 220
-RC_MAX = 250
+RM_MIN = 300
+RM_MAX = 360
+RC_MIN = 300
+RC_MAX = 360
 
 # Radius parameters
 IN_MARKET_START_RADIUS = 20
