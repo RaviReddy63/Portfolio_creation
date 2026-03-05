@@ -103,7 +103,6 @@ def write_sheet(wb, sheet_name, df, columns, highlight_fill=None):
     """Write dataframe to worksheet with formatting."""
     ws = wb.create_sheet(title=sheet_name)
 
-    # Ensure all required columns exist
     for col in columns:
         if col not in df.columns:
             df[col] = ''
@@ -112,8 +111,11 @@ def write_sheet(wb, sheet_name, df, columns, highlight_fill=None):
 
     ws.append(columns)
     if not df.empty:
-        for row in dataframe_to_rows(df[columns], index=False, header=False):
+        for row_idx, row in enumerate(dataframe_to_rows(df[columns], index=False, header=False), start=2):
             ws.append(row)
+            for col_idx, col_name in enumerate(columns, start=1):
+                if col_name in ECN_COLS:
+                    ws.cell(row=row_idx, column=col_idx).number_format = '0'
 
     style_sheet(ws, len(df), highlight_fill)
     auto_fit_columns(ws)
