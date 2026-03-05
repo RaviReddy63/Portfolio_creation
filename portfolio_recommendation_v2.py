@@ -392,27 +392,47 @@ def update_hh_and_portfolio_structures(hh_df, rbrm_data, portfolio_stats,
 
 # ==================== STEP 5: BUILD DIRECTOR COVERAGE MAP ====================
 
-def build_new_portfolio_director_coverage(in_market_clusters, centralized_clusters):
+def build_new_portfolio_director_coverage(in_market_clusters, centralized_clusters,
+                                           branch_data):
     """
-    Build a DataFrame mapping new portfolios to their director and coverage states.
+    Build a DataFrame mapping new portfolios to their director, coverage states,
+    AU, and branch/centroid coordinates.
 
     Args:
         in_market_clusters   : list of cluster dicts from build_in_market_clusters()
         centralized_clusters : list of cluster dicts from build_centralized_clusters()
                                (includes combined-state portfolios if applicable)
+        branch_data          : DataFrame with AU, BRANCH_LAT_NUM, BRANCH_LON_NUM
 
     Returns:
         DataFrame with columns:
             CG_PORTFOLIO_CD : new portfolio code
             DIRECTOR        : director name
             COVERAGE        : comma-separated state codes (e.g. 'TX' or 'TX,OK')
+            AU              : AU number for IN MARKET, null for CENTRALIZED
+            BRANCH_LAT_NUM  : branch lat for IN MARKET, customer centroid lat for CENTRALIZED
+            BRANCH_LON_NUM  : branch lon for IN MARKET, customer centroid lon for CENTRALIZED
     """
+    # Build AU -> branch coordinates lookup
+    branch_lookup = (
+        branch_data.copy()
+        .assign(AU=lambda df: pd.to_numeric(df['AU'], errors='coerce'))
+        .assign(BRANCH_LAT_NUM=lambda df: pd.to_numeric(df['BRANCH_LAT_NUM'], errors='coerce'))
+        .assign(BRANCH_LON_NUM=lambda df: pd.to_numeric(df['BRANCH_LON_NUM'], errors='coerce'))
+        .dropna(subset=['AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM'])
+        .drop_duplicates(subset=['AU'])
+        .set_index('AU')[['BRANCH_LAT_NUM', 'BRANCH_LON_NUM']]
+        .to_dict(orient='index')
+    )
+
     rows = []
 
     for cluster in in_market_clusters + centralized_clusters:
         portfolio_cd = cluster.get('portfolio_cd')
         if portfolio_cd is None:
             continue
+
+        placement = cluster.get('placement', 'CENTRALIZED')
 
         # Resolve coverage
         coverage_val = cluster.get('coverage', None)
@@ -434,15 +454,35 @@ def build_new_portfolio_director_coverage(in_market_clusters, centralized_cluste
             if director:
                 break
 
+        # AU and coordinates
+        if placement == 'IN MARKET':
+            au = cluster.get('au', None)
+            if au and int(au) in branch_lookup:
+                branch_lat = branch_lookup[int(au)]['BRANCH_LAT_NUM']
+                branch_lon = branch_lookup[int(au)]['BRANCH_LON_NUM']
+            else:
+                # Fallback to centroid if branch not found
+                branch_lat = cluster.get('centroid_lat', np.nan)
+                branch_lon = cluster.get('centroid_lon', np.nan)
+        else:
+            # CENTRALIZED — AU is null, use customer centroid
+            au         = np.nan
+            branch_lat = cluster.get('centroid_lat', np.nan)
+            branch_lon = cluster.get('centroid_lon', np.nan)
+
         rows.append({
             'CG_PORTFOLIO_CD': portfolio_cd,
             'DIRECTOR':        director,
             'COVERAGE':        coverage_str,
+            'AU':              au,
+            'BRANCH_LAT_NUM':  branch_lat,
+            'BRANCH_LON_NUM':  branch_lon,
         })
 
     portfolio_director_coverage_df = pd.DataFrame(
         rows,
-        columns=['CG_PORTFOLIO_CD', 'DIRECTOR', 'COVERAGE']
+        columns=['CG_PORTFOLIO_CD', 'DIRECTOR', 'COVERAGE',
+                 'AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM']
     )
 
     print(f"New portfolio director-coverage map: {len(portfolio_director_coverage_df)} portfolios")
@@ -479,7 +519,8 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
 
     if len(unassigned_df) == 0:
         print("No unassigned customers found. Exiting.")
-        empty_df = pd.DataFrame(columns=['CG_PORTFOLIO_CD', 'DIRECTOR', 'COVERAGE'])
+        empty_df = pd.DataFrame(columns=['CG_PORTFOLIO_CD', 'DIRECTOR', 'COVERAGE',
+                                          'AU', 'BRANCH_LAT_NUM', 'BRANCH_LON_NUM'])
         return hh_df, rbrm_data, portfolio_stats, empty_df
 
     unassigned_df['STATE_CODE'] = unassigned_df['BILLINGSTATE'].apply(convert_state_to_code)
@@ -523,7 +564,7 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
     # ---- STEP 5: BUILD DIRECTOR COVERAGE MAP ----
     print("\n[STEP 5: BUILDING DIRECTOR-COVERAGE MAP]")
     portfolio_director_coverage_df = build_new_portfolio_director_coverage(
-        in_market_clusters, centralized_clusters
+        in_market_clusters, centralized_clusters, branch_data
     )
 
     # ---- FINAL SUMMARY ----
