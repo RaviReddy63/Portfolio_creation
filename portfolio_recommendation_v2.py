@@ -458,6 +458,82 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
     return hh_df, rbrm_data, portfolio_stats
 
 
+def build_new_portfolio_director_coverage(in_market_clusters, centralized_clusters):
+    """
+    Build a DataFrame mapping new portfolios to their director and coverage states.
+
+    Args:
+        in_market_clusters   : list of cluster dicts from build_in_market_clusters()
+        centralized_clusters : list of cluster dicts from build_centralized_clusters()
+                               (includes combined-state portfolios from
+                                combine_neighboring_state_leftovers())
+
+    Returns:
+        DataFrame with columns:
+            CG_PORTFOLIO_CD : new portfolio code (e.g. P12345, PC1, PC2)
+            DIRECTOR        : director name derived from coverage states
+            COVERAGE        : comma-separated state codes (e.g. 'TX' or 'TX,OK')
+    """
+    rows = []
+
+    all_clusters = in_market_clusters + centralized_clusters
+
+    for cluster in all_clusters:
+        portfolio_cd = cluster.get('portfolio_cd')
+        if portfolio_cd is None:
+            continue
+
+        # COVERAGE — single state or combined (e.g. 'TX,OK')
+        # Combined-state portfolios from neighboring_state_combination.py
+        # store coverage as a set or comma-separated string in 'coverage'
+        if 'coverage' in cluster and cluster['coverage']:
+            coverage_val = cluster['coverage']
+            if isinstance(coverage_val, set):
+                coverage_states = sorted(coverage_val)
+            else:
+                # Already a comma-separated string
+                coverage_states = sorted([s.strip() for s in str(coverage_val).split(',')])
+        else:
+            # Single state from state_code
+            state_code = cluster.get('state_code', None)
+            coverage_states = [state_code] if state_code else []
+
+        coverage_str = ','.join(coverage_states)
+
+        # DIRECTOR — infer from coverage states
+        # If multiple states, all should belong to same director
+        director = None
+        for state in coverage_states:
+            director = STATE_TO_DIRECTOR.get(state, None)
+            if director:
+                break
+
+        rows.append({
+            'CG_PORTFOLIO_CD': portfolio_cd,
+            'DIRECTOR':        director,
+            'COVERAGE':        coverage_str,
+        })
+
+    portfolio_director_coverage_df = pd.DataFrame(
+        rows,
+        columns=['CG_PORTFOLIO_CD', 'DIRECTOR', 'COVERAGE']
+    )
+
+    print(f"New portfolio director-coverage map: {len(portfolio_director_coverage_df)} portfolios")
+    return portfolio_director_coverage_df
+
+
+# ==================== INTEGRATION ====================
+#
+# Call this after create_new_portfolios() and combine_neighboring_state_leftovers():
+#
+# portfolio_director_coverage_df = build_new_portfolio_director_coverage(
+#     in_market_clusters=in_market_clusters,
+#     centralized_clusters=centralized_clusters   # includes combined-state clusters
+# )
+#
+# portfolio_director_coverage_df.head()
+
 # ==================== USAGE ====================
 
 # After running run_portfolio_reconstruction(), call this:
