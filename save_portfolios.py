@@ -36,7 +36,7 @@ REMOVED_COLS = [
     'EMPLOYEE_NAME', 'MANAGER_NAME', 'DIRECTOR_NAME',
     'PORT_CODE', 'CG_ECN', 'CG_NAME', 'CG_BILLINGSTATE',
     'RC_ECN', 'RC_NAME', 'RC_BILLINGSTATE',
-    'SEGMENT', 'RC_ECN_TAG', 'RETAINED/REMOVED'
+    'SEGMENT', 'RC_ECN_TAG', 'RETAINED/REMOVED', 'DESTINATION'
 ]
 
 # ECN columns to format as integers
@@ -199,10 +199,27 @@ def build_added_sheet_df(future_df, port_code, added_ecns):
     return df[df['RC_ECN'].isin(added_ecns)].copy()
 
 
-def build_removed_sheet_df(current_df, port_code, removed_ecns):
+def build_removed_sheet_df(current_df, future_df, port_code, removed_ecns):
     df = current_df[current_df['PORT_CODE'] == port_code].copy()
     df = df[df['RC_ECN'].isin(removed_ecns)].copy()
     df['RETAINED/REMOVED'] = 'REMOVED'
+
+    # Build lookup: RC_ECN -> PORT_CODE from future data excluding current port_code
+    future_lookup = (
+        future_df[future_df['PORT_CODE'] != port_code]
+        .dropna(subset=['RC_ECN'])
+        .drop_duplicates(subset=['RC_ECN'])
+        .set_index('RC_ECN')['PORT_CODE']
+        .to_dict()
+    )
+
+    def get_destination(rc_ecn):
+        future_port = future_lookup.get(rc_ecn, None)
+        if future_port:
+            return f'Moved to port code - {future_port}'
+        return 'Dropped or Moved to SBB'
+
+    df['DESTINATION'] = df['RC_ECN'].apply(get_destination)
     return df
 
 
@@ -244,10 +261,7 @@ def generate_portfolio_excels(current_portfolio_data, new_portfolio_data, portfo
     if 'RELATED_ECN' in new_portfolio_data.columns:
         new_portfolio_data = new_portfolio_data.rename(columns={'RELATED_ECN': 'RC_ECN'})
 
-    # ---- Accumulate aggregated data ----
-    # director_name -> {curr_rows, fut_rows, added_rows, removed_rows}
     director_agg = {}
-    # (director_name, manager_name) -> {curr_rows, fut_rows, added_rows, removed_rows}
     manager_agg  = {}
 
     all_port_codes = portfolio_data['PORT_CODE'].dropna().unique()
@@ -273,7 +287,8 @@ def generate_portfolio_excels(current_portfolio_data, new_portfolio_data, portfo
         fut_df     = build_future_sheet_df(new_portfolio_data, port_code,
                                             retained_ecns, added_ecns)
         added_df   = build_added_sheet_df(new_portfolio_data, port_code, added_ecns)
-        removed_df = build_removed_sheet_df(current_portfolio_data, port_code, removed_ecns)
+        removed_df = build_removed_sheet_df(current_portfolio_data, new_portfolio_data,
+                                             port_code, removed_ecns)
 
         # ---- Write banker-level file ----
         folder = os.path.join(OUTPUT_DIR, director_name, manager_name, employee_name)
@@ -288,9 +303,7 @@ def generate_portfolio_excels(current_portfolio_data, new_portfolio_data, portfo
         # ---- Accumulate for manager aggregation ----
         mgr_key = (director_name, manager_name)
         if mgr_key not in manager_agg:
-            manager_agg[mgr_key] = {
-                'curr': [], 'fut': [], 'added': [], 'removed': []
-            }
+            manager_agg[mgr_key] = {'curr': [], 'fut': [], 'added': [], 'removed': []}
         manager_agg[mgr_key]['curr'].append(curr_df)
         manager_agg[mgr_key]['fut'].append(fut_df)
         manager_agg[mgr_key]['added'].append(added_df)
@@ -298,9 +311,7 @@ def generate_portfolio_excels(current_portfolio_data, new_portfolio_data, portfo
 
         # ---- Accumulate for director aggregation ----
         if director_name not in director_agg:
-            director_agg[director_name] = {
-                'curr': [], 'fut': [], 'added': [], 'removed': []
-            }
+            director_agg[director_name] = {'curr': [], 'fut': [], 'added': [], 'removed': []}
         director_agg[director_name]['curr'].append(curr_df)
         director_agg[director_name]['fut'].append(fut_df)
         director_agg[director_name]['added'].append(added_df)
