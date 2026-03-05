@@ -143,8 +143,11 @@ def build_in_market_clusters(unassigned_df, max_radius=IN_MARKET_MAX_RADIUS):
                 print(f"      IN MARKET cluster formed: {len(best_cluster['customers'])} customers, "
                       f"radius={best_cluster['radius_used']}mi, state={state_code}")
 
+    total_in_market_assigned = 0
+    for c in clusters:
+        total_in_market_assigned += len(c['customers'])
     print(f"\n  Formed {len(clusters)} IN MARKET clusters")
-    print(f"  Customers assigned: {sum(len(c['customers']) for c in clusters)}")
+    print(f"  Customers assigned: {total_in_market_assigned}")
     print(f"  Customers remaining: {len(working_df) - len(all_assigned_indices)}")
 
     return clusters, all_assigned_indices
@@ -299,8 +302,11 @@ def build_centralized_clusters(unassigned_df, assigned_in_market_indices):
             print(f"      CENTRALIZED cluster {portfolio_cd}: {len(cluster_indices)} customers, "
                   f"state={state_code}")
 
+    total_centralized_assigned = 0
+    for c in clusters:
+        total_centralized_assigned += len(c['customers'])
     print(f"\n  Formed {len(clusters)} CENTRALIZED clusters")
-    print(f"  Customers assigned: {sum(len(c['customers']) for c in clusters)}")
+    print(f"  Customers assigned: {total_centralized_assigned}")
 
     return clusters, all_assigned_indices
 
@@ -569,7 +575,9 @@ def create_new_portfolios(hh_df, branch_data, rbrm_data, portfolio_stats, used_a
 
     # ---- FINAL SUMMARY ----
     total_new      = len(in_market_clusters) + len(centralized_clusters)
-    total_assigned = sum(len(c['customers']) for c in in_market_clusters + centralized_clusters)
+    total_assigned = 0
+    for c in in_market_clusters + centralized_clusters:
+        total_assigned += len(c['customers'])
     still_unassigned = hh_df[
         (hh_df['NEW_SEGMENT'].isin([3, 4])) &
         (hh_df['RULE'] == 'POOL') &
