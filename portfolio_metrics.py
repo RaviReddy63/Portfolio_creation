@@ -50,26 +50,24 @@ def generate_portfolio_metrics(current_portfolio_data, new_portfolio_data):
         # ---- Future ECN pool (HH_ECN + RC_ECN combined) for retention check ----
         future_ecn_pool = set(hh_ecns) | set(hh_rc_ecns)
 
-        # ---- PERCENTAGE_CG_ECN_RETAINED ----
-        # CG_ECNs from current found in future as either HH_ECN or RC_ECN
-        cg_ecns_retained = sum(1 for e in cg_ecns if e in future_ecn_pool)
-        pct_cg_retained  = round(cg_ecns_retained / cg_count * 100, 2) if cg_count > 0 else 0.0
 
+        # ---- PERCENTAGE_CG_ECN_RETAINED ----
+        cg_ecns_retained = len(set(cg_ecns) & future_ecn_pool)
+        pct_cg_retained  = round(cg_ecns_retained / cg_count * 100, 2) if cg_count > 0 else 0.0
+        
         # ---- PERCENTAGE_CG_RC_ECN_RETAINED ----
-        # RC_ECNs from current found in future as either HH_ECN or RC_ECN
-        cg_rc_ecns_retained = sum(1 for e in cg_rc_ecns if e in future_ecn_pool)
+        cg_rc_ecns_retained = len(set(cg_rc_ecns) & future_ecn_pool)
         pct_cg_rc_retained  = round(cg_rc_ecns_retained / cg_rc_count * 100, 2) if cg_rc_count > 0 else 0.0
+        
 
         # ---- Current ECN pool (CG_ECN + RC_ECN combined) for new count check ----
         current_ecn_pool = set(cg_ecns) | set(cg_rc_ecns)
-
+        
         # ---- NEW_HH_ECN_COUNT ----
-        # HH_ECNs in future not present in current as CG_ECN or RC_ECN
-        new_hh_ecn_count = sum(1 for e in hh_ecns if e not in current_ecn_pool)
-
+        new_hh_ecn_count = len(set(hh_ecns) - current_ecn_pool)
+        
         # ---- NEW_HH_RC_ECN_COUNT ----
-        # RC_ECNs in future not present in current as CG_ECN or RC_ECN
-        new_hh_rc_ecn_count = sum(1 for e in hh_rc_ecns if e not in current_ecn_pool)
+        new_hh_rc_ecn_count = len(set(hh_rc_ecns) - current_ecn_pool)
 
         rows.append({
             'CG_PORTFOLIO_CD'              : port_code,
