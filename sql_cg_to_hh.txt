@@ -1,140 +1,192 @@
 WITH
 
 -- =============================================
--- STEP 1: For each CG_ECN, find all future 
--- PROM_LEAD_ECNs its RC_ECNs mapped to
+-- STEP 1: For each CG_ECN, find all future
+-- PROM_LEAD_ECNs its ACC_ECNs mapped to,
+-- and count how many matched
 -- =============================================
 cg_to_future_hh AS (
     SELECT
         r.CG_ECN,
         b.PROM_LEAD_ECN,
-        COUNT(DISTINCT r.RC_ECN)                        AS matched_rc_count
+        COUNT(DISTINCT r.ACC_ECN)                           AS matched_acc_count
     FROM RM_ECN_RC_ECN_DATA r
-    JOIN base_table b
-        ON r.RC_ECN = b.ECN
+    JOIN Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2 b
+        ON r.ACC_ECN = b.ECN
     GROUP BY r.CG_ECN, b.PROM_LEAD_ECN
 ),
 
 -- =============================================
--- STEP 2: Total RC_ECNs per CG_ECN in current
+-- STEP 2: Total ACC_ECNs per CG_ECN in current
 -- =============================================
-cg_rc_counts AS (
+cg_acc_counts AS (
     SELECT
         CG_ECN,
-        COUNT(DISTINCT RC_ECN)                          AS total_rc_count
+        COUNT(DISTINCT ACC_ECN)                             AS total_acc_count
     FROM RM_ECN_RC_ECN_DATA
     GROUP BY CG_ECN
 ),
 
 -- =============================================
--- STEP 3: How many future households each 
--- CG_ECN maps to
+-- STEP 3: Total ECNs per future HH
+-- =============================================
+hh_ecn_counts AS (
+    SELECT
+        PROM_LEAD_ECN,
+        COUNT(DISTINCT ECN)                                 AS total_future_ecn_count
+    FROM Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2
+    GROUP BY PROM_LEAD_ECN
+),
+
+-- =============================================
+-- STEP 4: For each CG_ECN, aggregate:
+--   - how many future HHs it maps to
+--   - total ACC_ECNs matched across all future HHs
+--   - total ECNs in those future HHs (to detect additions)
 -- =============================================
 cg_hh_mapping AS (
     SELECT
         c.CG_ECN,
-        c.total_rc_count,
-        COUNT(DISTINCT f.PROM_LEAD_ECN)                 AS future_hh_count,
-        SUM(f.matched_rc_count)                         AS total_matched_rc_count
-    FROM cg_rc_counts c
+        c.total_acc_count,
+        COUNT(DISTINCT f.PROM_LEAD_ECN)                     AS future_hh_count,
+        SUM(f.matched_acc_count)                            AS total_matched_acc_count,
+        -- Sum of all ECNs in the mapped future HHs
+        -- If > total_acc_count, there are additions
+        SUM(h.total_future_ecn_count)                       AS total_future_ecn_count
+    FROM cg_acc_counts c
     LEFT JOIN cg_to_future_hh f
         ON c.CG_ECN = f.CG_ECN
-    GROUP BY c.CG_ECN, c.total_rc_count
+    LEFT JOIN hh_ecn_counts h
+        ON f.PROM_LEAD_ECN = h.PROM_LEAD_ECN
+    GROUP BY c.CG_ECN, c.total_acc_count
 ),
 
 -- =============================================
--- STEP 4: Classify each CG_ECN
+-- STEP 5: Classify each CG_ECN into one of
+-- 9 mutually exclusive categories
 -- =============================================
 cg_classified AS (
     SELECT
         CG_ECN,
-        total_rc_count,
+        total_acc_count,
         future_hh_count,
-        total_matched_rc_count,
+        total_matched_acc_count,
+        total_future_ecn_count,
+
+        -- Flags
+        CASE WHEN total_matched_acc_count < total_acc_count
+             THEN 1 ELSE 0 END                              AS has_removals,
+
+        CASE WHEN total_future_ecn_count > total_matched_acc_count
+             THEN 1 ELSE 0 END                              AS has_additions,
+
         CASE
-            -- No match anywhere in future
-            WHEN future_hh_count IS NULL OR future_hh_count = 0
+            -- ── DROPPED ─────────────────────────────────
+            WHEN future_hh_count IS NULL
+              OR future_hh_count = 0
                 THEN 'DROPPED'
-            -- Maps to exactly one HH, all RC_ECNs retained
+
+            -- ── ONE TO ONE ───────────────────────────────
             WHEN future_hh_count = 1
-             AND total_matched_rc_count = total_rc_count
+             AND total_matched_acc_count = total_acc_count  -- no removals
+             AND total_future_ecn_count  = total_acc_count  -- no additions
                 THEN 'ONE_TO_ONE_UNCHANGED'
-            -- Maps to exactly one HH, some RC_ECNs removed
+
             WHEN future_hh_count = 1
-             AND total_matched_rc_count < total_rc_count
+             AND total_matched_acc_count = total_acc_count  -- no removals
+             AND total_future_ecn_count  > total_acc_count  -- additions exist
+                THEN 'ONE_TO_ONE_WITH_ADDITIONS'
+
+            WHEN future_hh_count = 1
+             AND total_matched_acc_count < total_acc_count  -- removals exist
+             AND total_future_ecn_count  = total_matched_acc_count  -- no additions
                 THEN 'ONE_TO_ONE_WITH_REMOVALS'
-            -- Maps to multiple HHs, all RC_ECNs retained
+
+            WHEN future_hh_count = 1
+             AND total_matched_acc_count < total_acc_count  -- removals exist
+             AND total_future_ecn_count  > total_matched_acc_count  -- additions exist
+                THEN 'ONE_TO_ONE_WITH_BOTH'
+
+            -- ── ONE TO MANY ──────────────────────────────
             WHEN future_hh_count > 1
-             AND total_matched_rc_count = total_rc_count
+             AND total_matched_acc_count = total_acc_count  -- no removals
+             AND total_future_ecn_count  = total_acc_count  -- no additions
                 THEN 'ONE_TO_MANY_UNCHANGED'
-            -- Maps to multiple HHs, some RC_ECNs removed
+
             WHEN future_hh_count > 1
-             AND total_matched_rc_count < total_rc_count
+             AND total_matched_acc_count = total_acc_count  -- no removals
+             AND total_future_ecn_count  > total_acc_count  -- additions exist
+                THEN 'ONE_TO_MANY_WITH_ADDITIONS'
+
+            WHEN future_hh_count > 1
+             AND total_matched_acc_count < total_acc_count  -- removals exist
+             AND total_future_ecn_count  = total_matched_acc_count  -- no additions
                 THEN 'ONE_TO_MANY_WITH_REMOVALS'
-        END                                             AS cg_status
+
+            WHEN future_hh_count > 1
+             AND total_matched_acc_count < total_acc_count  -- removals exist
+             AND total_future_ecn_count  > total_matched_acc_count  -- additions exist
+                THEN 'ONE_TO_MANY_WITH_BOTH'
+
+            ELSE 'UNCLASSIFIED'
+        END                                                 AS cg_status
+
     FROM cg_hh_mapping
 ),
 
 -- =============================================
--- STEP 5: For each future HH, find how many
--- distinct CG_ECNs contributed to it
+-- STEP 6: Summary by category
 -- =============================================
-hh_source_cg AS (
+summary AS (
     SELECT
-        b.PROM_LEAD_ECN,
-        COUNT(DISTINCT r.CG_ECN)                        AS source_cg_count,
-        COUNT(DISTINCT b.ECN)                           AS total_ecn_count
-    FROM base_table b
-    LEFT JOIN RM_ECN_RC_ECN_DATA r
-        ON b.ECN = r.RC_ECN
-    GROUP BY b.PROM_LEAD_ECN
-),
-
--- =============================================
--- STEP 6: Classify each future household
--- =============================================
-hh_classified AS (
-    SELECT
-        PROM_LEAD_ECN,
-        source_cg_count,
-        total_ecn_count,
-        CASE
-            WHEN source_cg_count = 0 OR source_cg_count IS NULL
-                THEN 'ENTIRELY_NEW'
-            WHEN source_cg_count = 1
-                THEN 'FROM_SINGLE_CG'
-            WHEN source_cg_count > 1
-                THEN 'MERGED_FROM_MULTIPLE_CGS'
-        END                                             AS hh_status
-    FROM hh_source_cg
+        cg_status,
+        COUNT(DISTINCT CG_ECN)                              AS cg_count,
+        SUM(total_acc_count)                                AS total_acc_ecns,
+        SUM(total_matched_acc_count)                        AS retained_acc_ecns,
+        SUM(total_acc_count)
+            - SUM(total_matched_acc_count)                  AS dropped_acc_ecns,
+        SUM(total_future_ecn_count)
+            - SUM(total_matched_acc_count)                  AS added_ecns
+    FROM cg_classified
+    GROUP BY cg_status
 )
 
 -- =============================================
--- FINAL OUTPUT 1: CG_ECN level summary
+-- FINAL OUTPUT: All 9 categories + total row
 -- =============================================
 SELECT
-    'CG ANALYSIS'                                       AS analysis_type,
-    cg_status                                           AS status,
-    COUNT(DISTINCT CG_ECN)                              AS cg_count,
-    SUM(total_rc_count)                                 AS total_rc_ecns,
-    SUM(total_matched_rc_count)                         AS retained_rc_ecns,
-    SUM(total_rc_count) - SUM(total_matched_rc_count)  AS dropped_rc_ecns
-FROM cg_classified
-GROUP BY cg_status
+    cg_status,
+    cg_count,
+    total_acc_ecns,
+    retained_acc_ecns,
+    dropped_acc_ecns,
+    added_ecns
+FROM summary
 
 UNION ALL
 
--- =============================================
--- FINAL OUTPUT 2: Future HH level summary
--- =============================================
 SELECT
-    'HH ANALYSIS'                                       AS analysis_type,
-    hh_status                                           AS status,
-    COUNT(DISTINCT PROM_LEAD_ECN)                       AS cg_count,
-    SUM(total_ecn_count)                                AS total_rc_ecns,
-    NULL                                                AS retained_rc_ecns,
-    NULL                                                AS dropped_rc_ecns
-FROM hh_classified
-GROUP BY hh_status
+    'TOTAL'                                                 AS cg_status,
+    COUNT(DISTINCT CG_ECN)                                  AS cg_count,
+    SUM(total_acc_count)                                    AS total_acc_ecns,
+    SUM(total_matched_acc_count)                            AS retained_acc_ecns,
+    SUM(total_acc_count)
+        - SUM(total_matched_acc_count)                      AS dropped_acc_ecns,
+    SUM(total_future_ecn_count)
+        - SUM(total_matched_acc_count)                      AS added_ecns
+FROM cg_classified
 
-ORDER BY analysis_type, status
+ORDER BY
+    CASE cg_status
+        WHEN 'ONE_TO_ONE_UNCHANGED'         THEN 1
+        WHEN 'ONE_TO_ONE_WITH_ADDITIONS'    THEN 2
+        WHEN 'ONE_TO_ONE_WITH_REMOVALS'     THEN 3
+        WHEN 'ONE_TO_ONE_WITH_BOTH'         THEN 4
+        WHEN 'ONE_TO_MANY_UNCHANGED'        THEN 5
+        WHEN 'ONE_TO_MANY_WITH_ADDITIONS'   THEN 6
+        WHEN 'ONE_TO_MANY_WITH_REMOVALS'    THEN 7
+        WHEN 'ONE_TO_MANY_WITH_BOTH'        THEN 8
+        WHEN 'DROPPED'                      THEN 9
+        WHEN 'TOTAL'                        THEN 10
+        ELSE 11
+    END;
