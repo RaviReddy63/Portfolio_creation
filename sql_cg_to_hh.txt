@@ -154,28 +154,30 @@ summary AS (
 -- =============================================
 -- FINAL OUTPUT: All 9 categories + total row
 -- =============================================
-SELECT
-    cg_status,
-    cg_count,
-    total_acc_ecns,
-    retained_acc_ecns,
-    dropped_acc_ecns,
-    added_ecns
-FROM summary
+SELECT *
+FROM (
+    SELECT
+        cg_status,
+        cg_count,
+        total_acc_ecns,
+        retained_acc_ecns,
+        dropped_acc_ecns,
+        added_ecns
+    FROM summary
 
-UNION ALL
+    UNION ALL
 
-SELECT
-    'TOTAL'                                                 AS cg_status,
-    COUNT(DISTINCT CG_ECN)                                  AS cg_count,
-    SUM(total_acc_count)                                    AS total_acc_ecns,
-    SUM(total_matched_acc_count)                            AS retained_acc_ecns,
-    SUM(total_acc_count)
-        - SUM(total_matched_acc_count)                      AS dropped_acc_ecns,
-    SUM(total_future_ecn_count)
-        - SUM(total_matched_acc_count)                      AS added_ecns
-FROM cg_classified
-
+    SELECT
+        'TOTAL'                                             AS cg_status,
+        COUNT(DISTINCT CG_ECN)                             AS cg_count,
+        SUM(total_acc_count)                               AS total_acc_ecns,
+        SUM(total_matched_acc_count)                       AS retained_acc_ecns,
+        SUM(total_acc_count)
+            - SUM(total_matched_acc_count)                 AS dropped_acc_ecns,
+        SUM(total_future_ecn_count)
+            - SUM(total_matched_acc_count)                 AS added_ecns
+    FROM cg_classified
+)
 ORDER BY
     CASE cg_status
         WHEN 'ONE_TO_ONE_UNCHANGED'         THEN 1
