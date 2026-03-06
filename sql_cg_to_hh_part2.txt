@@ -1,0 +1,196 @@
+WITH
+
+-- =============================================
+-- STEP 1: Distinct CGs in current
+-- =============================================
+cg_universe AS (
+    SELECT DISTINCT CG_ECN
+    FROM RM_ECN_RC_ECN_DATA
+),
+
+-- =============================================
+-- STEP 2: Distinct future HHs with segment
+-- Segment derived from row where PROM_LEAD_ECN = ECN
+-- =============================================
+hh_universe AS (
+    SELECT
+        b.PROM_LEAD_ECN,
+        b.prom_seg_raw                              AS hh_segment
+    FROM Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2 b
+    WHERE b.PROM_LEAD_ECN = b.ECN
+),
+
+-- =============================================
+-- STEP 3: Future HHs that have at least one
+-- ECN matching an ACC_ECN in current table
+-- These are "mapped" HHs
+-- =============================================
+mapped_hhs AS (
+    SELECT DISTINCT b.PROM_LEAD_ECN
+    FROM Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2 b
+    JOIN RM_ECN_RC_ECN_DATA r
+        ON b.ECN = r.ACC_ECN
+),
+
+-- =============================================
+-- STEP 4: CGs that have at least one ACC_ECN
+-- matching a future ECN — "mapped" CGs
+-- =============================================
+mapped_cgs AS (
+    SELECT DISTINCT r.CG_ECN
+    FROM RM_ECN_RC_ECN_DATA r
+    JOIN Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2 b
+        ON r.ACC_ECN = b.ECN
+),
+
+-- =============================================
+-- STEP 5: Future HHs with segment and
+-- mapped/unmapped flag
+-- =============================================
+hh_classified AS (
+    SELECT
+        h.PROM_LEAD_ECN,
+        h.hh_segment,
+        CASE WHEN m.PROM_LEAD_ECN IS NOT NULL
+             THEN 'MAPPED' ELSE 'UNMAPPED'
+        END                                         AS mapping_status
+    FROM hh_universe h
+    LEFT JOIN mapped_hhs m
+        ON h.PROM_LEAD_ECN = m.PROM_LEAD_ECN
+),
+
+-- =============================================
+-- STEP 6: CG to HH mapping cardinality
+-- How many future HHs does each CG map to
+-- =============================================
+cg_hh_cardinality AS (
+    SELECT
+        r.CG_ECN,
+        COUNT(DISTINCT b.PROM_LEAD_ECN)             AS mapped_hh_count
+    FROM RM_ECN_RC_ECN_DATA r
+    JOIN Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2 b
+        ON r.ACC_ECN = b.ECN
+    GROUP BY r.CG_ECN
+)
+
+-- =============================================
+-- FINAL OUTPUT: All metrics as rows
+-- =============================================
+SELECT '1. Total CGs in current'                                AS metric,
+       COUNT(*)                                                 AS value
+FROM cg_universe
+
+UNION ALL
+
+SELECT '2. Total HHs in future',
+       COUNT(*)
+FROM hh_universe
+
+UNION ALL
+
+SELECT '3. Total HHs mapped to a current CG',
+       COUNT(*)
+FROM hh_classified
+WHERE mapping_status = 'MAPPED'
+
+UNION ALL
+
+SELECT '4. Total HHs NOT mapped to any current CG',
+       COUNT(*)
+FROM hh_classified
+WHERE mapping_status = 'UNMAPPED'
+
+UNION ALL
+
+SELECT '5. Seg 3 HHs NOT mapped to any current CG',
+       COUNT(*)
+FROM hh_classified
+WHERE mapping_status = 'UNMAPPED'
+  AND hh_segment     = 3
+
+UNION ALL
+
+SELECT '6. Seg 4 HHs NOT mapped to any current CG',
+       COUNT(*)
+FROM hh_classified
+WHERE mapping_status = 'UNMAPPED'
+  AND hh_segment     = 4
+
+UNION ALL
+
+SELECT '7. Total CGs mapped to at least one future HH',
+       COUNT(*)
+FROM mapped_cgs
+
+UNION ALL
+
+SELECT '8. Total CGs with NO mapping to any future HH (dropped)',
+       COUNT(*)
+FROM cg_universe c
+WHERE NOT EXISTS (
+    SELECT 1 FROM mapped_cgs m WHERE m.CG_ECN = c.CG_ECN
+)
+
+UNION ALL
+
+SELECT '9. Total ACC_ECNs in current',
+       COUNT(DISTINCT ACC_ECN)
+FROM RM_ECN_RC_ECN_DATA
+
+UNION ALL
+
+SELECT '10. Total ECNs in future',
+        COUNT(DISTINCT ECN)
+FROM Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2
+
+UNION ALL
+
+SELECT '11. CGs mapping to exactly one future HH',
+       COUNT(*)
+FROM cg_hh_cardinality
+WHERE mapped_hh_count = 1
+
+UNION ALL
+
+SELECT '12. CGs mapping to more than one future HH (split)',
+       COUNT(*)
+FROM cg_hh_cardinality
+WHERE mapped_hh_count > 1
+
+UNION ALL
+
+SELECT '13. Avg future HHs per mapped CG',
+       ROUND(AVG(mapped_hh_count), 2)
+FROM cg_hh_cardinality
+
+UNION ALL
+
+SELECT '14. Seg 3 HHs mapped to a current CG',
+       COUNT(*)
+FROM hh_classified
+WHERE mapping_status = 'MAPPED'
+  AND hh_segment     = 3
+
+UNION ALL
+
+SELECT '15. Seg 4 HHs mapped to a current CG',
+       COUNT(*)
+FROM hh_classified
+WHERE mapping_status = 'MAPPED'
+  AND hh_segment     = 4
+
+UNION ALL
+
+SELECT '16. Total Seg 3 HHs in future',
+       COUNT(*)
+FROM hh_classified
+WHERE hh_segment = 3
+
+UNION ALL
+
+SELECT '17. Total Seg 4 HHs in future',
+       COUNT(*)
+FROM hh_classified
+WHERE hh_segment = 4
+
+ORDER BY metric;
