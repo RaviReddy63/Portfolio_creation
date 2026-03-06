@@ -76,33 +76,33 @@ cg_hh_cardinality AS (
 -- =============================================
 -- FINAL OUTPUT: All metrics as rows
 -- =============================================
-SELECT '1. Total CGs in current'                                AS metric,
+SELECT '1. Total CGs in current'                                AS metric_name,
        COUNT(*)                                                 AS value
 FROM cg_universe
 
 UNION ALL
 
-SELECT '2. Total HHs in future',
+SELECT '2. Total HHs in future' AS metric_name,
        COUNT(*)
 FROM hh_universe
 
 UNION ALL
 
-SELECT '3. Total HHs mapped to a current CG',
+SELECT '3. Total HHs mapped to a current CG' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE mapping_status = 'MAPPED'
 
 UNION ALL
 
-SELECT '4. Total HHs NOT mapped to any current CG',
+SELECT '4. Total HHs NOT mapped to any current CG' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE mapping_status = 'UNMAPPED'
 
 UNION ALL
 
-SELECT '5. Seg 3 HHs NOT mapped to any current CG',
+SELECT '5. Seg 3 HHs NOT mapped to any current CG' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE mapping_status = 'UNMAPPED'
@@ -110,7 +110,7 @@ WHERE mapping_status = 'UNMAPPED'
 
 UNION ALL
 
-SELECT '6. Seg 4 HHs NOT mapped to any current CG',
+SELECT '6. Seg 4 HHs NOT mapped to any current CG' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE mapping_status = 'UNMAPPED'
@@ -118,13 +118,13 @@ WHERE mapping_status = 'UNMAPPED'
 
 UNION ALL
 
-SELECT '7. Total CGs mapped to at least one future HH',
+SELECT '7. Total CGs mapped to at least one future HH' AS metric_name,
        COUNT(*)
 FROM mapped_cgs
 
 UNION ALL
 
-SELECT '8. Total CGs with NO mapping to any future HH (dropped)',
+SELECT '8. Total CGs with NO mapping to any future HH (dropped)' AS metric_name,
        COUNT(*)
 FROM cg_universe c
 WHERE NOT EXISTS (
@@ -133,39 +133,39 @@ WHERE NOT EXISTS (
 
 UNION ALL
 
-SELECT '9. Total ACC_ECNs in current',
+SELECT '9. Total ACC_ECNs in current' AS metric_name,
        COUNT(DISTINCT ACC_ECN)
 FROM RM_ECN_RC_ECN_DATA
 
 UNION ALL
 
-SELECT '10. Total ECNs in future',
+SELECT '10. Total ECNs in future' AS metric_name,
         COUNT(DISTINCT ECN)
 FROM Q1_MOVE_BASE_PROM_ID_BASE_ECNS_NEW_V2
 
 UNION ALL
 
-SELECT '11. CGs mapping to exactly one future HH',
+SELECT '11. CGs mapping to exactly one future HH' AS metric_name,
        COUNT(*)
 FROM cg_hh_cardinality
 WHERE mapped_hh_count = 1
 
 UNION ALL
 
-SELECT '12. CGs mapping to more than one future HH (split)',
+SELECT '12. CGs mapping to more than one future HH (split)' AS metric_name,
        COUNT(*)
 FROM cg_hh_cardinality
 WHERE mapped_hh_count > 1
 
 UNION ALL
 
-SELECT '13. Avg future HHs per mapped CG',
+SELECT '13. Avg future HHs per mapped CG' AS metric_name,
        ROUND(AVG(mapped_hh_count), 2)
 FROM cg_hh_cardinality
 
 UNION ALL
 
-SELECT '14. Seg 3 HHs mapped to a current CG',
+SELECT '14. Seg 3 HHs mapped to a current CG' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE mapping_status = 'MAPPED'
@@ -173,7 +173,7 @@ WHERE mapping_status = 'MAPPED'
 
 UNION ALL
 
-SELECT '15. Seg 4 HHs mapped to a current CG',
+SELECT '15. Seg 4 HHs mapped to a current CG' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE mapping_status = 'MAPPED'
@@ -181,16 +181,16 @@ WHERE mapping_status = 'MAPPED'
 
 UNION ALL
 
-SELECT '16. Total Seg 3 HHs in future',
+SELECT '16. Total Seg 3 HHs in future' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE hh_segment = 3
 
 UNION ALL
 
-SELECT '17. Total Seg 4 HHs in future',
+SELECT '17. Total Seg 4 HHs in future' AS metric_name,
        COUNT(*)
 FROM hh_classified
 WHERE hh_segment = 4
 
-ORDER BY metric;
+ORDER BY metric_name;
