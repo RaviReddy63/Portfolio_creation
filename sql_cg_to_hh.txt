@@ -192,3 +192,6 @@ ORDER BY
         WHEN 'TOTAL'                        THEN 10
         ELSE 11
     END;
+
+
+StatusDescriptionONE_TO_ONE_UNCHANGEDCG maps to exactly one future HH, and the member set is identical — no one added, no one removedONE_TO_ONE_WITH_ADDITIONSCG maps to exactly one future HH, all current members are retained, but new ECNs have been added to that HHONE_TO_ONE_WITH_REMOVALSCG maps to exactly one future HH, but some current ACC_ECNs were dropped and no new members were addedONE_TO_ONE_WITH_BOTHCG maps to exactly one future HH, some current ACC_ECNs were dropped AND new ECNs were addedONE_TO_MANY_UNCHANGEDCG was split across multiple future HHs, but all current ACC_ECNs are accounted for with no extra additionsONE_TO_MANY_WITH_ADDITIONSCG was split across multiple future HHs, all current members retained, but those HHs also have new ECNs addedONE_TO_MANY_WITH_REMOVALSCG was split across multiple future HHs, some current ACC_ECNs were dropped, no new additionsONE_TO_MANY_WITH_BOTHCG was split across multiple future HHs, some current ACC_ECNs were dropped AND new ECNs were addedDROPPEDNone of the CG's ACC_ECNs appear anywhere in the future table — the entire client group is lost
